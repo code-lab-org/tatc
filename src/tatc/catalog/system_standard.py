@@ -18,6 +18,7 @@ See `docs/validation/standard.rst`.
 from __future__ import annotations
 
 from collections.abc import Collection
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -31,10 +32,10 @@ from .standard import (
 if TYPE_CHECKING:
     from .system_schemas import SystemEntry
 
-SYSTEM_STANDARD_VERSION = 2
+SYSTEM_STANDARD_VERSION = 3
 """The version of the thresholds in `get_system_gates`."""
 
-COMPATIBLE_SYSTEM_VERSIONS = (2,)
+COMPATIBLE_SYSTEM_VERSIONS = (3,)
 """Versions whose results still apply."""
 
 
@@ -85,7 +86,9 @@ class SystemGrade(str, Enum):
     """
     As for the plane, with the ground track of an orbit maintained on a repeat
     ground track (or the longitude of a geostationary orbit), for where and, to
-    about a minute, when passes occur, for years.
+    about a minute, when passes occur, as tested over the weeks to months of
+    its element sets (the operator's maintenance keeps it so for longer, but
+    the tests do not show it).
     """
     SITING = "siting"
     """The positions of a network's stations, and its current membership."""
@@ -115,6 +118,10 @@ _RELATIVE_PHASE = Gate(
 _RELATIVE_NODE = Gate(
     "relative_node_error_p95", 1, True, "deg", "Relative node error (p95)"
 )
+# orbits: the element sets tested of each spacecraft, enough for a 95th
+# percentile and spanning at least a week
+_TEST_SETS = Gate("test_sets", 3, False, "", "Element sets tested")
+_TEST_SPAN = Gate("test_span_days", 7, False, "days", "Days spanned by the sets")
 _SLOT_LONGITUDE = Gate(
     "slot_longitude_error_p95", 0.1, True, "deg", "Subsatellite longitude error (p95)"
 )
@@ -138,6 +145,11 @@ _MEMBERSHIP_RECALL = Gate(
 _MEMBERSHIP_PRECISION = Gate(
     "membership_precision", 98, False, "%", "Stations of the table reporting"
 )
+# the stations of the table found in the source with which positions are
+# compared, so that errors are not of a few stations
+_MATCHED = Gate(
+    "reference_matched", 90, False, "%", "Stations compared with the reference"
+)
 
 # radars: the volume coverage pattern of a configuration compared with the
 # volumes the network's radars scanned with its patterns
@@ -154,58 +166,88 @@ _HIGHEST_TILT = Gate(
     "deg",
     "Highest elevation angle above the configuration's (p95)",
 )
+# two-sided: the highest cut that each sampled volume's pattern plans
+_PLANNED_HIGHEST_TILT = Gate(
+    "planned_max_elevation_error_p95",
+    1.0,
+    True,
+    "deg",
+    "Highest planned elevation angle error (p95)",
+)
 _RANGE = Gate("range_error_p95", 5, True, "%", "Maximum range error (p95)")
+_VOLUMES = Gate("coverage_volumes", 20, False, "", "Volumes sampled")
 
 _SITING = {
     SystemClass.RADAR_NETWORK: (
         _RADAR_HORIZONTAL,
         _RADAR_VERTICAL,
+        _MATCHED,
         _MEMBERSHIP_RECALL,
         _MEMBERSHIP_PRECISION,
     ),
     SystemClass.SURFACE_NETWORK: (
         _SURFACE_HORIZONTAL,
         _SURFACE_VERTICAL,
+        _MATCHED,
         _MEMBERSHIP_RECALL,
         _MEMBERSHIP_PRECISION,
     ),
 }
+_SAMPLES = (_TEST_SETS, _TEST_SPAN)
 
-# the gates of each class at each of its grades
-_GATES: dict[tuple[SystemClass, SystemGrade], tuple[Gate, ...]] = {
-    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.PLANE): (
-        _ALTITUDE,
-        _INCLINATION,
-        _LOCAL_TIME,
+
+@dataclass(frozen=True)
+class _Grade:
+    """
+    A grade of a class: its gates, and the type of the orbits of a satellite
+    system's configurations at it.
+    """
+
+    gates: tuple[Gate, ...]
+    orbit_type: str | None = None
+
+
+# the grades of each class
+_GRADES: dict[tuple[SystemClass, SystemGrade], _Grade] = {
+    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.PLANE): _Grade(
+        (_ALTITUDE, _INCLINATION, _LOCAL_TIME, *_SAMPLES), "sso"
     ),
-    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.GROUND_TRACK): (
-        _ALTITUDE,
-        _INCLINATION,
-        _LOCAL_TIME,
-        _NODE_LONGITUDE,
-        _NODE_TIME,
+    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.GROUND_TRACK): _Grade(
+        (
+            _ALTITUDE,
+            _INCLINATION,
+            _LOCAL_TIME,
+            _NODE_LONGITUDE,
+            _NODE_TIME,
+            *_SAMPLES,
+        ),
+        "repeat",
     ),
-    (SystemClass.INCLINED, SystemGrade.PLANE): (_ALTITUDE, _INCLINATION),
-    (SystemClass.INCLINED, SystemGrade.GROUND_TRACK): (
-        _ALTITUDE,
-        _INCLINATION,
-        _NODE_LONGITUDE,
-        _NODE_TIME,
+    (SystemClass.INCLINED, SystemGrade.PLANE): _Grade(
+        (_ALTITUDE, _INCLINATION, *_SAMPLES), "circular"
     ),
-    (SystemClass.GEOSTATIONARY, SystemGrade.GROUND_TRACK): (
-        _SLOT_LONGITUDE,
-        _INCLINATION,
+    (SystemClass.INCLINED, SystemGrade.GROUND_TRACK): _Grade(
+        (_ALTITUDE, _INCLINATION, _NODE_LONGITUDE, _NODE_TIME, *_SAMPLES), "repeat"
     ),
-    (SystemClass.RADAR_NETWORK, SystemGrade.SITING): _SITING[SystemClass.RADAR_NETWORK],
-    (SystemClass.RADAR_NETWORK, SystemGrade.COVERAGE): (
-        *_SITING[SystemClass.RADAR_NETWORK],
-        _LOWEST_TILT,
-        _HIGHEST_TILT,
-        _RANGE,
+    (SystemClass.GEOSTATIONARY, SystemGrade.GROUND_TRACK): _Grade(
+        (_SLOT_LONGITUDE, _INCLINATION, *_SAMPLES), "geosynchronous"
     ),
-    (SystemClass.SURFACE_NETWORK, SystemGrade.SITING): _SITING[
-        SystemClass.SURFACE_NETWORK
-    ],
+    (SystemClass.RADAR_NETWORK, SystemGrade.SITING): _Grade(
+        _SITING[SystemClass.RADAR_NETWORK]
+    ),
+    (SystemClass.RADAR_NETWORK, SystemGrade.COVERAGE): _Grade(
+        (
+            *_SITING[SystemClass.RADAR_NETWORK],
+            _LOWEST_TILT,
+            _HIGHEST_TILT,
+            _PLANNED_HIGHEST_TILT,
+            _RANGE,
+            _VOLUMES,
+        )
+    ),
+    (SystemClass.SURFACE_NETWORK, SystemGrade.SITING): _Grade(
+        _SITING[SystemClass.SURFACE_NETWORK]
+    ),
 }
 
 # the grades each class needs to be validated
@@ -224,11 +266,30 @@ _INCLUDES = {
 }
 
 
-# the gates of the values of orbits relative to each other, by field
-_RELATIVE_GATES = {
+RELATIVE_GATES: dict[str, Gate] = {
     "phase": _RELATIVE_PHASE,
     "right_ascension_ascending_node": _RELATIVE_NODE,
 }
+"""
+The gates of the values of orbits relative to each other, by field, whose
+metrics are of each spacecraft but the first tested of a configuration.
+"""
+
+
+def _get_grade(system_class: SystemClass | str, grade: SystemGrade | str) -> _Grade:
+    """
+    Gets a grade of a class.
+
+    Raises:
+        ValueError: If the class is not validated at the grade.
+    """
+    system_class, grade = SystemClass(system_class), SystemGrade(grade)
+    if (system_class, grade) not in _GRADES:
+        grades = [g.value for c, g in _GRADES if c == system_class]
+        raise ValueError(
+            f"{system_class.value} has no {grade.value} grade, only {grades}"
+        )
+    return _GRADES[system_class, grade]
 
 
 def get_system_gates(
@@ -252,15 +313,31 @@ def get_system_gates(
     Raises:
         ValueError: If the class is not validated at the grade.
     """
-    system_class, grade = SystemClass(system_class), SystemGrade(grade)
-    if (system_class, grade) not in _GATES:
-        grades = [g.value for c, g in _GATES if c == system_class]
-        raise ValueError(
-            f"{system_class.value} has no {grade.value} grade, only {grades}"
-        )
-    return _GATES[system_class, grade] + tuple(
-        gate for field, gate in _RELATIVE_GATES.items() if field in relative
+    return _get_grade(system_class, grade).gates + tuple(
+        gate for field, gate in RELATIVE_GATES.items() if field in relative
     )
+
+
+def get_orbit_type(system_class: SystemClass | str, grade: SystemGrade | str) -> str:
+    """
+    Gets the type of the orbits of a satellite system's configurations at a
+    grade (such as `sso` for the planes of sun-synchronous orbits).
+
+    Args:
+        system_class (SystemClass | str): The class of the system.
+        grade (SystemGrade | str): The grade of the configuration.
+
+    Returns:
+        str: The `type` of the orbits.
+
+    Raises:
+        ValueError: If the class is not validated at the grade, or is not of
+            satellites.
+    """
+    orbit_type = _get_grade(system_class, grade).orbit_type
+    if orbit_type is None:
+        raise ValueError(f"{SystemClass(system_class).value} has no orbits")
+    return orbit_type
 
 
 def get_required_system_grades(
@@ -304,13 +381,14 @@ def serves_system(
 def evaluate_system(entry: SystemEntry) -> EntryValidation:
     """
     Applies the standard to a system's records, as `evaluate_entry` does to an
-    instrument's: each gate takes the worst value of its metric over scopes
-    (such as satellites), a configuration is validated only if every gate
-    passes with evidence of the configuration as cataloged (its digest, a
-    compatible version of the standard, and fitted values tested on data at
-    least `MIN_HOLDOUT_GAP_DAYS` from their fitting data, tested on every
-    spacecraft of the configuration), and a system is only as strong as its
-    weakest configuration and needs one that serves its required grade.
+    instrument's: each gate takes the worst value of its metric over the
+    spacecraft (each of which needs a value of it: every spacecraft of the
+    configuration, but the first tested for the gates of relative values), a
+    configuration is validated only if every gate passes with evidence of the
+    configuration as cataloged (its digest, a compatible version of the
+    standard, and fitted values tested on data at least `MIN_HOLDOUT_GAP_DAYS`
+    from their fitting data), and a system is only as strong as its weakest
+    configuration and needs one that serves its required grade.
 
     Args:
         entry (SystemEntry): The system.
@@ -321,7 +399,21 @@ def evaluate_system(entry: SystemEntry) -> EntryValidation:
     configurations = {}
     for key, configuration in entry.configurations.items():
         record = None if entry.record is None else entry.record.configurations.get(key)
-        gaps = []
+        gates = get_system_gates(
+            entry.system_class,
+            configuration.grade,
+            configuration.get_relative_values(),
+        )
+        gaps, scopes = [], None
+        if record is not None and configuration.get_tested_platforms():
+            tested = [
+                p for p in configuration.get_tested_platforms() if p in record.platforms
+            ]
+            relative = {gate.metric for gate in RELATIVE_GATES.values()}
+            scopes = {
+                gate.metric: tested[1:] if gate.metric in relative else tested
+                for gate in gates
+            }
         if record is not None:
             if record.standard_version not in COMPATIBLE_SYSTEM_VERSIONS:
                 gaps.append(
@@ -336,11 +428,7 @@ def evaluate_system(entry: SystemEntry) -> EntryValidation:
         configurations[key] = _evaluate_record(
             configuration.grade,
             record,
-            get_system_gates(
-                entry.system_class,
-                configuration.grade,
-                configuration.get_relative_values(),
-            ),
+            gates,
             digest=entry.get_digest(key),
             holdout=(
                 None
@@ -353,6 +441,7 @@ def evaluate_system(entry: SystemEntry) -> EntryValidation:
                 )
             ),
             evidence_gaps=tuple(gaps),
+            scopes=scopes,
         )
     missing = tuple(
         grade

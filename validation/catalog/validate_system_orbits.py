@@ -36,7 +36,11 @@ from tatc.schemas import RepeatGroundTrackOrbit
 from validation_io import orbits
 from validation_io.archives import ARCHIVES
 from validation_io.cli import SystemRun, parse_day, parse_system_run
-from validation_io.records import system_result, write_system_record
+from validation_io.records import (
+    system_result,
+    value_metric,
+    write_system_record,
+)
 
 REFERENCE = (
     "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS "
@@ -157,6 +161,11 @@ def test(run: SystemRun, key: str) -> ConfigurationRecord | None:
             print(f"  {spacecraft}: no days to test")
             continue
         metrics += orbits.compare(orbit, list(sets.values()), spacecraft)
+        span = date.fromisoformat(max(sets)) - date.fromisoformat(min(sets))
+        metrics += [
+            value_metric("test_sets", len(sets), spacecraft),
+            value_metric("test_span_days", span.days, spacecraft),
+        ]
         periods[spacecraft] = format_period(sets)
         all_sets[spacecraft] = sets
     metrics += orbits.compare_relative(configuration, all_sets)

@@ -17,7 +17,8 @@ import pandas as pd
 from skyfield.api import EarthSatellite
 
 from tatc.catalog import get_spacecraft
-from tatc.catalog.system_orbits import GeostationarySlot
+from tatc.catalog.system_orbits import GeostationarySlot, SunSynchronousPlane
+from tatc.catalog.system_standard import RELATIVE_GATES
 from tatc.catalog.system_schemas import OrbitConfiguration
 from tatc.constants import EARTH_EQUATORIAL_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, RepeatGroundTrackOrbit
@@ -131,7 +132,8 @@ def compare_plane(model, tles: list[list[str]], scope: str) -> list[dict]:
     Compares the plane of a cataloged orbit (built at each set's epoch) with the
     mean elements of element sets: the errors of mean altitude (km), inclination
     (degrees), and, for a sun-synchronous orbit, local time of ascending node
-    (minutes), as 95th percentiles of their absolute values.
+    (minutes, as cataloged: whatever the element set's own inclination), as
+    95th percentiles of their absolute values.
 
     Args:
         model: The cataloged orbit (with a `build(epoch)` method, or a
@@ -142,6 +144,9 @@ def compare_plane(model, tles: list[list[str]], scope: str) -> list[dict]:
     Returns:
         list[dict]: The metrics, as records state them.
     """
+    sun_synchronous = isinstance(model, SunSynchronousPlane) or (
+        isinstance(model, RepeatGroundTrackOrbit) and model.is_sun_synchronous()
+    )
     if isinstance(model, RepeatGroundTrackOrbit):
         # pinned to its node, so the same at every set's epoch
         pinned = (model.to_gp_orbit(), model.get_local_time_ascending_node())
@@ -162,7 +167,7 @@ def compare_plane(model, tles: list[list[str]], scope: str) -> list[dict]:
         gp, model_local_time = modeled(orbit.get_epoch())
         altitude.append((plane["mean_altitude"] - gp.get_mean_altitude()) / 1e3)
         inclination.append(plane["inclination"] - gp.get_inclination())
-        if plane["sun_synchronous"]:
+        if sun_synchronous:
             local_time.append(
                 _wrap((plane["local_time"] - model_local_time) * 15) / 15 * 60
             )
@@ -203,10 +208,10 @@ def compare_track(
     """
     Compares an orbit maintained on a repeat ground track with element sets: the
     errors of its plane (see `compare_plane`) and of its ascending nodes (see
-    `compare_nodes`, without the sets after maneuvers), as 95th percentiles of
-    their absolute values.
+    `compare_nodes`, of every set, as maneuvers keep the ground track within
+    its band), as 95th percentiles of their absolute values.
     """
-    delta_time, delta_longitude = compare_nodes(model, drop_maneuvers(tles))
+    delta_time, delta_longitude = compare_nodes(model, tles)
     return [
         *compare_plane(model, tles, scope),
         p95_metric("node_longitude_error_p95", delta_longitude, scope),
@@ -256,10 +261,6 @@ def compare_relative(
     if not fields or len(tested) < 2:
         return []
     first = tested[0]
-    names = {
-        "phase": "relative_phase_error_p95",
-        "right_ascension_ascending_node": "relative_node_error_p95",
-    }
     metrics = []
     for spacecraft in tested[1:]:
         errors = {field: [] for field in fields}
@@ -277,7 +278,7 @@ def compare_relative(
                 )
                 errors[field].append(float(_wrap(measured[field] - cataloged)))
         metrics += [
-            p95_metric(names[field], values, spacecraft)
+            p95_metric(RELATIVE_GATES[field].metric, values, spacecraft)
             for field, values in errors.items()
             if values
         ]

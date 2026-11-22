@@ -17,6 +17,7 @@ from tatc.catalog import (
     RadarNetwork,
     SatelliteSystem,
     SurfaceNetwork,
+    clear_cache,
     get_entry,
     get_entry_ids,
     get_spacecraft,
@@ -34,6 +35,7 @@ from tatc.catalog.system_standard import (
     COMPATIBLE_SYSTEM_VERSIONS,
     SystemClass,
     SystemGrade,
+    get_orbit_type,
     get_required_system_grades,
     get_system_gates,
     serves_system,
@@ -47,6 +49,7 @@ from tatc.schemas import (
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
+from tatc.constants import timescale
 from tatc.utils import compute_geoid_height
 
 # the validation status of each system: its tier, and for each configuration its
@@ -76,6 +79,7 @@ EXPECTED_SYSTEM_STATUS = {
                 1,
                 [
                     "horizontal_error_p95",
+                    "reference_matched",
                     "membership_precision",
                     "fitted values are not tested on data at least 30 days from their fitting data",
                 ],
@@ -92,6 +96,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "altitude_error_p95",
                     "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -108,6 +114,8 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -125,22 +133,30 @@ EXPECTED_SYSTEM_STATUS = {
     "eos": (
         "partial",
         {
-            "plane": ("partial", 32, ["not tested on aqua"]),
+            "plane": (
+                "partial",
+                32,
+                ["test_sets", "test_span_days", "not tested on aqua"],
+            ),
         },
         [],
     ),
     "gcom_w": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 35, []),
-            "ground_track": ("validated", 35, []),
+            "plane": ("partial", 35, ["test_sets"]),
+            "ground_track": ("partial", 35, ["test_sets"]),
         },
         [],
     ),
     "goes": (
         "partial",
         {
-            "slot": ("partial", 48, ["not tested on goes-18"]),
+            "slot": (
+                "partial",
+                48,
+                ["test_sets", "test_span_days", "not tested on goes-18"],
+            ),
         },
         [],
     ),
@@ -160,6 +176,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "slot_longitude_error_p95",
                     "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -182,6 +200,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "slot_longitude_error_p95",
                     "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -208,9 +228,9 @@ EXPECTED_SYSTEM_STATUS = {
         [],
     ),
     "landsat": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 34, []),
+            "plane": ("partial", 34, ["test_sets"]),
         },
         [],
     ),
@@ -222,9 +242,9 @@ EXPECTED_SYSTEM_STATUS = {
         [],
     ),
     "metop_sg": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 36, []),
+            "plane": ("partial", 36, ["test_sets", "test_span_days"]),
         },
         [],
     ),
@@ -237,6 +257,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "slot_longitude_error_p95",
                     "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -269,6 +291,8 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -285,6 +309,8 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -304,9 +330,9 @@ EXPECTED_SYSTEM_STATUS = {
         [],
     ),
     "sentinel_2": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 55, []),
+            "plane": ("partial", 55, ["not tested on sentinel-2a"]),
             "ground_track": ("validated", 54, []),
         },
         [],
@@ -321,6 +347,8 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "relative_phase_error_p95",
                     "no comparison with reference data",
                 ],
@@ -338,6 +366,8 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "no comparison with reference data",
                 ],
             ),
@@ -353,6 +383,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "altitude_error_p95",
                     "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
                     "relative_phase_error_p95",
                     "relative_node_error_p95",
                     "no comparison with reference data",
@@ -362,16 +394,16 @@ EXPECTED_SYSTEM_STATUS = {
         [],
     ),
     "smap": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 36, []),
+            "plane": ("partial", 36, ["test_sets"]),
         },
         [],
     ),
     "swot": (
-        "validated",
+        "partial",
         {
-            "plane": ("validated", 35, []),
+            "plane": ("partial", 35, ["test_sets"]),
         },
         [],
     ),
@@ -422,6 +454,18 @@ def _system_data(system_id: str) -> dict:
         encoding="utf-8",
     ) as f:
         return yaml.safe_load(f)
+
+
+def _get_node(orbit, moment: datetime) -> float:
+    """
+    Gets the right ascension of ascending node (degrees, TEME) of an orbit at
+    a time, propagated with SGP4.
+    """
+    satrec = orbit.to_gp_orbit().elements[0].to_satrec()
+    julian = timescale.from_datetime(moment).ut1
+    _, position, velocity = satrec.sgp4(int(julian), julian - int(julian))
+    node = np.cross([0.0, 0.0, 1.0], np.cross(position, velocity))
+    return float(np.degrees(np.arctan2(node[1], node[0])) % 360)
 
 
 def _summarize_gaps(validation) -> list[str]:
@@ -518,6 +562,28 @@ class TestLoading(unittest.TestCase):
         )
         self.assertIn("gras", [e.id for e in list_entries(platform="metop-b")])
         self.assertNotIn("gras", get_system("metop").get_payload_references("metop-b"))
+
+    def test_member_ids(self):
+        """
+        Test that members are found by identifier or name, and that stations
+        are built by either.
+        """
+        self.assertEqual(get_system("jpss").get_member_id("NOAA-21"), "noaa-21")
+        uscrn = get_system("uscrn")
+        identifier, name = next(iter(uscrn.get_member_names().items()))
+        self.assertEqual(uscrn.get_member_id(name.upper()), identifier)
+        (station,) = uscrn.build(members=name)
+        self.assertEqual(station.name, identifier)
+        with self.assertRaises(KeyError):
+            uscrn.get_member_id("nowhere")
+
+    def test_clear_cache(self):
+        """
+        Test that clearing the cache loads the catalog again.
+        """
+        before = get_system("jpss")
+        clear_cache()
+        self.assertEqual(get_system("jpss"), before)
 
     def test_spacecraft_by_name(self):
         """
@@ -730,6 +796,28 @@ class TestStrictFiles(unittest.TestCase):
             nexrad.get_digest("clear_air"),
         )
 
+    def test_inclined_phase_needs_node(self):
+        """
+        Test that an inclined plane's relative phase comes with its node.
+        """
+        self.data = _system_data("sentinel_6")
+        configuration = self.data["configurations"]["plane"]
+        for spacecraft in configuration["orbits"]:
+            del configuration["orbits"][spacecraft]["right_ascension_ascending_node"]
+            del configuration["provenance"][spacecraft][
+                "right_ascension_ascending_node"
+            ]
+        self._assert_invalid("right_ascension_ascending_node")
+
+    def test_finite_metrics(self):
+        """
+        Test that a metric's value is finite.
+        """
+        record = get_system("landsat").record.model_dump(mode="json")
+        record["configurations"]["plane"]["metrics"][0]["value"] = float("nan")
+        self.data = {**_system_data("landsat"), "record": record}
+        self._assert_invalid("finite")
+
     def test_drifting_plane_needs_reference_time(self):
         """
         Test that a plane whose local time drifts has a reference time.
@@ -862,9 +950,42 @@ class TestBuild(unittest.TestCase):
         warns, and that instruments that need a time step say so.
         """
         with self.assertWarnsRegex(UserWarning, "default instrument"):
-            get_system("cosmic_2").build(epoch=EPOCH)
+            get_system("cosmic_2").build(epoch=EPOCH, time_step=10)
         with self.assertRaisesRegex(ValueError, r"build\(time_step=...\)"):
-            get_system("jpss").build(epoch=EPOCH)
+            get_system("jpss").build(epoch=EPOCH, payload=True)
+        # without a time step, satellites carry no cataloged instruments
+        with self.assertWarnsRegex(UserWarning, "time_step"):
+            satellites = get_system("jpss").build(epoch=EPOCH)
+        self.assertEqual([i.name for i in satellites[0].instruments], ["Default"])
+
+    def test_unvalidated_configuration_warns(self):
+        """
+        Test that building a configuration that is not validated warns.
+        """
+        with self.assertWarnsRegex(UserWarning, "jpss:ground_track is partial"):
+            get_system("jpss").build("ground_track", payload=False)
+
+    def test_repeat_ground_track_builds(self):
+        """
+        Test that a cataloged repeat ground track builds the core orbit.
+        """
+        orbit = get_system("jpss").configurations["ground_track"].orbits["noaa-21"]
+        built = orbit.build()
+        self.assertIs(type(built), RepeatGroundTrackOrbit)
+        self.assertEqual(built.ascending_node, orbit.ascending_node)
+
+    def test_drift_independent_of_epoch(self):
+        """
+        Test that a drifting plane built at its reference time and propagated
+        has the node of the plane built at a later epoch (SGP4's rate).
+        """
+        plane = get_system("eos").configurations["plane"].orbits["aqua"]
+        later = plane.reference_time + timedelta(days=3 * 365)
+        nodes = [
+            _get_node(plane.build(epoch), later)
+            for epoch in (plane.reference_time, later)
+        ]
+        self.assertAlmostEqual(nodes[0], nodes[1], delta=0.02)
 
     def test_ground_tracks_at_any_epoch(self):
         """
@@ -1010,6 +1131,36 @@ class TestSystemStandard(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no plane grade"):
             get_system_gates(SystemClass.GEOSTATIONARY, SystemGrade.PLANE)
 
+    def test_metrics_of_every_spacecraft(self):
+        """
+        Test that a gate whose metric lacks a spacecraft's value is a gap.
+        """
+        data = _system_data("metop")
+        record = get_system("metop").record.model_dump(mode="json")
+        plane = record["configurations"]["plane"]
+        plane["metrics"] = [
+            m
+            for m in plane["metrics"]
+            if not (m["name"] == "local_time_error_p95" and m["scope"] == "metop-c")
+        ]
+        validation = parse_system({**data, "record": record}).validation
+        self.assertIn(
+            "local_time_error_p95: not tested on metop-c",
+            validation.configurations["plane"].gaps,
+        )
+        self.assertNotEqual(validation.tier.value, "validated")
+
+    def test_orbit_types(self):
+        """
+        Test the orbit types of the grades of satellite classes.
+        """
+        self.assertEqual(get_orbit_type("sun_synchronous", "plane"), "sso")
+        self.assertEqual(
+            get_orbit_type("geostationary", "ground_track"), "geosynchronous"
+        )
+        with self.assertRaises(ValueError):
+            get_orbit_type("radar_network", "coverage")
+
     def test_relative_gates(self):
         """
         Test that configurations with cataloged relative phases (and nodes) are
@@ -1037,7 +1188,7 @@ class TestSystemStandard(unittest.TestCase):
         for system_class in ("sun_synchronous", "inclined"):
             plane = get_system_gates(system_class, "plane")
             ground_track = get_system_gates(system_class, "ground_track")
-            self.assertEqual(ground_track[: len(plane)], plane)
+            self.assertTrue(set(plane) <= set(ground_track))
 
     def test_untested_spacecraft(self):
         """

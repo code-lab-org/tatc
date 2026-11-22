@@ -8,6 +8,7 @@ ground tracks (`tatc.schemas.RepeatGroundTrackOrbit`) at the ground track grade.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, time, timezone
 from typing import Annotated, Any, Literal
 
@@ -19,7 +20,6 @@ from ..schemas import (
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
-from ..utils import compute_j2_raan_rate
 from .records import _CatalogModel
 
 SLOT_EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -41,9 +41,11 @@ class SunSynchronousPlane(_CatalogModel):
     its local time is cataloged. Built at an epoch as a `SunSynchronousOrbit`
     (whose inclination is sun-synchronous, so that its local time stays
     constant), or, with an inclination, as a `CircularOrbit` whose node has
-    drifted from the cataloged local time at the rate of its inclination (by
-    Earth's J2 oblateness) from the reference time to the epoch, and drifts on
-    during an analysis. Its phase is that of a constellation whose operator
+    drifted from the cataloged local time at the rate of its inclination from
+    the reference time to the epoch, and drifts on
+    during an analysis (at SGP4's secular rate, with which TAT-C propagates it,
+    so that building it at any epoch gives the same orbit). Its phase is that of
+    a constellation whose operator
     maintains the satellites' relative phases, if given, or else spaced evenly
     among the satellites built (see `OrbitConfiguration.build_orbits`).
     """
@@ -90,18 +92,28 @@ class SunSynchronousPlane(_CatalogModel):
         return self
 
     def build(
-        self, epoch: datetime, phase: float = 0
+        self,
+        epoch: datetime | None = None,
+        phase: float = 0,
+        right_ascension_ascending_node: float = 0,
     ) -> SunSynchronousOrbit | CircularOrbit:
         """
         Builds the orbit at an epoch.
 
         Args:
-            epoch (datetime): The epoch.
+            epoch (datetime | None): The epoch.
             phase (float): The argument of latitude (degrees) at the epoch.
+            right_ascension_ascending_node (float): Not used, as the local time
+                sets the node.
 
         Returns:
             SunSynchronousOrbit | CircularOrbit: The orbit.
+
+        Raises:
+            ValueError: If no epoch is given.
         """
+        del right_ascension_ascending_node
+        epoch = _require_epoch(epoch)
         if self.inclination is None:
             return SunSynchronousOrbit(
                 mean_altitude=self.mean_altitude,
@@ -117,16 +129,17 @@ class SunSynchronousPlane(_CatalogModel):
         drifting = CircularOrbit(
             mean_altitude=self.mean_altitude,
             inclination=self.inclination,
-            right_ascension_ascending_node=0,
-            epoch=epoch,
+            right_ascension_ascending_node=cataloged,
+            epoch=self.reference_time,
         )
-        rate = compute_j2_raan_rate(
-            drifting.get_semimajor_axis(), self.inclination, 0.0
-        )
-        node = cataloged + rate * (epoch - self.reference_time).total_seconds()
+        # SGP4's secular rate of the node (radians per minute)
+        rate = drifting.to_gp_orbit().elements[0].to_satrec().nodedot
+        minutes = (epoch - self.reference_time).total_seconds() / 60
+        node = cataloged + math.degrees(rate * minutes)
         return drifting.model_copy(
             update={
                 "right_ascension_ascending_node": float(node % 360),
+                "epoch": epoch,
                 "true_anomaly": phase,
             }
         )
@@ -186,9 +199,18 @@ class InclinedPlane(_CatalogModel):
         + "arbitrary phase.",
     )
 
+    @model_validator(mode="after")
+    def _check_relative(self) -> InclinedPlane:
+        if self.phase is not None and self.right_ascension_ascending_node is None:
+            raise ValueError(
+                "a relative phase is of a plane relative to the others: give the "
+                "right_ascension_ascending_node too"
+            )
+        return self
+
     def build(
         self,
-        epoch: datetime,
+        epoch: datetime | None = None,
         phase: float = 0,
         right_ascension_ascending_node: float = 0,
     ) -> CircularOrbit:
@@ -196,14 +218,18 @@ class InclinedPlane(_CatalogModel):
         Builds the orbit at an epoch.
 
         Args:
-            epoch (datetime): The epoch.
+            epoch (datetime | None): The epoch.
             phase (float): The argument of latitude (degrees) at the epoch.
             right_ascension_ascending_node (float): The right ascension of
                 ascending node (degrees) at the epoch.
 
         Returns:
             CircularOrbit: The orbit.
+
+        Raises:
+            ValueError: If no epoch is given.
         """
+        epoch = _require_epoch(epoch)
         return CircularOrbit(
             mean_altitude=self.mean_altitude,
             inclination=self.inclination,
@@ -243,20 +269,30 @@ class GeostationarySlot(_CatalogModel):
         default=0, ge=0, lt=180, description="Inclination (degrees)."
     )
 
-    def build(self, epoch: datetime = SLOT_EPOCH) -> GeosynchronousOrbit:
+    def build(
+        self,
+        epoch: datetime | None = None,
+        phase: float = 0,
+        right_ascension_ascending_node: float = 0,
+    ) -> GeosynchronousOrbit:
         """
         Builds the orbit at an epoch.
 
         Args:
-            epoch (datetime): The epoch (by default, `SLOT_EPOCH`: as the orbit
-                is maintained at its longitude, any epoch gives the same
+            epoch (datetime | None): The epoch (by default, `SLOT_EPOCH`: as the
+                orbit is maintained at its longitude, any epoch gives the same
                 subpoint).
+            phase (float): Not used, as the longitude sets the position.
+            right_ascension_ascending_node (float): Not used.
 
         Returns:
             GeosynchronousOrbit: The orbit.
         """
+        del phase, right_ascension_ascending_node
         return GeosynchronousOrbit(
-            longitude=self.longitude, inclination=self.inclination, epoch=epoch
+            longitude=self.longitude,
+            inclination=self.inclination,
+            epoch=SLOT_EPOCH if epoch is None else epoch,
         )
 
     def describe(self) -> str:
@@ -272,8 +308,49 @@ class GeostationarySlot(_CatalogModel):
         )
 
 
+class RepeatGroundTrack(RepeatGroundTrackOrbit):
+    """
+    An orbit maintained on a repeat ground track, at the ground track grade: a
+    `RepeatGroundTrackOrbit` pinned to an ascending node, built for any epoch.
+    """
+
+    def build(
+        self,
+        epoch: datetime | None = None,
+        phase: float = 0,
+        right_ascension_ascending_node: float = 0,
+    ) -> RepeatGroundTrackOrbit:
+        """
+        Builds the orbit, which is the same at any epoch.
+
+        Args:
+            epoch (datetime | None): Not used, as the node pins the orbit.
+            phase (float): Not used.
+            right_ascension_ascending_node (float): Not used.
+
+        Returns:
+            RepeatGroundTrackOrbit: The orbit.
+        """
+        del epoch, phase, right_ascension_ascending_node
+        return RepeatGroundTrackOrbit(**self.model_dump())
+
+    def describe(self) -> str:
+        """
+        Describes the orbit.
+
+        Returns:
+            str: The description.
+        """
+        node = self.ascending_node
+        return (
+            f"Repeat of {self.revolutions} orbits in {self.days} days "
+            f"({self.get_mean_altitude() / 1e3:.2f} km), ascending node at "
+            f"longitude {node.longitude} deg on {node.time:%Y-%m-%d %H:%M:%S} UTC"
+        )
+
+
 CatalogOrbit = Annotated[
-    SunSynchronousPlane | InclinedPlane | GeostationarySlot | RepeatGroundTrackOrbit,
+    SunSynchronousPlane | InclinedPlane | GeostationarySlot | RepeatGroundTrack,
     Field(discriminator="type"),
 ]
 """An orbit of a catalog system, by its `type`."""
@@ -290,14 +367,16 @@ def describe_orbit(orbit: CatalogOrbit) -> str:
     Returns:
         str: The description.
     """
-    if isinstance(orbit, RepeatGroundTrackOrbit):
-        node = orbit.ascending_node
-        return (
-            f"Repeat of {orbit.revolutions} orbits in {orbit.days} days "
-            f"({orbit.get_mean_altitude() / 1e3:.2f} km), ascending node at "
-            f"longitude {node.longitude} deg on {node.time:%Y-%m-%d %H:%M:%S} UTC"
-        )
     return orbit.describe()
+
+
+def _require_epoch(epoch: datetime | None) -> datetime:
+    """
+    Gets the epoch of an orbit at the plane grade, which needs one.
+    """
+    if epoch is None:
+        raise ValueError("an orbit at the plane grade is built at an epoch")
+    return epoch
 
 
 def get_orbit_values(orbit: Any) -> set[str]:

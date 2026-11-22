@@ -37,9 +37,11 @@ configurations:
           platforms: [sentinel-2a]
           period: "2026-08-10"
         equator_crossing_time: *sentinel_2a
-        phase: &sentinel_2_phasing
-          kind: nominal
-          source: ESA's phasing (SentiWiki, S2 Mission), with Sentinel-2B and Sentinel-2C 180 deg apart in their plane, and Sentinel-2A, in its extended campaign, 36 deg from Sentinel-2B (behind it, as their element sets of 2026-11-21 show)
+        phase:
+          kind: measured
+          source: ESA's extended campaign of Sentinel-2A, 36 deg from Sentinel-2B (SentiWiki, S2 Mission), behind it as the element sets of 2026-11-21 show
+          platforms: [sentinel-2a, sentinel-2b]
+          period: "2026-11-21"
       sentinel-2b:
         mean_altitude: &sentinel_2b
           kind: measured
@@ -47,7 +49,9 @@ configurations:
           platforms: [sentinel-2b]
           period: "2026-08-10"
         equator_crossing_time: *sentinel_2b
-        phase: *sentinel_2_phasing
+        phase: &sentinel_2_phasing
+          kind: nominal
+          source: ESA's phasing of Sentinel-2B and Sentinel-2C, 180 deg apart in their plane (SentiWiki, S2 Mission)
       sentinel-2c:
         mean_altitude: &sentinel_2c
           kind: measured

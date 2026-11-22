@@ -12,7 +12,12 @@ import numpy as np
 import pandas as pd
 
 import tatc
-from tatc.catalog import STANDARD_VERSION, SYSTEM_STANDARD_VERSION, InstrumentEntry
+from tatc.catalog import (
+    STANDARD_VERSION,
+    SYSTEM_STANDARD_VERSION,
+    InstrumentEntry,
+    clear_cache,
+)
 from tatc.catalog.records import ConfigurationRecord, Transfer, ValidationRecord
 from tatc.catalog.system_schemas import SystemEntry, parse_system
 from tatc.constants import timescale
@@ -274,9 +279,12 @@ def p95_metric(name: str, values, scope: str | None = None) -> dict:
     return metric
 
 
-def value_metric(name: str, value: float) -> dict:
+def value_metric(name: str, value: float, scope: str | None = None) -> dict:
     """A metric of a value, as records state it."""
-    return {"name": name, "value": round(float(value), 4)}
+    metric = {"name": name, "value": round(float(value), 4)}
+    if scope is not None:
+        metric["scope"] = scope
+    return metric
 
 
 def system_result(
@@ -331,5 +339,6 @@ def write_system_record(
     parse_system({**entry.model_dump(mode="json"), "record": record})
     SYSTEM_RECORDS.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    clear_cache()
     print(f"wrote {path}")
     return path

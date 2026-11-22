@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "ff0e368d73f882d469d31627708f4ccb8f1011b42294879e24319c8697cbf975",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -23,6 +23,16 @@
         {
           "name": "inclination_error_p95",
           "value": 0.0012,
+          "scope": "trmm"
+        },
+        {
+          "name": "test_sets",
+          "value": 25.0,
+          "scope": "trmm"
+        },
+        {
+          "name": "test_span_days",
+          "value": 31.0,
           "scope": "trmm"
         }
       ]

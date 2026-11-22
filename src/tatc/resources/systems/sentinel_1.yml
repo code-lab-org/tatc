@@ -33,7 +33,7 @@ configurations:
         equator_crossing_time: *sentinel_1c
         phase: &sentinel_1_phasing
           kind: nominal
-          source: ESA's phasing of the two-satellite constellation, 180 deg apart in their plane for a 6-day repeat, as their element sets of 2026-11-21 show (179.5 deg)
+          source: ESA's phasing of the two-satellite constellation, 180 deg apart in their plane for a 6-day repeat, consistent with their element sets of 2026-11-21 (179.5 deg)
       sentinel-1d:
         mean_altitude: &sentinel_1d
           kind: measured

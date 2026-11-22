@@ -3,7 +3,7 @@
   "configurations": {
     "ground_track": {
       "digest": "a5960d8f00260506066ad99251eaa24522eba836575b0711fee00249c982b18e",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -43,6 +43,16 @@
           "scope": "noaa-20"
         },
         {
+          "name": "test_sets",
+          "value": 11.0,
+          "scope": "noaa-20"
+        },
+        {
+          "name": "test_span_days",
+          "value": 38.0,
+          "scope": "noaa-20"
+        },
+        {
           "name": "altitude_error_p95",
           "value": 0.0377,
           "scope": "noaa-21"
@@ -66,12 +76,22 @@
           "name": "node_time_error_p95",
           "value": 18.8196,
           "scope": "noaa-21"
+        },
+        {
+          "name": "test_sets",
+          "value": 11.0,
+          "scope": "noaa-21"
+        },
+        {
+          "name": "test_span_days",
+          "value": 38.0,
+          "scope": "noaa-21"
         }
       ]
     },
     "plane": {
       "digest": "8af3e2cc4f003fc4f9dd6eeac8dba907475e25d5e2ba534e5f684245331ff70f",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -103,6 +123,16 @@
           "scope": "noaa-20"
         },
         {
+          "name": "test_sets",
+          "value": 19.0,
+          "scope": "noaa-20"
+        },
+        {
+          "name": "test_span_days",
+          "value": 71.0,
+          "scope": "noaa-20"
+        },
+        {
           "name": "altitude_error_p95",
           "value": 0.041,
           "scope": "noaa-21"
@@ -118,6 +148,16 @@
           "scope": "noaa-21"
         },
         {
+          "name": "test_sets",
+          "value": 13.0,
+          "scope": "noaa-21"
+        },
+        {
+          "name": "test_span_days",
+          "value": 51.0,
+          "scope": "noaa-21"
+        },
+        {
           "name": "altitude_error_p95",
           "value": 0.1154,
           "scope": "suomi-npp"
@@ -130,6 +170,16 @@
         {
           "name": "local_time_error_p95",
           "value": 9.1946,
+          "scope": "suomi-npp"
+        },
+        {
+          "name": "test_sets",
+          "value": 273.0,
+          "scope": "suomi-npp"
+        },
+        {
+          "name": "test_span_days",
+          "value": 399.0,
           "scope": "suomi-npp"
         }
       ]

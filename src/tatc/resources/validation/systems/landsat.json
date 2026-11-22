@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "37325510574d35203195ca16e9d882e374dd00e6e04a6515e208a17410e0c750",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -33,6 +33,16 @@
           "scope": "landsat-8"
         },
         {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "landsat-8"
+        },
+        {
+          "name": "test_span_days",
+          "value": 14.0,
+          "scope": "landsat-8"
+        },
+        {
           "name": "altitude_error_p95",
           "value": 0.0344,
           "scope": "landsat-9"
@@ -45,6 +55,16 @@
         {
           "name": "local_time_error_p95",
           "value": 0.0893,
+          "scope": "landsat-9"
+        },
+        {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "landsat-9"
+        },
+        {
+          "name": "test_span_days",
+          "value": 14.0,
           "scope": "landsat-9"
         },
         {

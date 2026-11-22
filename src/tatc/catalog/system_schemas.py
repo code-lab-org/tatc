@@ -40,11 +40,10 @@ from ..schemas.surface.radar import RadarBand
 from ..utils import compute_geoid_height
 from .records import ValidationRecord, _CatalogModel, _get_days_apart
 from .schemas import InstrumentSpecification, Provenance, _check_provenance
-from .standard import EntryValidation, Grade, InstrumentClass
+from .standard import EntryValidation, Grade, InstrumentClass, Tier
 from .system_orbits import (
     RELATIVE_VALUES,
     CatalogOrbit,
-    GeostationarySlot,
     InclinedPlane,
     SunSynchronousPlane,
     get_orbit_values,
@@ -53,6 +52,7 @@ from .system_standard import (
     SystemClass,
     SystemGrade,
     evaluate_system,
+    get_orbit_type,
     get_system_gates,
     serves_system,
 )
@@ -82,16 +82,6 @@ class Spacecraft(_CatalogModel):
         + "configuration (its tests include retired spacecraft).",
     )
     as_of: date = Field(..., description="The date of the status.")
-
-
-# the orbit types of each class at each grade
-_ORBIT_TYPES = {
-    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.PLANE): "sso",
-    (SystemClass.SUN_SYNCHRONOUS, SystemGrade.GROUND_TRACK): "repeat",
-    (SystemClass.INCLINED, SystemGrade.PLANE): "circular",
-    (SystemClass.INCLINED, SystemGrade.GROUND_TRACK): "repeat",
-    (SystemClass.GEOSTATIONARY, SystemGrade.GROUND_TRACK): "geosynchronous",
-}
 
 
 def _as_list(values: str | Sequence[str]) -> list[str]:
@@ -299,31 +289,23 @@ class OrbitConfiguration(_SystemConfiguration):
             for m in members
             if isinstance(self.orbits[m], (SunSynchronousPlane, InclinedPlane))
         ]
+        if planes and epoch is None:
+            raise ValueError(f"{planes[0]}'s orbit is built at an epoch (or start)")
         spread = {m: 360 * i / len(planes) for i, m in enumerate(planes)}
         orbits = []
         for member in members:
             orbit = self.orbits[member]
-            if isinstance(orbit, RepeatGroundTrackOrbit):
-                orbits.append(orbit)
-            elif isinstance(orbit, GeostationarySlot):
-                orbits.append(orbit.build() if epoch is None else orbit.build(epoch))
-            elif epoch is None:
-                raise ValueError(f"{member}'s orbit is built at an epoch (or start)")
-            else:
-                phase = spread[member] if orbit.phase is None else orbit.phase
-                if isinstance(orbit, InclinedPlane):
-                    node = orbit.right_ascension_ascending_node
-                    orbits.append(
-                        orbit.build(
-                            epoch,
-                            phase=phase,
-                            right_ascension_ascending_node=(
-                                spread[member] if node is None else node
-                            ),
-                        )
-                    )
-                else:
-                    orbits.append(orbit.build(epoch, phase=phase))
+            phase = getattr(orbit, "phase", None)
+            node = getattr(orbit, "right_ascension_ascending_node", None)
+            orbits.append(
+                orbit.build(
+                    epoch,
+                    phase=spread.get(member, 0) if phase is None else phase,
+                    right_ascension_ascending_node=(
+                        spread.get(member, 0) if node is None else node
+                    ),
+                )
+            )
         return orbits
 
     def get_tested_platforms(self) -> list[str]:
@@ -600,7 +582,26 @@ class SystemEntry(_CatalogModel):
         Returns:
             str: The digest.
         """
-        return _get_digest(self.configurations[configuration].get_content())
+        return _get_digest(
+            {
+                **self.configurations[configuration].get_content(),
+                **self._get_shared_content(),
+            }
+        )
+
+    def _get_shared_content(self) -> dict[str, Any]:
+        """
+        Gets the values of the entry that every configuration uses (such as a
+        network's table of stations), which are part of their digests.
+        """
+        return {}
+
+    def _get_shared_provenance(self) -> list[Provenance]:
+        """
+        Gets the provenance of the entry's values that every configuration uses,
+        from which their tests are held out.
+        """
+        return []
 
     def get_holdout_gap(
         self,
@@ -627,7 +628,10 @@ class SystemEntry(_CatalogModel):
             int | None: The days, or `None` if no value was fitted.
         """
         return self.configurations[configuration].get_holdout_gap(
-            period, platform_periods, platforms=platforms
+            period,
+            platform_periods,
+            platforms=platforms,
+            others=self._get_shared_provenance(),
         )
 
     def get_member_names(self) -> dict[str, str]:
@@ -641,6 +645,46 @@ class SystemEntry(_CatalogModel):
             dict[str, str]: The names, by identifier.
         """
         raise NotImplementedError
+
+    def get_member_id(self, member: str) -> str:
+        """
+        Gets the identifier of a member given by its identifier or name
+        (ignoring case), such as the name of a built satellite.
+
+        Args:
+            member (str): The identifier or name.
+
+        Returns:
+            str: The identifier.
+
+        Raises:
+            KeyError: If the system has no such member.
+        """
+        names = self.get_member_names()
+        if member in names:
+            return member
+        wanted = member.casefold()
+        for identifier, name in names.items():
+            if wanted in (identifier.casefold(), str(name).casefold()):
+                return identifier
+        raise KeyError(f"{self.id} has no member {member!r}")
+
+    def _select(
+        self, configuration: str | None, grade: SystemGrade | str | None
+    ) -> str:
+        """
+        Selects the configuration to build (see `select_configuration`), with a
+        warning if it is not validated.
+        """
+        key = self.select_configuration(configuration, grade=grade)
+        validation = self.validation.configurations[key]
+        if validation.tier != Tier.VALIDATED:
+            warnings.warn(
+                f"{self.id}:{key} is {validation.tier.value}, not validated: "
+                f"{'; '.join(validation.gaps)}",
+                stacklevel=3,
+            )
+        return key
 
     def get_members(self) -> list[str]:
         """
@@ -755,7 +799,7 @@ class SatelliteSystem(SystemEntry):
             unknown = set(configuration.orbits) - spacecraft
             if unknown:
                 raise ValueError(f"{key}: unknown spacecraft {sorted(unknown)}")
-            wanted = _ORBIT_TYPES[self.system_class, configuration.grade]
+            wanted = get_orbit_type(self.system_class, configuration.grade)
             for name, orbit in configuration.orbits.items():
                 if orbit.type != wanted:
                     raise ValueError(
@@ -863,7 +907,7 @@ class SatelliteSystem(SystemEntry):
         epoch: datetime | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
-        payload: bool | str | Sequence[str] = True,
+        payload: bool | str | Sequence[str] | None = None,
         time_step: float | None = None,
         instrument_grade: Grade | str | None = None,
         attitude: AllAttitudes | AttitudeSchedule | None = None,
@@ -878,7 +922,9 @@ class SatelliteSystem(SystemEntry):
         geostationary orbit or one maintained on a repeat ground track is built
         for any epoch. Satellites carry the instruments of the instrument
         catalog's entries that list them (see `get_payload_references`), built
-        with `tatc.catalog.build_payload` for the spacecraft. A satellite that
+        with `tatc.catalog.build_payload` for the spacecraft, when a `time_step`
+        is given (most imagers and sounders tailor a field of view to it). A
+        configuration that is not validated warns. A satellite that
         carries none (such as a radio occultation satellite, whose soundings are
         analyzed with their own methods) has TAT-C's default instrument, which
         observes within a field of regard of 180 degrees, with a warning.
@@ -897,10 +943,12 @@ class SatelliteSystem(SystemEntry):
                 that schedule their tilt by day, and the default epoch.
             end (datetime | None): The end of the analysis, for instruments that
                 schedule their tilt by day.
-            payload (bool | str | Sequence[str]): Whether satellites carry their
-                cataloged instruments, or the references of the instrument
-                catalog to carry (such as `["viirs", "atms"]`), each on the
-                satellites it lists.
+            payload (bool | str | Sequence[str] | None): Whether satellites
+                carry their cataloged instruments, or the references of the
+                instrument catalog to carry (such as `["viirs", "atms"]`), each
+                on the satellites it lists. By default, their cataloged
+                instruments if a `time_step` is given, or else none (with a
+                warning).
             time_step (float | None): The analysis time step (seconds), for
                 instruments that tailor a field of view to it (most imagers and
                 sounders that scan across track).
@@ -920,8 +968,16 @@ class SatelliteSystem(SystemEntry):
                 satellite built, or an instrument needs a time step.
             KeyError: If a member is not a spacecraft of the system.
         """
-        key = self.select_configuration(configuration, grade=grade)
+        key = self._select(configuration, grade)
         selected = self.configurations[key]
+        if payload is None:
+            payload = time_step is not None
+            if not payload:
+                warnings.warn(
+                    "the satellites carry no cataloged instruments without a "
+                    "time_step (give one, or payload=False)",
+                    stacklevel=2,
+                )
         if members is None:
             members = [m for m in self.get_default_members() if m in selected.orbits]
             if not members:
@@ -1015,28 +1071,11 @@ class _NetworkSystem(SystemEntry):
         table = self.stations.load()
         return dict(zip(table["id"], table["name"]))
 
-    def get_digest(self, configuration: str) -> str:
-        return _get_digest(
-            {
-                **self.configurations[configuration].get_content(),
-                "table": self.stations.digest,
-            }
-        )
+    def _get_shared_content(self) -> dict[str, Any]:
+        return {"table": self.stations.digest}
 
-    def get_holdout_gap(
-        self,
-        configuration: str,
-        period: str,
-        platform_periods: Mapping[str, str] | None = None,
-        *,
-        platforms: Sequence[str] | None = None,
-    ) -> int | None:
-        return self.configurations[configuration].get_holdout_gap(
-            period,
-            platform_periods,
-            platforms=platforms,
-            others=[self.stations.provenance],
-        )
+    def _get_shared_provenance(self) -> list[Provenance]:
+        return [self.stations.provenance]
 
     def _select_stations(
         self, members: str | Sequence[str] | None, region: BaseGeometry | None
@@ -1047,18 +1086,26 @@ class _NetworkSystem(SystemEntry):
         """
         table = self.stations.load()
         if members is not None:
-            members = _as_list(members)
-            unknown = set(members) - set(table["id"])
+            identifiers, unknown = [], []
+            for member in _as_list(members):
+                try:
+                    identifiers.append(self.get_member_id(member))
+                except KeyError:
+                    unknown.append(member)
             if unknown:
                 raise ValueError(f"{self.id} has no stations {sorted(unknown)}")
             # in the order of the members
-            table = table.set_index("id", drop=False).loc[members]
+            table = table.set_index("id", drop=False).loc[identifiers]
         if region is not None:
-            table = table[
-                shapely.intersects_xy(
-                    region, table.longitude.to_numpy(), table.latitude.to_numpy()
+            within = shapely.intersects_xy(
+                region, table.longitude.to_numpy(), table.latitude.to_numpy()
+            )
+            if members is not None and not within.all():
+                warnings.warn(
+                    f"stations {list(table.id[~within])} are not within the region",
+                    stacklevel=3,
                 )
-            ]
+            table = table[within]
             if table.empty:
                 warnings.warn(
                     f"no stations of {self.id} are within the region", stacklevel=3
@@ -1108,9 +1155,9 @@ class RadarNetwork(_NetworkSystem):
             configuration (str | None): The configuration, if not selected by
                 grade.
             grade (SystemGrade | str | None): The grade of the use, if any.
-            members (str | Sequence[str] | None): The identifiers of the
-                stations to build, in the order of the stations. By default,
-                every station (in the order of the table).
+            members (str | Sequence[str] | None): The identifiers (or names)
+                of the stations to build, in the order of the stations. By
+                default, every station (in the order of the table).
             region (shapely.geometry.base.BaseGeometry | None): A region
                 (longitude and latitude) within which to build stations.
 
@@ -1120,9 +1167,7 @@ class RadarNetwork(_NetworkSystem):
         Raises:
             ValueError: If a member is unknown.
         """
-        selected = self.configurations[
-            self.select_configuration(configuration, grade=grade)
-        ]
+        selected = self.configurations[self._select(configuration, grade)]
         table, ground = self._select_stations(members, region)
         return [
             _build_radar(selected, row, elevation)
@@ -1165,9 +1210,9 @@ class SurfaceNetwork(_NetworkSystem):
             configuration (str | None): The configuration, if not selected by
                 grade.
             grade (SystemGrade | str | None): The grade of the use, if any.
-            members (str | Sequence[str] | None): The identifiers of the
-                stations to build, in the order of the stations. By default,
-                every station (in the order of the table).
+            members (str | Sequence[str] | None): The identifiers (or names)
+                of the stations to build, in the order of the stations. By
+                default, every station (in the order of the table).
             region (shapely.geometry.base.BaseGeometry | None): A region
                 (longitude and latitude) within which to build stations.
             radius (float | None): The radius (meters) of the area that the
@@ -1180,9 +1225,7 @@ class SurfaceNetwork(_NetworkSystem):
         Raises:
             ValueError: If a member is unknown.
         """
-        selected = self.configurations[
-            self.select_configuration(configuration, grade=grade)
-        ]
+        selected = self.configurations[self._select(configuration, grade)]
         table, ground = self._select_stations(members, region)
         instruments = [spec.construct_instrument(None) for spec in selected.instruments]
         if radius is not None:

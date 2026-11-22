@@ -32,7 +32,7 @@ configurations:
         equator_crossing_time: *landsat_8
         phase: &landsat_phasing
           kind: nominal
-          source: USGS's phasing of Landsat 9, 8 days (half the 16-day repeat cycle) from Landsat 8, 180 deg apart in their plane, as their element sets of 2026-11-21 show (180.2 deg)
+          source: USGS's phasing of Landsat 9, 8 days (half the 16-day repeat cycle) from Landsat 8, 180 deg apart in their plane, consistent with their element sets of 2026-11-21 (180.2 deg)
       landsat-9:
         mean_altitude: &landsat_9
           kind: measured

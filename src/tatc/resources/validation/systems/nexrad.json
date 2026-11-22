@@ -3,7 +3,7 @@
   "configurations": {
     "clear_air": {
       "digest": "f47c347f1370e17fb8b6c076a84d7a2204b9e84c671ece7c62ff93ede1199bc4",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_nexrad.py",
       "reference": "NEXRAD Level II volumes (unidata-nexrad-level2 on AWS) and NCEI's table of NEXRAD stations",
@@ -19,6 +19,10 @@
         {
           "name": "antenna_altitude_error_p95",
           "value": 1.1734
+        },
+        {
+          "name": "reference_matched",
+          "value": 100.0
         },
         {
           "name": "membership_recall",
@@ -37,14 +41,22 @@
           "value": 0.0534
         },
         {
+          "name": "planned_max_elevation_error_p95",
+          "value": 0.02
+        },
+        {
           "name": "range_error_p95",
           "value": 0.0272
+        },
+        {
+          "name": "coverage_volumes",
+          "value": 24.0
         }
       ]
     },
     "precipitation": {
       "digest": "10e2378276d1a2a9092276f44a745a5c87e94cdfa2a3f23e6f57e89e37c56ba9",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_nexrad.py",
       "reference": "NEXRAD Level II volumes (unidata-nexrad-level2 on AWS) and NCEI's table of NEXRAD stations",
@@ -60,6 +72,10 @@
         {
           "name": "antenna_altitude_error_p95",
           "value": 1.1734
+        },
+        {
+          "name": "reference_matched",
+          "value": 100.0
         },
         {
           "name": "membership_recall",
@@ -78,8 +94,16 @@
           "value": 0.0117
         },
         {
+          "name": "planned_max_elevation_error_p95",
+          "value": 0.01
+        },
+        {
           "name": "range_error_p95",
           "value": 0.0272
+        },
+        {
+          "name": "coverage_volumes",
+          "value": 24.0
         }
       ]
     }

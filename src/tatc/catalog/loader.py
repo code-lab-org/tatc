@@ -22,7 +22,13 @@ from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
 from .schemas import InstrumentEntry, InstrumentPayload
 from .standard import Grade, InstrumentClass, Tier
-from .system_schemas import SatelliteSystem, Spacecraft, SystemEntry, parse_system
+from .system_schemas import (
+    SatelliteSystem,
+    Spacecraft,
+    SystemEntry,
+    _read_table,
+    parse_system,
+)
 from .system_standard import SystemClass
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
@@ -381,3 +387,15 @@ def get_spacecraft_system(spacecraft: str) -> SystemEntry:
         KeyError: If no system has such a spacecraft.
     """
     return get_system(_get_spacecraft_systems()[_find_spacecraft(spacecraft)])
+
+
+def clear_cache() -> None:
+    """
+    Clears the catalog's cached entries, systems, records, and tables of
+    stations, so that files rewritten during a session (as by the validation
+    scripts) are read again.
+    """
+    _load_entry.cache_clear()
+    _load_system.cache_clear()
+    _get_spacecraft_systems.cache_clear()
+    _read_table.cache_clear()

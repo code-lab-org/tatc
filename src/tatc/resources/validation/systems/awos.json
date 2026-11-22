@@ -3,7 +3,7 @@
   "configurations": {
     "stations": {
       "digest": "2c28b4053ad38bfcb14b2c175553114667e0d5e651aea713404c2a8f85b7eeae",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_surface.py",
       "reference": "NCEI's GHCN-Daily station inventory (positions and ground elevations) and the stations the Iowa Environmental Mesonet reports online",

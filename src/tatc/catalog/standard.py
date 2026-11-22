@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -487,6 +488,7 @@ def _evaluate_record(  # pylint: disable=too-many-arguments
     digest: str,
     holdout: int | None,
     evidence_gaps: tuple[str, ...] = (),
+    scopes: Mapping[str, Collection[str]] | None = None,
 ) -> ConfigurationValidation:
     """
     Applies gates to the record of a configuration (of an instrument or a
@@ -505,6 +507,9 @@ def _evaluate_record(  # pylint: disable=too-many-arguments
             fitted and the data of the record's test, or `None` if no value was
             fitted (or it has no record).
         evidence_gaps (tuple[str, ...]): Other gaps of the evidence.
+        scopes (Mapping[str, Collection[str]] | None): The scopes (such as
+            spacecraft) of which a gate's metric needs a value, by metric, if
+            any: a gate with values of some scopes but not of these has a gap.
 
     Returns:
         ConfigurationValidation: Its validation status.
@@ -523,6 +528,11 @@ def _evaluate_record(  # pylint: disable=too-many-arguments
         worst = (max if gate.at_most else min)(values) if values else None
         results.append(GateResult(gate, worst))
     gaps = []
+    for gate in gates:
+        present = {m.scope for m in record.metrics if m.name == gate.metric}
+        missing = [s for s in (scopes or {}).get(gate.metric, ()) if s not in present]
+        if present and missing:
+            gaps.append(f"{gate.metric}: not tested on {', '.join(missing)}")
     if record.digest != digest:
         gaps.append("the configuration changed after it was tested")
     gaps.extend(evidence_gaps)

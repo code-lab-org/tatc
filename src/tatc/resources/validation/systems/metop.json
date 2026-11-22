@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "e042bf17e8fd341139adf2975924c31f6bca6c01e977601ddca50f2f42b0d700",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -33,6 +33,16 @@
           "scope": "metop-b"
         },
         {
+          "name": "test_sets",
+          "value": 11.0,
+          "scope": "metop-b"
+        },
+        {
+          "name": "test_span_days",
+          "value": 163.0,
+          "scope": "metop-b"
+        },
+        {
           "name": "altitude_error_p95",
           "value": 0.0861,
           "scope": "metop-c"
@@ -45,6 +55,16 @@
         {
           "name": "local_time_error_p95",
           "value": 1.7152,
+          "scope": "metop-c"
+        },
+        {
+          "name": "test_sets",
+          "value": 12.0,
+          "scope": "metop-c"
+        },
+        {
+          "name": "test_span_days",
+          "value": 163.0,
           "scope": "metop-c"
         }
       ]

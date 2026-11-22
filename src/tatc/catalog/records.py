@@ -121,7 +121,9 @@ class Metric(_CatalogModel):
     """
 
     name: str = Field(..., description="The metric (see `get_gates`).")
-    value: float = Field(..., description="The value.")
+    value: float = Field(
+        ..., allow_inf_nan=False, description="The value, which is finite."
+    )
     scope: str | None = Field(
         default=None,
         description="The part or condition of the test it applies to (such as an "

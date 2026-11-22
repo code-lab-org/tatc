@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "4d063031de7b03049675c8afe6cefdc8d0c1213b5dc7c9b3990700712ec7999d",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -29,7 +29,17 @@
         },
         {
           "name": "local_time_error_p95",
-          "value": 0.0382,
+          "value": 0.0809,
+          "scope": "terra"
+        },
+        {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "terra"
+        },
+        {
+          "name": "test_span_days",
+          "value": 14.0,
           "scope": "terra"
         },
         {
@@ -44,7 +54,17 @@
         },
         {
           "name": "local_time_error_p95",
-          "value": 0.8281,
+          "value": 0.5692,
+          "scope": "aura"
+        },
+        {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "aura"
+        },
+        {
+          "name": "test_span_days",
+          "value": 3.0,
           "scope": "aura"
         }
       ]

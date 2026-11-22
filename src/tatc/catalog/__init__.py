@@ -18,6 +18,7 @@ satellites that carry them by the identifiers of the systems' spacecraft
 
 from .loader import (
     build_payload,
+    clear_cache,
     get_entry,
     get_entry_ids,
     get_spacecraft,
@@ -65,6 +66,7 @@ __all__ = [
     "SystemGrade",
     "Tier",
     "build_payload",
+    "clear_cache",
     "get_entry",
     "get_entry_ids",
     "get_spacecraft",

@@ -33,7 +33,7 @@ configurations:
         inclination: *sentinel_6a
         right_ascension_ascending_node: &sentinel_6_phasing
           kind: nominal
-          source: The tandem phase of Sentinel-6B, about 30 s (1.6 deg) behind Sentinel-6 Michael Freilich in the same plane (EUMETSAT and ESA), as their element sets of 2026-11-21 show
+          source: The tandem phase of Sentinel-6B, about 30 s (1.6 deg) behind Sentinel-6 Michael Freilich in the same plane (EUMETSAT and ESA), consistent with their element sets of 2026-11-21
         phase: *sentinel_6_phasing
       sentinel-6b:
         mean_altitude: &sentinel_6b

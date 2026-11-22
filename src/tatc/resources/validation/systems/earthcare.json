@@ -3,7 +3,7 @@
   "configurations": {
     "ground_track": {
       "digest": "c889b6cd6a9b66cfc91950c1f2ae28ff05247b8fe43a376be768798687bcc845",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -32,19 +32,29 @@
         },
         {
           "name": "node_longitude_error_p95",
-          "value": 2.9373,
+          "value": 4.7694,
           "scope": "earthcare"
         },
         {
           "name": "node_time_error_p95",
-          "value": 21.2454,
+          "value": 33.5685,
+          "scope": "earthcare"
+        },
+        {
+          "name": "test_sets",
+          "value": 8.0,
+          "scope": "earthcare"
+        },
+        {
+          "name": "test_span_days",
+          "value": 24.0,
           "scope": "earthcare"
         }
       ]
     },
     "plane": {
       "digest": "6eb92663d90697384fcdf04e261408e3257c56f0c4e5d52b7a898105d6736eed",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -69,6 +79,16 @@
         {
           "name": "local_time_error_p95",
           "value": 0.6741,
+          "scope": "earthcare"
+        },
+        {
+          "name": "test_sets",
+          "value": 8.0,
+          "scope": "earthcare"
+        },
+        {
+          "name": "test_span_days",
+          "value": 24.0,
           "scope": "earthcare"
         }
       ]

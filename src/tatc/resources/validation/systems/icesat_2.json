@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "6cd6f70b5aab860e5c8ce7c9d481e9dc24a6ebc94068174838f935947fd0a89c",
-      "standard_version": 2,
+      "standard_version": 3,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -23,6 +23,16 @@
         {
           "name": "inclination_error_p95",
           "value": 0.0059,
+          "scope": "icesat-2"
+        },
+        {
+          "name": "test_sets",
+          "value": 5.0,
+          "scope": "icesat-2"
+        },
+        {
+          "name": "test_span_days",
+          "value": 18.0,
           "scope": "icesat-2"
         }
       ]

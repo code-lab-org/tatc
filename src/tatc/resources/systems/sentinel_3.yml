@@ -31,9 +31,9 @@ configurations:
           platforms: [sentinel-3a]
           period: "2026-11-08"
         equator_crossing_time: *sentinel_3a
-        phase: &sentinel_3_phasing
+        phase:
           kind: nominal
-          source: ESA's phasing of Sentinel-3B, 140 deg from Sentinel-3A in their plane (ahead of it, as their element sets of 2026-11-21 show, 137.8 deg)
+          source: The reference of the constellation's relative phases (zero)
       sentinel-3b:
         mean_altitude: &sentinel_3b
           kind: measured
@@ -41,7 +41,11 @@ configurations:
           platforms: [sentinel-3b]
           period: "2026-11-18"
         equator_crossing_time: *sentinel_3b
-        phase: *sentinel_3_phasing
+        phase:
+          kind: measured
+          source: ESA's phasing of Sentinel-3B, 140 deg from Sentinel-3A in their plane, ahead of it as their element sets of 2026-11-21 show (137.8 deg)
+          platforms: [sentinel-3a, sentinel-3b]
+          period: "2026-11-21"
     limitations:
       - The satellites keep the operator's relative phases (and planes), but the constellation's phase in its plane is arbitrary (relative phases are counted from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
       - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
