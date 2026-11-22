@@ -262,7 +262,9 @@ class RepeatGroundTrackOrbit(BaseModel):
                 update["inclination"] = float(
                     np.degrees(
                         np.arccos(
-                            np.clip(np.cos(np.radians(element.inclination)) * ratio, -1, 1)
+                            np.clip(
+                                np.cos(np.radians(element.inclination)) * ratio, -1, 1
+                            )
                         )
                     )
                 )

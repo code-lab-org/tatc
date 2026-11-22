@@ -6,14 +6,13 @@ documentation, so these check the page here.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import pathlib
-import sys
 import unittest
 
 from tatc.catalog import get_entry, get_entry_ids
 
-sys.path.insert(0, str(pathlib.Path(__file__).parents[2] / "docs" / "validation"))
-import catalog_page  # pylint: disable=wrong-import-position,import-error
+from .pages import load_page_script
+
+catalog_page = load_page_script("catalog_page")
 
 
 class TestCatalogPage(unittest.TestCase):
