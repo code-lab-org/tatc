@@ -2,19 +2,19 @@
   "entry_id": "awos",
   "configurations": {
     "stations": {
-      "digest": "93c8f84199975d3786a5a798e59250c7874911f42af4e15700b4586b176d7700",
-      "standard_version": 1,
+      "digest": "2c28b4053ad38bfcb14b2c175553114667e0d5e651aea713404c2a8f85b7eeae",
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_surface.py",
       "reference": "NCEI's GHCN-Daily station inventory (positions and ground elevations) and the stations the Iowa Environmental Mesonet reports online",
-      "period": "2026-11-21",
+      "period": "2026-11-22",
       "platforms": [
         "awos"
       ],
       "metrics": [
         {
           "name": "horizontal_error_p95",
-          "value": 587.2757
+          "value": 601.6617
         },
         {
           "name": "ground_elevation_error_p95",
@@ -26,7 +26,11 @@
         },
         {
           "name": "membership_precision",
-          "value": 85.9532
+          "value": 85.9218
+        },
+        {
+          "name": "reference_matched",
+          "value": 17.2067
         }
       ]
     }

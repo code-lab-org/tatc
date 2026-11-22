@@ -3,11 +3,11 @@
   "configurations": {
     "stations": {
       "digest": "0624b996f473a2b02fe00111a79405ab7768f0a6545cd532214697940c99213f",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_surface.py",
       "reference": "NCEI's GHCN-Daily station inventory (positions and ground elevations) and the stations the Iowa Environmental Mesonet reports online",
-      "period": "2026-11-21",
+      "period": "2026-11-22",
       "platforms": [
         "asos"
       ],
@@ -27,6 +27,10 @@
         {
           "name": "membership_precision",
           "value": 93.3972
+        },
+        {
+          "name": "reference_matched",
+          "value": 98.2961
         }
       ]
     }

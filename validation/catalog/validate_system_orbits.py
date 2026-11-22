@@ -87,7 +87,9 @@ def get_test_days(
     return sorted(days)
 
 
-def load_element_sets(run: SystemRun, spacecraft: str, days: list[str]) -> tuple:
+def load_element_sets(
+    run: SystemRun, spacecraft: str, days: list[str]
+) -> dict[str, list[str]]:
     """
     Loads the element sets of days, by the days of their epochs (see
     `orbits.get_element_sets`), reporting the days without a set of their own.
@@ -96,7 +98,7 @@ def load_element_sets(run: SystemRun, spacecraft: str, days: list[str]) -> tuple
     missing = sorted(set(days) - set(sets))
     if missing:
         print(f"  {spacecraft}: no element set of its own on {', '.join(missing)}")
-    return list(sets.values()), list(sets)
+    return sets
 
 
 def fit(run: SystemRun, key: str) -> None:
@@ -105,7 +107,8 @@ def fit(run: SystemRun, key: str) -> None:
     given = [day.isoformat() for day in run.days]
     for spacecraft, orbit in configuration.orbits.items():
         days = given or get_fit_days(configuration, spacecraft)
-        tles, found = load_element_sets(run, spacecraft, days)
+        sets = load_element_sets(run, spacecraft, days)
+        tles, found = list(sets.values()), list(sets)
         if not tles:
             continue
         if isinstance(orbit, RepeatGroundTrackOrbit):
@@ -133,8 +136,9 @@ def fit(run: SystemRun, key: str) -> None:
             print(
                 f"{spacecraft}: mean_altitude: {round(plane['mean_altitude'], -1):.0f}, "
                 f"inclination: {plane['inclination']:.4f}, equator_crossing_time: "
-                f"\"{orbits.to_time_of_day(plane['local_time']):%H:%M:%S}\" "
-                f"({found[0]})"
+                f"\"{orbits.to_time_of_day(plane['local_time']):%H:%M:%S}\", "
+                "reference_time (if it drifts): "
+                f'"{orbit_of_set.get_epoch():%Y-%m-%dT%H:%M:%S}Z" ({found[0]})'
             )
 
 
@@ -145,19 +149,20 @@ def test(run: SystemRun, key: str) -> ConfigurationRecord | None:
     """
     configuration = run.entry.configurations[key]
     given = [day.isoformat() for day in run.days]
-    metrics, periods, all_days = [], {}, set()
+    metrics, periods, all_sets = [], {}, {}
     for spacecraft, orbit in configuration.orbits.items():
         days = given or get_test_days(configuration, spacecraft, run.step, run.end)
-        tles, found = load_element_sets(run, spacecraft, days)
-        if not tles:
+        sets = load_element_sets(run, spacecraft, days)
+        if not sets:
             print(f"  {spacecraft}: no days to test")
             continue
-        results = orbits.compare(orbit, tles, spacecraft)
-        for result in results:
-            print(f"  {spacecraft} {result['name']}: {result['value']}")
-        metrics += results
-        periods[spacecraft] = format_period(found)
-        all_days |= set(found)
+        metrics += orbits.compare(orbit, list(sets.values()), spacecraft)
+        periods[spacecraft] = format_period(sets)
+        all_sets[spacecraft] = sets
+    metrics += orbits.compare_relative(configuration, all_sets)
+    for metric in metrics:
+        print(f"  {metric['scope']} {metric['name']}: {metric['value']}")
+    all_days = {day for sets in all_sets.values() for day in sets}
     if not metrics:
         return None
     period = format_period(all_days)

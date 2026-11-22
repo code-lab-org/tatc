@@ -3,7 +3,7 @@
   "configurations": {
     "plane": {
       "digest": "6841dba5a270d2c9afe0f3d0df23de75e9a5e344c5938736e0ab710b9cb413f2",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",

@@ -45,7 +45,7 @@ Systems
 
 .. autofunction:: tatc.catalog.system_schemas.parse_system
 
-.. autofunction:: tatc.catalog.system_schemas.describe_orbit
+.. autofunction:: tatc.catalog.system_orbits.describe_orbit
 
 .. autopydantic_model:: tatc.catalog.Spacecraft
 
@@ -105,11 +105,11 @@ The schemas of the files of systems.
 
 .. autopydantic_model:: tatc.catalog.system_schemas.SurfaceConfiguration
 
-.. autopydantic_model:: tatc.catalog.system_schemas.SunSynchronousPlane
+.. autopydantic_model:: tatc.catalog.system_orbits.SunSynchronousPlane
 
-.. autopydantic_model:: tatc.catalog.system_schemas.InclinedPlane
+.. autopydantic_model:: tatc.catalog.system_orbits.InclinedPlane
 
-.. autopydantic_model:: tatc.catalog.system_schemas.GeostationarySlot
+.. autopydantic_model:: tatc.catalog.system_orbits.GeostationarySlot
 
 .. autopydantic_model:: tatc.catalog.system_schemas.StationTable
 

@@ -277,13 +277,18 @@ def get_system(system_id: str) -> SystemEntry:
 def list_systems(
     system_class: SystemClass | str | None = None,
     tier: Tier | str | None = None,
+    *,
+    satellite: bool | None = None,
 ) -> list[SystemEntry]:
     """
-    Lists catalog systems, optionally of one class or validation tier.
+    Lists catalog systems, optionally of one class or validation tier, or only
+    satellite systems (or only networks).
 
     Args:
         system_class (SystemClass | str | None): The class, if any.
         tier (Tier | str | None): The validation tier, if any.
+        satellite (bool | None): `True` for satellite systems only, `False` for
+            networks only, or `None` (the default) for both.
 
     Returns:
         list[SystemEntry]: Copies of the systems, sorted by identifier.
@@ -294,6 +299,7 @@ def list_systems(
         entry
         for entry in map(get_system, get_system_ids())
         if (wanted_class is None or entry.system_class == wanted_class)
+        and (satellite is None or entry.system_class.is_satellite() == satellite)
         and (wanted_tier is None or entry.validation.tier == wanted_tier)
     ]
 
@@ -324,13 +330,30 @@ def _get_spacecraft_systems() -> dict[str, str]:
     return systems
 
 
-def get_spacecraft(spacecraft_id: str) -> Spacecraft:
+def _find_spacecraft(spacecraft: str) -> str:
     """
-    Gets a spacecraft of a catalog system, which instrument entries list by
-    identifier.
+    Gets the identifier of a spacecraft given by its identifier or name
+    (ignoring case).
+    """
+    systems = _get_spacecraft_systems()
+    if spacecraft in systems:
+        return spacecraft
+    wanted = spacecraft.casefold()
+    for spacecraft_id, system_id in systems.items():
+        found = _load_system(system_id).get_spacecraft(spacecraft_id)
+        if wanted in (found.id.casefold(), found.name.casefold()):
+            return spacecraft_id
+    raise KeyError(f"no catalog spacecraft {spacecraft!r}")
+
+
+def get_spacecraft(spacecraft: str) -> Spacecraft:
+    """
+    Gets a spacecraft of a catalog system by its identifier (which instrument
+    entries list) or name, ignoring case.
 
     Args:
-        spacecraft_id (str): The identifier of the spacecraft.
+        spacecraft (str): The identifier or name of the spacecraft (such as
+            `noaa-20` or `NOAA-20`).
 
     Returns:
         Spacecraft: The spacecraft.
@@ -338,18 +361,18 @@ def get_spacecraft(spacecraft_id: str) -> Spacecraft:
     Raises:
         KeyError: If no system has such a spacecraft.
     """
-    systems = _get_spacecraft_systems()
-    if spacecraft_id not in systems:
-        raise KeyError(f"no catalog spacecraft {spacecraft_id!r}")
-    return _load_system(systems[spacecraft_id]).get_spacecraft(spacecraft_id)
+    spacecraft_id = _find_spacecraft(spacecraft)
+    return _load_system(_get_spacecraft_systems()[spacecraft_id]).get_spacecraft(
+        spacecraft_id
+    )
 
 
-def get_spacecraft_system(spacecraft_id: str) -> SystemEntry:
+def get_spacecraft_system(spacecraft: str) -> SystemEntry:
     """
     Gets the system of a spacecraft.
 
     Args:
-        spacecraft_id (str): The identifier of the spacecraft.
+        spacecraft (str): The identifier or name of the spacecraft.
 
     Returns:
         SystemEntry: A copy of its system.
@@ -357,7 +380,4 @@ def get_spacecraft_system(spacecraft_id: str) -> SystemEntry:
     Raises:
         KeyError: If no system has such a spacecraft.
     """
-    systems = _get_spacecraft_systems()
-    if spacecraft_id not in systems:
-        raise KeyError(f"no catalog spacecraft {spacecraft_id!r}")
-    return get_system(systems[spacecraft_id])
+    return get_system(_get_spacecraft_systems()[_find_spacecraft(spacecraft)])

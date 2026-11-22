@@ -17,11 +17,8 @@ from tatc.catalog import (
     get_system_ids,
 )
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
-from tatc.catalog.system_schemas import (
-    OrbitConfiguration,
-    RadarConfiguration,
-    describe_orbit,
-)
+from tatc.catalog.system_orbits import describe_orbit
+from tatc.catalog.system_schemas import OrbitConfiguration, RadarConfiguration
 
 
 def render_configuration(entry, key: str) -> str:

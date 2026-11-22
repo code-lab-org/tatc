@@ -3,7 +3,7 @@
   "configurations": {
     "ground_track": {
       "digest": "7bbcd10d2f5ad16a2c78ae1ec1eac2a904164a12e623fe5f4e4c608758f417db",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -98,7 +98,7 @@
     },
     "plane": {
       "digest": "3a679db3afeb06a777bfa13faaa6fde05d2bd6a20e8cfe415652e776e000f892",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -157,6 +157,16 @@
         {
           "name": "local_time_error_p95",
           "value": 0.0294,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "relative_phase_error_p95",
+          "value": 0.6985,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "relative_phase_error_p95",
+          "value": 0.7747,
           "scope": "sentinel-2c"
         }
       ]

@@ -17,6 +17,7 @@ See `docs/validation/standard.rst`.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -30,10 +31,10 @@ from .standard import (
 if TYPE_CHECKING:
     from .system_schemas import SystemEntry
 
-SYSTEM_STANDARD_VERSION = 1
+SYSTEM_STANDARD_VERSION = 2
 """The version of the thresholds in `get_system_gates`."""
 
-COMPATIBLE_SYSTEM_VERSIONS = (1,)
+COMPATIBLE_SYSTEM_VERSIONS = (2,)
 """Versions whose results still apply."""
 
 
@@ -76,7 +77,9 @@ class SystemGrade(str, Enum):
     """
     The planes of the orbits (altitude, inclination, and the local time of the
     ascending node of sun-synchronous orbits), for statistics of revisits and
-    coverage; the phase of the satellites in their planes is arbitrary.
+    coverage, with the relative phases (and nodes) of a constellation whose
+    operator maintains them, which are tested if cataloged; other phases are
+    arbitrary.
     """
     GROUND_TRACK = "ground_track"
     """
@@ -104,6 +107,14 @@ _NODE_LONGITUDE = Gate(
     "node_longitude_error_p95", 10, True, "km", "Node longitude error (p95)"
 )
 _NODE_TIME = Gate("node_time_error_p95", 60, True, "s", "Node time error (p95)")
+# constellations: the relative phases (and nodes) of the satellites, from the
+# element sets of the days on which each satellite and the first have sets
+_RELATIVE_PHASE = Gate(
+    "relative_phase_error_p95", 5, True, "deg", "Relative phase error (p95)"
+)
+_RELATIVE_NODE = Gate(
+    "relative_node_error_p95", 1, True, "deg", "Relative node error (p95)"
+)
 _SLOT_LONGITUDE = Gate(
     "slot_longitude_error_p95", 0.1, True, "deg", "Subsatellite longitude error (p95)"
 )
@@ -133,8 +144,15 @@ _MEMBERSHIP_PRECISION = Gate(
 _LOWEST_TILT = Gate(
     "min_elevation_error_p95", 0.2, True, "deg", "Lowest elevation angle error (p95)"
 )
+# one-sided: a radar that ends a volume below its highest cut (as AVSET does
+# when few echoes are present) observes less than the configuration, as its
+# limitations state, while one that scans above it observes more
 _HIGHEST_TILT = Gate(
-    "max_elevation_error_p95", 1.0, True, "deg", "Highest elevation angle error (p95)"
+    "max_elevation_excess_p95",
+    1.0,
+    True,
+    "deg",
+    "Highest elevation angle above the configuration's (p95)",
 )
 _RANGE = Gate("range_error_p95", 5, True, "%", "Maximum range error (p95)")
 
@@ -206,8 +224,17 @@ _INCLUDES = {
 }
 
 
+# the gates of the values of orbits relative to each other, by field
+_RELATIVE_GATES = {
+    "phase": _RELATIVE_PHASE,
+    "right_ascension_ascending_node": _RELATIVE_NODE,
+}
+
+
 def get_system_gates(
-    system_class: SystemClass | str, grade: SystemGrade | str
+    system_class: SystemClass | str,
+    grade: SystemGrade | str,
+    relative: Collection[str] = (),
 ) -> tuple[Gate, ...]:
     """
     Gets the gates of a system configuration.
@@ -215,6 +242,9 @@ def get_system_gates(
     Args:
         system_class (SystemClass | str): The class of the system.
         grade (SystemGrade | str): The grade of the configuration.
+        relative (Collection[str]): The values of its orbits relative to each
+            other that it gives (`phase`, `right_ascension_ascending_node`; see
+            `OrbitConfiguration.get_relative_values`), whose gates apply too.
 
     Returns:
         tuple[Gate, ...]: The applicable gates.
@@ -228,7 +258,9 @@ def get_system_gates(
         raise ValueError(
             f"{system_class.value} has no {grade.value} grade, only {grades}"
         )
-    return _GATES[system_class, grade]
+    return _GATES[system_class, grade] + tuple(
+        gate for field, gate in _RELATIVE_GATES.items() if field in relative
+    )
 
 
 def get_required_system_grades(
@@ -296,18 +328,29 @@ def evaluate_system(entry: SystemEntry) -> EntryValidation:
                     f"version {record.standard_version} of the system standard, "
                     "of the test, does not apply"
                 )
-            untested = sorted(set(configuration.get_members()) - set(record.platforms))
+            untested = sorted(
+                set(configuration.get_tested_platforms()) - set(record.platforms)
+            )
             if untested:
                 gaps.append(f"not tested on {', '.join(untested)}")
         configurations[key] = _evaluate_record(
             configuration.grade,
             record,
-            get_system_gates(entry.system_class, configuration.grade),
+            get_system_gates(
+                entry.system_class,
+                configuration.grade,
+                configuration.get_relative_values(),
+            ),
             digest=entry.get_digest(key),
             holdout=(
                 None
                 if record is None
-                else entry.get_holdout_gap(key, record.period, record.platform_periods)
+                else entry.get_holdout_gap(
+                    key,
+                    record.period,
+                    record.platform_periods,
+                    platforms=record.platforms,
+                )
             ),
             evidence_gaps=tuple(gaps),
         )

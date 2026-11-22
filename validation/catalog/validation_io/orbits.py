@@ -14,9 +14,11 @@ from datetime import datetime, time, timedelta, timezone
 
 import numpy as np
 import pandas as pd
+from skyfield.api import EarthSatellite
 
 from tatc.catalog import get_spacecraft
-from tatc.catalog.system_schemas import GeostationarySlot
+from tatc.catalog.system_orbits import GeostationarySlot
+from tatc.catalog.system_schemas import OrbitConfiguration
 from tatc.constants import EARTH_EQUATORIAL_RADIUS, timescale
 from tatc.schemas import GeneralPerturbationsOrbit, RepeatGroundTrackOrbit
 from tatc.schemas.orbit import AscendingNode
@@ -210,6 +212,76 @@ def compare_track(
         p95_metric("node_longitude_error_p95", delta_longitude, scope),
         p95_metric("node_time_error_p95", delta_time, scope),
     ]
+
+
+def get_relative_angles(tle: list[str], moment: datetime) -> tuple[float, float]:
+    """
+    Gets the argument of latitude and right ascension of ascending node
+    (degrees, of the osculating orbit in the GCRS) of an element set's orbit at
+    a time.
+    """
+    satellite = EarthSatellite(tle[-2], tle[-1], ts=timescale)
+    state = satellite.at(timescale.from_datetime(moment))
+    position, velocity = state.position.km, state.velocity.km_per_s
+    node = np.cross([0.0, 0.0, 1.0], np.cross(position, velocity))
+    cosine = np.dot(node, position) / np.linalg.norm(node) / np.linalg.norm(position)
+    latitude = float(np.degrees(np.arccos(np.clip(cosine, -1, 1))))
+    if position[2] < 0:
+        latitude = 360 - latitude
+    return latitude, float(np.degrees(np.arctan2(node[1], node[0])) % 360)
+
+
+def compare_relative(
+    configuration: OrbitConfiguration, sets: dict[str, dict[str, list[str]]]
+) -> list[dict]:
+    """
+    Compares the relative phases (and nodes) of a configuration's orbits with
+    those of element sets: for each spacecraft but the first of the
+    configuration with sets, on each day on which both have sets (propagated to
+    the middle of the day), the error (degrees) of its argument of latitude (and
+    right ascension of ascending node) less the first's, as 95th percentiles of
+    their absolute values.
+
+    Args:
+        configuration (OrbitConfiguration): The configuration.
+        sets (dict[str, dict[str, list[str]]]): The element sets of each tested
+            spacecraft, by day (see `get_element_sets`).
+
+    Returns:
+        list[dict]: The metrics, as records state them (none if the
+        configuration gives no relative values).
+    """
+    fields = configuration.get_relative_values()
+    tested = [s for s in configuration.orbits if sets.get(s)]
+    if not fields or len(tested) < 2:
+        return []
+    first = tested[0]
+    names = {
+        "phase": "relative_phase_error_p95",
+        "right_ascension_ascending_node": "relative_node_error_p95",
+    }
+    metrics = []
+    for spacecraft in tested[1:]:
+        errors = {field: [] for field in fields}
+        for day in sorted(set(sets[first]) & set(sets[spacecraft])):
+            moment = datetime.fromisoformat(day).replace(hour=12, tzinfo=timezone.utc)
+            phase_1, node_1 = get_relative_angles(sets[first][day], moment)
+            phase_2, node_2 = get_relative_angles(sets[spacecraft][day], moment)
+            measured = {
+                "phase": phase_2 - phase_1,
+                "right_ascension_ascending_node": node_2 - node_1,
+            }
+            for field in fields:
+                cataloged = getattr(configuration.orbits[spacecraft], field) - getattr(
+                    configuration.orbits[first], field
+                )
+                errors[field].append(float(_wrap(measured[field] - cataloged)))
+        metrics += [
+            p95_metric(names[field], values, spacecraft)
+            for field, values in errors.items()
+            if values
+        ]
+    return metrics
 
 
 def get_nodes(orbit: GeneralPerturbationsOrbit) -> pd.DataFrame:

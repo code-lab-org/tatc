@@ -3,7 +3,7 @@
   "configurations": {
     "ground_track": {
       "digest": "a5960d8f00260506066ad99251eaa24522eba836575b0711fee00249c982b18e",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
@@ -71,7 +71,7 @@
     },
     "plane": {
       "digest": "8af3e2cc4f003fc4f9dd6eeac8dba907475e25d5e2ba534e5f684245331ff70f",
-      "standard_version": 1,
+      "standard_version": 2,
       "tatc_version": "3.6.0",
       "source": "validation/catalog/validate_system_orbits.py",
       "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",

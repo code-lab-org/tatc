@@ -573,14 +573,20 @@ System Standard
 
 The systems of :mod:`tatc.catalog` (satellite programs, radar networks, and
 surface networks, see :doc:`systems`) are held to a standard of their own
-(:mod:`tatc.catalog.system_standard`, version 1). Its grades are the uses a
+(:mod:`tatc.catalog.system_standard`, version 2). Its grades are the uses a
 pre-phase A study makes of a baseline system, and its rules are those of the
 instrument standard: tiers are computed from results, values are tested on data
 held out at least 30 days from the data to which they were fitted, records state
 the digest of the configuration they tested, and thresholds are frozen before
 testing and change only with a new version. The thresholds of version 1 were
 checked only against the fitting data (each orbit against the element set from
-which it was fitted) before they were frozen.
+which it was fitted) before they were frozen. Version 2 tests the relative
+phases (and nodes) that constellations catalog, whose thresholds were set after
+the element sets of 2026-11-21 had shown the cataloged phases within 2.2 deg
+(before their held-out tests), and makes the radars' highest-cut gate one-sided:
+a volume that a radar ends below its highest cut (as AVSET does when few echoes
+are present) observes less than the configuration, as its limitations state,
+and is not an error.
 
 A system's spacecraft or stations are tested together: each gate takes the worst
 value over spacecraft, and a configuration not tested on every spacecraft is not
@@ -592,8 +598,11 @@ Satellite orbits
 A cataloged orbit is idealized, so that it can be built for any period rather
 than aging as an element set does. The plane grade represents the statistics of
 revisits and coverage: the planes of the orbits, with the relative phases of a
-constellation whose operator maintains them (a nominal value), or else phases
-(and, for inclined orbits, nodes) spaced evenly among the satellites built. The
+constellation whose operator maintains them (a nominal value, tested against the
+satellites' element sets of the same days), or else phases (and, for inclined
+orbits, nodes) spaced evenly among the satellites built. A satellite whose local
+time is no longer maintained drifts from its cataloged local time, at its
+reference time, at the rate of its inclination. The
 ground track grade also represents where, and to about a minute when, passes
 occur, for orbits that operators maintain on a repeat ground track
 (`RepeatGroundTrackOrbit`, pinned to an ascending node fitted as the middle of
@@ -618,6 +627,10 @@ node of the cataloged orbit.
    * - Plane (sun-synchronous)
      - Local mean solar time of the ascending node
      - ≤ 10 min
+   * - Plane (cataloged relative phases or nodes)
+     - Argument of latitude (and right ascension of ascending node) of each
+       satellite less the first's, on days on which both have element sets
+     - ≤ 5 deg (≤ 1 deg)
    * - Ground track (sun-synchronous, inclined)
      - The plane gates; node longitude (along the equator); node time
      - ≤ 10 km; ≤ 60 s
@@ -637,7 +650,12 @@ Networks
 --------
 
 A network's stations are a dated snapshot (a table), whose positions and
-membership are tested against independent sources held out from the snapshot.
+membership are tested against other sources held out from the snapshot: for
+radars, the radars' own Level II metadata against NCEI's table; for surface
+stations, NCEI's GHCN-Daily inventory, which is compiled from the same station
+histories as the table (so that it tests the table's transcription and drift
+more than its accuracy), and which records the percent of stations it matched
+(without a gate).
 Radar networks need the coverage grade, which also tests siting, and surface
 networks the siting grade. The radius of the area an in-situ instrument
 represents is an assumption (its provenance is a placeholder), not tested.
@@ -660,7 +678,8 @@ represents is an assumption (its provenance is a placeholder), not tested.
        table reporting), over the test period
      - ≥ 98%; ≥ 98%
    * - Coverage (radar networks)
-     - The siting gates; the lowest and highest scanned elevation angles and the
-       reflectivity range of sampled volumes of the configuration's volume
-       coverage patterns, against its own (95th percentiles)
+     - The siting gates; the lowest scanned elevation angle, the highest above
+       the configuration's (one-sided), and the reflectivity range of sampled
+       volumes of the configuration's volume coverage patterns, against its own
+       (95th percentiles)
      - ≤ 0.2 deg; ≤ 1.0 deg; ≤ 5%

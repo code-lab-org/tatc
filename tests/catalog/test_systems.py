@@ -28,7 +28,8 @@ from tatc.catalog import (
     loader,
 )
 from tatc.catalog.records import ConfigurationRecord
-from tatc.catalog.system_schemas import describe_orbit, parse_system
+from tatc.catalog.system_orbits import SLOT_EPOCH, describe_orbit
+from tatc.catalog.system_schemas import SystemEntry, parse_system
 from tatc.catalog.system_standard import (
     COMPATIBLE_SYSTEM_VERSIONS,
     SystemClass,
@@ -58,7 +59,7 @@ EXPECTED_SYSTEM_STATUS = {
         {
             "stations": (
                 "partial",
-                0,
+                1,
                 [
                     "membership_precision",
                     "fitted values are not tested on data at least 30 days from their fitting data",
@@ -72,7 +73,7 @@ EXPECTED_SYSTEM_STATUS = {
         {
             "stations": (
                 "partial",
-                0,
+                1,
                 [
                     "horizontal_error_p95",
                     "membership_precision",
@@ -243,9 +244,9 @@ EXPECTED_SYSTEM_STATUS = {
         [],
     ),
     "nexrad": (
-        "partial",
+        "validated",
         {
-            "precipitation": ("partial", 30, ["max_elevation_error_p95"]),
+            "precipitation": ("validated", 30, []),
             "clear_air": ("validated", 30, []),
         },
         [],
@@ -293,7 +294,11 @@ EXPECTED_SYSTEM_STATUS = {
     "sentinel_1": (
         "partial",
         {
-            "plane": ("partial", 53, ["not tested on sentinel-1d"]),
+            "plane": (
+                "partial",
+                53,
+                ["relative_phase_error_p95", "not tested on sentinel-1d"],
+            ),
             "ground_track": ("validated", 52, []),
         },
         [],
@@ -316,6 +321,7 @@ EXPECTED_SYSTEM_STATUS = {
                     "altitude_error_p95",
                     "inclination_error_p95",
                     "local_time_error_p95",
+                    "relative_phase_error_p95",
                     "no comparison with reference data",
                 ],
             ),
@@ -347,6 +353,8 @@ EXPECTED_SYSTEM_STATUS = {
                 [
                     "altitude_error_p95",
                     "inclination_error_p95",
+                    "relative_phase_error_p95",
+                    "relative_node_error_p95",
                     "no comparison with reference data",
                 ],
             ),
@@ -393,7 +401,7 @@ EXPECTED_SYSTEM_STATUS = {
         {
             "stations": (
                 "partial",
-                0,
+                1,
                 [
                     "membership_precision",
                     "fitted values are not tested on data at least 30 days from their fitting data",
@@ -511,10 +519,26 @@ class TestLoading(unittest.TestCase):
         self.assertIn("gras", [e.id for e in list_entries(platform="metop-b")])
         self.assertNotIn("gras", get_system("metop").get_payload_references("metop-b"))
 
+    def test_spacecraft_by_name(self):
+        """
+        Test that spacecraft are found by identifier or name, ignoring case, and
+        that satellite systems or networks are listed apart.
+        """
+        self.assertEqual(get_spacecraft("NOAA-20").id, "noaa-20")
+        self.assertEqual(get_spacecraft_system("aqua").id, "eos")
+        self.assertEqual(get_system("jpss").get_spacecraft("Suomi NPP").id, "suomi-npp")
+        satellites = list_systems(satellite=True)
+        networks = list_systems(satellite=False)
+        self.assertTrue(all(s.system_class.is_satellite() for s in satellites))
+        self.assertEqual(len(satellites) + len(networks), len(get_system_ids()))
+
     def test_classes(self):
         """
-        Test that systems are parsed as the schemas of their classes.
+        Test that systems are parsed as the schemas of their classes, not as
+        the base class.
         """
+        with self.assertRaisesRegex(TypeError, "parse_system"):
+            SystemEntry(**_system_data("jpss"))
         self.assertIsInstance(get_system("jpss"), SatelliteSystem)
         self.assertIsInstance(get_system("nexrad"), RadarNetwork)
         self.assertIsInstance(get_system("uscrn"), SurfaceNetwork)
@@ -529,10 +553,12 @@ class TestLoading(unittest.TestCase):
         descriptions of orbits.
         """
         summary = get_system("jpss").summarize()
-        self.assertEqual(summary["members"], 3)
+        self.assertEqual((summary["members"], summary["active"]), (3, 2))
         self.assertEqual(summary["configurations"], "plane, ground_track")
+        self.assertEqual(get_system("tropics").summarize()["active"], 0)
+        self.assertEqual(get_system("jpss").get_member_names()["noaa-20"], "NOAA-20")
         uscrn = get_system("uscrn")
-        names = uscrn.get_station_names()
+        names = uscrn.get_member_names()
         self.assertEqual(len(names), uscrn.summarize()["members"])
         self.assertEqual(list(names), uscrn.get_members())
         orbits = get_system("jpss").configurations
@@ -683,6 +709,35 @@ class TestStrictFiles(unittest.TestCase):
         data["platform_periods"] = {}
         ConfigurationRecord(**data)
 
+    def test_snapshot_date(self):
+        """
+        Test that a measured table's provenance has the date of its snapshot.
+        """
+        self.data = _system_data("nexrad")
+        self.data["stations"]["as_of"] = "2026-10-16"
+        self._assert_invalid("snapshot")
+
+    def test_patterns_in_digest(self):
+        """
+        Test that a radar configuration's volume coverage patterns, which select
+        the volumes of its tests, are in its digest.
+        """
+        nexrad = get_system("nexrad")
+        data = _system_data("nexrad")
+        data["configurations"]["clear_air"]["volume_coverage_patterns"] = [31]
+        self.assertNotEqual(
+            parse_system(data).get_digest("clear_air"),
+            nexrad.get_digest("clear_air"),
+        )
+
+    def test_drifting_plane_needs_reference_time(self):
+        """
+        Test that a plane whose local time drifts has a reference time.
+        """
+        self.data = _system_data("eos")
+        del self.data["configurations"]["plane"]["orbits"]["aqua"]["reference_time"]
+        self._assert_invalid("reference_time")
+
     def test_networks_have_stations(self):
         """
         Test that a satellite system has no stations, and a network no
@@ -761,19 +816,55 @@ class TestBuild(unittest.TestCase):
 
     def test_drifting_planes(self):
         """
-        Test that a plane whose local time drifts is built with its inclination
-        and the cataloged local time at the epoch.
+        Test that a plane whose local time drifts is built with its inclination,
+        with the cataloged local time at its reference time, from which its node
+        drifts at the J2 rate of its inclination to the epoch.
         """
         system = get_system("eos")
-        (aqua,) = system.build(epoch=EPOCH, payload=False, members=["aqua"])
-        self.assertIsInstance(aqua.orbit, CircularOrbit)
         plane = system.configurations["plane"].orbits["aqua"]
-        self.assertEqual(aqua.orbit.inclination, plane.inclination)
-        reference = plane.model_copy(update={"inclination": None}).build(EPOCH)
-        self.assertAlmostEqual(
-            aqua.orbit.right_ascension_ascending_node,
-            reference.get_right_ascension_ascending_node(),
+        sun_synchronous = plane.model_copy(
+            update={"inclination": None, "reference_time": None}
         )
+        nodes = {}
+        for days in (0, 365):
+            epoch = plane.reference_time + timedelta(days=days)
+            (aqua,) = system.build(epoch=epoch, payload=False, members="aqua")
+            self.assertIsInstance(aqua.orbit, CircularOrbit)
+            self.assertEqual(aqua.orbit.inclination, plane.inclination)
+            # the node less that of a sun-synchronous orbit of the same local time
+            nodes[days] = (
+                aqua.orbit.right_ascension_ascending_node
+                - sun_synchronous.build(epoch).get_right_ascension_ascending_node()
+            ) % 360
+        self.assertAlmostEqual(nodes[0], 0, places=6)
+        # Aqua's local time drifts later by more than half an hour a year
+        self.assertGreater(nodes[365], 7.5)
+
+    def test_payload_given(self):
+        """
+        Test that given references are carried by the satellites that list them,
+        and that a reference no satellite built carries is an error.
+        """
+        with self.assertWarnsRegex(UserWarning, "Aura carries none"):
+            satellites = get_system("eos").build(
+                epoch=EPOCH, payload="modis", time_step=10
+            )
+        self.assertEqual(
+            {s.name: [i.name for i in s.instruments] for s in satellites},
+            {"Terra": ["MODIS"], "Aqua": ["MODIS"], "Aura": ["Default"]},
+        )
+        with self.assertRaisesRegex(ValueError, "carries"):
+            get_system("eos").build(epoch=EPOCH, payload=["viirs"], time_step=10)
+
+    def test_payload_warnings(self):
+        """
+        Test that a satellite without cataloged instruments other than sounders
+        warns, and that instruments that need a time step say so.
+        """
+        with self.assertWarnsRegex(UserWarning, "default instrument"):
+            get_system("cosmic_2").build(epoch=EPOCH)
+        with self.assertRaisesRegex(ValueError, r"build\(time_step=...\)"):
+            get_system("jpss").build(epoch=EPOCH)
 
     def test_ground_tracks_at_any_epoch(self):
         """
@@ -812,6 +903,8 @@ class TestBuild(unittest.TestCase):
         """
         satellites = get_system("goes").build(epoch=EPOCH, payload=False)
         self.assertIsInstance(satellites[0].orbit, GeosynchronousOrbit)
+        (default,) = get_system("goes").build(payload=False, members="goes-19")
+        self.assertEqual(default.orbit.epoch, SLOT_EPOCH)
         times = [EPOCH + timedelta(days=30, hours=h) for h in range(24)]
         position = satellites[0].orbit.to_gp_orbit().get_geographic_position(times)
         self.assertAlmostEqual(
@@ -840,6 +933,10 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(kiwa.height, 19)
         with self.assertRaisesRegex(ValueError, "no stations"):
             get_system("nexrad").build(members=["KXXX"])
+        (ktlx,) = get_system("nexrad").build(members="KTLX")
+        self.assertEqual(ktlx.name, "KTLX")
+        with self.assertWarnsRegex(UserWarning, "region"):
+            self.assertEqual(get_system("nexrad").build(region=box(0, 0, 1, 1)), [])
 
     def test_surface_stations(self):
         """
@@ -912,6 +1009,26 @@ class TestSystemStandard(unittest.TestCase):
         self.assertTrue(serves_system("coverage", "siting"))
         with self.assertRaisesRegex(ValueError, "no plane grade"):
             get_system_gates(SystemClass.GEOSTATIONARY, SystemGrade.PLANE)
+
+    def test_relative_gates(self):
+        """
+        Test that configurations with cataloged relative phases (and nodes) are
+        tested on them.
+        """
+        plane = get_system("sentinel_2").configurations["plane"]
+        self.assertEqual(plane.get_relative_values(), ("phase",))
+        metrics = [
+            g.metric for g in get_system_gates("sun_synchronous", "plane", ("phase",))
+        ]
+        self.assertIn("relative_phase_error_p95", metrics)
+        self.assertNotIn(
+            "relative_phase_error_p95",
+            [g.metric for g in get_system_gates("sun_synchronous", "plane")],
+        )
+        validation = get_system("sentinel_6").validation.configurations["plane"]
+        self.assertIn(
+            "relative_node_error_p95", [r.gate.metric for r in validation.gates]
+        )
 
     def test_ground_track_includes_plane(self):
         """

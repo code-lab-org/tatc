@@ -8,8 +8,10 @@ Level II data on AWS (no account needed) and NCEI's table of NEXRAD stations.
   on the test's days, compared with the table's stations.
 * Coverage: for each configuration, the elevation angles scanned by sampled
   volumes of its volume coverage patterns (`volume_coverage_patterns`), and the
-  range of their reflectivity, compared with its lowest (or a station's own) and
-  highest elevation angles and maximum range.
+  range of their reflectivity, compared with its lowest (or a station's own)
+  elevation angle and maximum range, and the angles scanned above its highest
+  elevation angle (volumes ended below it observe less, as its limitations
+  state).
 
 The test's days default to the week from `MIN_HOLDOUT_GAP_DAYS` after the
 table's snapshot. With `--fit` and a day, it builds the table instead
@@ -199,7 +201,9 @@ def test_coverage(
         own = indexed.loc[icao, "min_elevation_angle"]
         expected = configuration.min_elevation_angle if pd.isna(own) else own
         lowest.append(volume["lowest"] - expected)
-        highest.append(volume["highest"] - configuration.max_elevation_angle)
+        # one-sided: a volume ended below the highest cut (as AVSET ends them)
+        # observes less, as the configuration's limitations state
+        highest.append(max(0.0, volume["highest"] - configuration.max_elevation_angle))
         ranges.append(
             100 * (volume["range"] - configuration.max_range) / configuration.max_range
         )
@@ -213,7 +217,7 @@ def test_coverage(
         return []
     return [
         p95_metric("min_elevation_error_p95", lowest),
-        p95_metric("max_elevation_error_p95", highest),
+        p95_metric("max_elevation_excess_p95", highest),
         p95_metric("range_error_p95", ranges),
     ]
 

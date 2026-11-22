@@ -6,7 +6,10 @@ the day of the run (UTC).
 * Siting: the table's positions and ground elevations compared with NCEI's
   inventory of the Global Historical Climatology Network - Daily (GHCN-D), a
   product separate from the table's source, though compiled from the same
-  station histories (NCEI's Historical Observing Metadata Repository, HOMR).
+  station histories (NCEI's Historical Observing Metadata Repository, HOMR), so
+  that it tests the table's transcription and drift more than its accuracy; and
+  the percent of the table's stations found in GHCN-D (`reference_matched`, by
+  WBAN identifier), which no gate tests.
 * Membership: the stations that the Iowa Environmental Mesonet (IEM) reports
   online (observations received recently: USCRN, or the METAR stations of the
   United States' networks) among the network's stations as listed on the day of
@@ -20,7 +23,8 @@ With `--fit`, it builds the table instead (`resources/systems/tables/<system>.cs
 from HOMR: for USCRN, the operational stations of NCEI's USCRN list (with a WBAN
 identifier), at their HOMR positions and ground elevations; for ASOS and AWOS,
 the stations of the United States and its territories in HOMR's tables, with
-known elevations. Elevations are meters above mean sea level. Downloads are
+known elevations (AWOS without the stations of ASOS's table, which HOMR lists in
+both). Elevations are meters above mean sea level. Downloads are
 cached in a folder of the day.
 
 Usage:
@@ -139,7 +143,13 @@ def read_homr_stations(system: str, directory: pathlib.Path) -> pd.DataFrame:
     )
     table = table[~unknown]
     table["id"] = table.CALL.fillna("WBAN" + table.WBAN.fillna(table.NCDCID))
-    return table.drop_duplicates("id")
+    table = table.drop_duplicates("id")
+    if system == "awos":
+        # a station of both of HOMR's tables is an ASOS station
+        both = table.id.isin(read_homr_stations("asos", directory).id)
+        print(f"  {both.sum()} stations of ASOS's table, not included")
+        table = table[~both]
+    return table
 
 
 def list_station_ids(system: str, directory: pathlib.Path) -> set[str]:
@@ -239,6 +249,7 @@ def test(system: str, table: pd.DataFrame, directory: pathlib.Path) -> list[dict
     indexed = indexed[indexed.index.isin(ghcnd.index)]
     horizontal = horizontal_errors(indexed, ghcnd)
     vertical = (indexed.ground - ghcnd.loc[indexed.index, "ground"]).dropna()
+    matched = 100 * len(indexed) / len(table)
     print(f"  {len(indexed)} of {len(table)} stations in GHCN-D")
     # the stations of the network reporting, as its list (or HOMR's table)
     # gives them on the day of the run
@@ -251,6 +262,9 @@ def test(system: str, table: pd.DataFrame, directory: pathlib.Path) -> list[dict
         p95_metric("ground_elevation_error_p95", vertical),
         value_metric("membership_recall", recall),
         value_metric("membership_precision", precision),
+        # the percent of the table's stations whose siting is compared, which no
+        # gate tests
+        value_metric("reference_matched", matched),
     ]
 
 
