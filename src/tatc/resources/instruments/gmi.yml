@@ -3,12 +3,7 @@ name: GMI
 aliases: [GPM Microwave Imager]
 instrument_class: conical
 selection: Conically scanning microwave imager of the Global Precipitation Measurement mission, with open precipitation data products.
-platforms:
-  - id: gpm
-    name: GPM Core Observatory
-    norad_id: 39574
-    status: operational
-    as_of: 2026-10-03
+platforms: [gpm]
 data_products:
   - name: GPM_1CGPMGMI
     provider: NASA GES DISC

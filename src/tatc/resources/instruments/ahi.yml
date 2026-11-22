@@ -3,12 +3,7 @@ name: AHI
 aliases: [Advanced Himawari Imager]
 instrument_class: geostationary
 selection: Imager of Japan's operational Himawari geostationary weather satellites over Asia and the western Pacific, with open data products.
-platforms:
-  - id: himawari-9
-    name: Himawari-9
-    norad_id: 41836
-    status: operational
-    as_of: 2026-11-09
+platforms: [himawari-9]
 data_products:
   - name: Himawari-9 AHI Level 2 full-disk cloud products (NOAA Enterprise algorithms)
     provider: NOAA Open Data Dissemination

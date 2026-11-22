@@ -1,0 +1,203 @@
+{
+  "entry_id": "sentinel_2",
+  "configurations": {
+    "ground_track": {
+      "digest": "7bbcd10d2f5ad16a2c78ae1ec1eac2a904164a12e623fe5f4e4c608758f417db",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-04, 2026-11-11, 2026-11-21",
+      "platforms": [
+        "sentinel-2a",
+        "sentinel-2b",
+        "sentinel-2c"
+      ],
+      "platform_periods": {
+        "sentinel-2a": "2026-10-04, 2026-11-11, 2026-11-21",
+        "sentinel-2b": "2026-10-04, 2026-11-11, 2026-11-21",
+        "sentinel-2c": "2026-10-04, 2026-11-11, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0105,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0077,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.208,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 1.133,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 11.4424,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "sentinel-2a"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0085,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0025,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0369,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 1.2257,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 3.3061,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0158,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0032,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.024,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 1.6542,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 2.6725,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "sentinel-2c"
+        }
+      ]
+    },
+    "plane": {
+      "digest": "3a679db3afeb06a777bfa13faaa6fde05d2bd6a20e8cfe415652e776e000f892",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-04, 2026-11-11, 2026-11-21",
+      "platforms": [
+        "sentinel-2b",
+        "sentinel-2c"
+      ],
+      "platform_periods": {
+        "sentinel-2b": "2026-10-04, 2026-11-11, 2026-11-21",
+        "sentinel-2c": "2026-10-04, 2026-11-11, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0227,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0026,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0426,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "sentinel-2b"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0328,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0033,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.0294,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "sentinel-2c"
+        },
+        {
+          "name": "relative_phase_error_p95",
+          "value": 0.1197,
+          "scope": "sentinel-2c"
+        }
+      ]
+    }
+  }
+}

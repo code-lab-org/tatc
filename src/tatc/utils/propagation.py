@@ -542,8 +542,11 @@ class _RepeatTrack:
     the repeat cycle just after the element's epoch (or, for a time before
     the epoch, just before it), so that the element is propagated no more
     than one repeat cycle from its epoch, however far the time is from it.
-    The maintained element returns to its initial Earth-fixed position after
-    each repeat cycle, so that the repeated cycles join.
+    A circular maintained element returns to its initial Earth-fixed
+    position after each repeat cycle, so that the repeated cycles join; with
+    eccentricity, the precession of the argument of perigee leaves a small
+    jump at each join (up to about twice the eccentricity times the
+    semimajor axis: 14 km at an eccentricity of 0.001).
     """
 
     def __init__(self, element: GeneralPerturbationsElements, repeat_cycle: timedelta):

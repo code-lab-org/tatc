@@ -1,9 +1,10 @@
-Instrument Catalog
-==================
+Catalog
+=======
 
 .. automodule:: tatc.catalog
 
-The entries and their results are listed in :doc:`/validation/catalog`.
+The instrument entries and their results are listed in
+:doc:`/validation/catalog`, and the systems in :doc:`/validation/systems`.
 
 Entries
 -------
@@ -19,6 +20,39 @@ Entries
 .. autopydantic_model:: tatc.catalog.InstrumentEntry
 
 .. autoclass:: tatc.catalog.InstrumentPayload
+   :members:
+
+Systems
+-------
+
+.. autofunction:: tatc.catalog.get_system
+
+.. autofunction:: tatc.catalog.get_system_ids
+
+.. autofunction:: tatc.catalog.list_systems
+
+.. autofunction:: tatc.catalog.get_spacecraft
+
+.. autofunction:: tatc.catalog.get_spacecraft_system
+
+.. autopydantic_model:: tatc.catalog.SystemEntry
+
+.. autopydantic_model:: tatc.catalog.SatelliteSystem
+
+.. autopydantic_model:: tatc.catalog.RadarNetwork
+
+.. autopydantic_model:: tatc.catalog.SurfaceNetwork
+
+.. autofunction:: tatc.catalog.system_schemas.parse_system
+
+.. autofunction:: tatc.catalog.system_orbits.describe_orbit
+
+.. autopydantic_model:: tatc.catalog.Spacecraft
+
+.. autoclass:: tatc.catalog.SystemClass
+   :members:
+
+.. autoclass:: tatc.catalog.SystemGrade
    :members:
 
 Validation Status
@@ -63,6 +97,22 @@ The schemas of the files of entries.
 
 .. autopydantic_model:: tatc.catalog.schemas.Occultation
 
+The schemas of the files of systems.
+
+.. autopydantic_model:: tatc.catalog.system_schemas.OrbitConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_schemas.RadarConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_schemas.SurfaceConfiguration
+
+.. autopydantic_model:: tatc.catalog.system_orbits.SunSynchronousPlane
+
+.. autopydantic_model:: tatc.catalog.system_orbits.InclinedPlane
+
+.. autopydantic_model:: tatc.catalog.system_orbits.GeostationarySlot
+
+.. autopydantic_model:: tatc.catalog.system_schemas.StationTable
+
 Records
 -------
 
@@ -73,6 +123,7 @@ The schemas of the validation records of entries.
 .. autopydantic_model:: tatc.catalog.records.Transfer
 
 .. autofunction:: tatc.catalog.records.get_period_days
+.. autofunction:: tatc.catalog.records.format_period
 
 Standard
 --------
@@ -85,3 +136,9 @@ Metrics
 
 .. automodule:: tatc.catalog.metrics
    :members:
+
+System Standard
+---------------
+
+.. automodule:: tatc.catalog.system_standard
+   :members: SYSTEM_STANDARD_VERSION, COMPATIBLE_SYSTEM_VERSIONS, get_system_gates, get_required_system_grades, serves_system, evaluate_system

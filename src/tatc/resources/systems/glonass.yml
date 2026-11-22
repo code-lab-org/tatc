@@ -1,0 +1,494 @@
+id: glonass
+name: GLONASS
+aliases: [Global Navigation Satellite System]
+system_class: inclined
+selection: Russia's global navigation satellite system, whose signals radio occultation receivers (such as COSMIC-2's TGRS) sound the atmosphere with.
+operator: Roscosmos and the Russian Aerospace Forces
+role: transmitting
+spacecraft:
+  - id: cosmos-2433
+    name: Cosmos 2433 (GLONASS 720)
+    norad_id: 32275
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2434
+    name: Cosmos 2434 (GLONASS 721)
+    norad_id: 32393
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2436
+    name: Cosmos 2436 (GLONASS 723)
+    norad_id: 32395
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2456
+    name: Cosmos 2456 (GLONASS 730)
+    norad_id: 36111
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2457
+    name: Cosmos 2457 (GLONASS 733)
+    norad_id: 36112
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2476
+    name: Cosmos 2476 (GLONASS 744)
+    norad_id: 37867
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2477
+    name: Cosmos 2477 (GLONASS 745)
+    norad_id: 37868
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2485
+    name: Cosmos 2485 (GLONASS 747)
+    norad_id: 39155
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2492
+    name: Cosmos 2492 (GLONASS 754)
+    norad_id: 39620
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2500
+    name: Cosmos 2500 (GLONASS 755)
+    norad_id: 40001
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2501
+    name: Cosmos 2501 (GLONASS 702K)
+    norad_id: 40315
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2514
+    name: Cosmos 2514 (GLONASS 751)
+    norad_id: 41330
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2522
+    name: Cosmos 2522 (GLONASS 752)
+    norad_id: 42939
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2527
+    name: Cosmos 2527 (GLONASS 756)
+    norad_id: 43508
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2529
+    name: Cosmos 2529 (GLONASS 757)
+    norad_id: 43687
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2534
+    name: Cosmos 2534 (GLONASS 758)
+    norad_id: 44299
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2544
+    name: Cosmos 2544 (GLONASS 759)
+    norad_id: 44850
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2545
+    name: Cosmos 2545 (GLONASS 760)
+    norad_id: 45358
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2547
+    name: Cosmos 2547 (GLONASS 705K)
+    norad_id: 46805
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2557
+    name: Cosmos 2557 (GLONASS 706K)
+    norad_id: 52984
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2559
+    name: Cosmos 2559 (GLONASS 707K)
+    norad_id: 54031
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2564
+    name: Cosmos 2564 (GLONASS 761)
+    norad_id: 54377
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2569
+    name: Cosmos 2569 (GLONASS 703K)
+    norad_id: 57517
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2584
+    name: Cosmos 2584 (GLONASS 704K)
+    norad_id: 63130
+    status: operational
+    as_of: 2026-11-18
+  - id: cosmos-2596
+    name: Cosmos 2596 (GLONASS 708K)
+    norad_id: 65590
+    status: operational
+    as_of: 2026-11-18
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, and its node and phase relative to the first satellite's (Cosmos 2433 (GLONASS 720)), from its element set, so that the orbits keep the geometry of the constellation.
+    orbits:
+      cosmos-2433: {type: circular, mean_altitude: 19136830, inclination: 65.4842, right_ascension_ascending_node: 0, phase: 0}
+      cosmos-2434: {type: circular, mean_altitude: 19137060, inclination: 64.3171, right_ascension_ascending_node: 235.88, phase: 249.23}
+      cosmos-2436: {type: circular, mean_altitude: 19137170, inclination: 64.3257, right_ascension_ascending_node: 235.95, phase: 20.96}
+      cosmos-2456: {type: circular, mean_altitude: 19136890, inclination: 65.1085, right_ascension_ascending_node: 114.98, phase: 48.09}
+      cosmos-2457: {type: circular, mean_altitude: 19137090, inclination: 65.0947, right_ascension_ascending_node: 114.82, phase: 174.05}
+      cosmos-2476: {type: circular, mean_altitude: 19136870, inclination: 65.3655, right_ascension_ascending_node: 116.92, phase: 316.18}
+      cosmos-2477: {type: circular, mean_altitude: 19136940, inclination: 65.3710, right_ascension_ascending_node: 117.01, phase: 136.45}
+      cosmos-2485: {type: circular, mean_altitude: 19136930, inclination: 65.5138, right_ascension_ascending_node: 117.69, phase: 3.61}
+      cosmos-2492: {type: circular, mean_altitude: 19136890, inclination: 65.2026, right_ascension_ascending_node: 357.95, phase: 35.39}
+      cosmos-2500: {type: circular, mean_altitude: 19137030, inclination: 65.1376, right_ascension_ascending_node: 357.68, phase: 265.65}
+      cosmos-2501: {type: circular, mean_altitude: 19137060, inclination: 63.6149, right_ascension_ascending_node: 234.2, phase: 64.34}
+      cosmos-2514: {type: circular, mean_altitude: 19136960, inclination: 64.9257, right_ascension_ascending_node: 356.97, phase: 75.96}
+      cosmos-2522: {type: circular, mean_altitude: 19137010, inclination: 64.0776, right_ascension_ascending_node: 235.8, phase: 200.83}
+      cosmos-2527: {type: circular, mean_altitude: 19137000, inclination: 65.6704, right_ascension_ascending_node: 118.02, phase: 229.37}
+      cosmos-2529: {type: circular, mean_altitude: 19137010, inclination: 64.2941, right_ascension_ascending_node: 236.55, phase: 156.1}
+      cosmos-2534: {type: circular, mean_altitude: 19136990, inclination: 64.3675, right_ascension_ascending_node: 236.59, phase: 290.73}
+      cosmos-2544: {type: circular, mean_altitude: 19136940, inclination: 65.6589, right_ascension_ascending_node: 117.84, phase: 272.15}
+      cosmos-2545: {type: circular, mean_altitude: 19136960, inclination: 64.2575, right_ascension_ascending_node: 356.25, phase: 122.79}
+      cosmos-2547: {type: circular, mean_altitude: 19137170, inclination: 64.5987, right_ascension_ascending_node: 236.49, phase: 336.19}
+      cosmos-2557: {type: circular, mean_altitude: 19137000, inclination: 64.2031, right_ascension_ascending_node: 358.31, phase: 211.17}
+      cosmos-2559: {type: circular, mean_altitude: 19137050, inclination: 64.1753, right_ascension_ascending_node: 358.39, phase: 349.17}
+      cosmos-2564: {type: circular, mean_altitude: 19137010, inclination: 64.7408, right_ascension_ascending_node: 236.76, phase: 110.05}
+      cosmos-2569: {type: circular, mean_altitude: 19136960, inclination: 65.3973, right_ascension_ascending_node: 116.68, phase: 100.47}
+      cosmos-2584: {type: circular, mean_altitude: 19136930, inclination: 65.1797, right_ascension_ascending_node: 116.82, phase: 187.75}
+      cosmos-2596: {type: circular, mean_altitude: 19137130, inclination: 64.5402, right_ascension_ascending_node: 358.87, phase: 302.61}
+    provenance:
+      cosmos-2433:
+        mean_altitude: &cosmos_2433
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2433]
+          period: "2026-11-18"
+        inclination: *cosmos_2433
+        right_ascension_ascending_node: &glonass_reference
+          kind: nominal
+          source: The reference of the constellation's relative nodes and phases (zero)
+        phase: *glonass_reference
+      cosmos-2434:
+        mean_altitude: &cosmos_2434
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2434]
+          period: "2026-11-18"
+        inclination: *cosmos_2434
+        right_ascension_ascending_node: &cosmos_2434_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2434, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2434_relative
+      cosmos-2436:
+        mean_altitude: &cosmos_2436
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2436]
+          period: "2026-11-18"
+        inclination: *cosmos_2436
+        right_ascension_ascending_node: &cosmos_2436_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2436, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2436_relative
+      cosmos-2456:
+        mean_altitude: &cosmos_2456
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2456]
+          period: "2026-11-17"
+        inclination: *cosmos_2456
+        right_ascension_ascending_node: &cosmos_2456_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2456, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2456_relative
+      cosmos-2457:
+        mean_altitude: &cosmos_2457
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2457]
+          period: "2026-11-18"
+        inclination: *cosmos_2457
+        right_ascension_ascending_node: &cosmos_2457_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2457, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2457_relative
+      cosmos-2476:
+        mean_altitude: &cosmos_2476
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2476]
+          period: "2026-11-18"
+        inclination: *cosmos_2476
+        right_ascension_ascending_node: &cosmos_2476_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2476, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2476_relative
+      cosmos-2477:
+        mean_altitude: &cosmos_2477
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2477]
+          period: "2026-11-16"
+        inclination: *cosmos_2477
+        right_ascension_ascending_node: &cosmos_2477_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2477, cosmos-2433]
+          period: "2026-11-16, 2026-11-18"
+        phase: *cosmos_2477_relative
+      cosmos-2485:
+        mean_altitude: &cosmos_2485
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2485]
+          period: "2026-11-17"
+        inclination: *cosmos_2485
+        right_ascension_ascending_node: &cosmos_2485_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2485, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2485_relative
+      cosmos-2492:
+        mean_altitude: &cosmos_2492
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2492]
+          period: "2026-11-18"
+        inclination: *cosmos_2492
+        right_ascension_ascending_node: &cosmos_2492_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2492, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2492_relative
+      cosmos-2500:
+        mean_altitude: &cosmos_2500
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2500]
+          period: "2026-11-17"
+        inclination: *cosmos_2500
+        right_ascension_ascending_node: &cosmos_2500_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2500, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2500_relative
+      cosmos-2501:
+        mean_altitude: &cosmos_2501
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2501]
+          period: "2026-11-18"
+        inclination: *cosmos_2501
+        right_ascension_ascending_node: &cosmos_2501_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2501, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2501_relative
+      cosmos-2514:
+        mean_altitude: &cosmos_2514
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2514]
+          period: "2026-11-18"
+        inclination: *cosmos_2514
+        right_ascension_ascending_node: &cosmos_2514_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2514, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2514_relative
+      cosmos-2522:
+        mean_altitude: &cosmos_2522
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2522]
+          period: "2026-11-18"
+        inclination: *cosmos_2522
+        right_ascension_ascending_node: &cosmos_2522_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2522, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2522_relative
+      cosmos-2527:
+        mean_altitude: &cosmos_2527
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2527]
+          period: "2026-11-16"
+        inclination: *cosmos_2527
+        right_ascension_ascending_node: &cosmos_2527_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2527, cosmos-2433]
+          period: "2026-11-16, 2026-11-18"
+        phase: *cosmos_2527_relative
+      cosmos-2529:
+        mean_altitude: &cosmos_2529
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2529]
+          period: "2026-11-18"
+        inclination: *cosmos_2529
+        right_ascension_ascending_node: &cosmos_2529_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2529, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2529_relative
+      cosmos-2534:
+        mean_altitude: &cosmos_2534
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2534]
+          period: "2026-11-17"
+        inclination: *cosmos_2534
+        right_ascension_ascending_node: &cosmos_2534_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2534, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2534_relative
+      cosmos-2544:
+        mean_altitude: &cosmos_2544
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2544]
+          period: "2026-11-17"
+        inclination: *cosmos_2544
+        right_ascension_ascending_node: &cosmos_2544_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2544, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2544_relative
+      cosmos-2545:
+        mean_altitude: &cosmos_2545
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2545]
+          period: "2026-11-18"
+        inclination: *cosmos_2545
+        right_ascension_ascending_node: &cosmos_2545_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2545, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2545_relative
+      cosmos-2547:
+        mean_altitude: &cosmos_2547
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2547]
+          period: "2026-11-17"
+        inclination: *cosmos_2547
+        right_ascension_ascending_node: &cosmos_2547_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2547, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2547_relative
+      cosmos-2557:
+        mean_altitude: &cosmos_2557
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2557]
+          period: "2026-11-17"
+        inclination: *cosmos_2557
+        right_ascension_ascending_node: &cosmos_2557_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2557, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2557_relative
+      cosmos-2559:
+        mean_altitude: &cosmos_2559
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2559]
+          period: "2026-11-18"
+        inclination: *cosmos_2559
+        right_ascension_ascending_node: &cosmos_2559_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2559, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2559_relative
+      cosmos-2564:
+        mean_altitude: &cosmos_2564
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2564]
+          period: "2026-11-18"
+        inclination: *cosmos_2564
+        right_ascension_ascending_node: &cosmos_2564_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2564, cosmos-2433]
+          period: "2026-11-18"
+        phase: *cosmos_2564_relative
+      cosmos-2569:
+        mean_altitude: &cosmos_2569
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2569]
+          period: "2026-11-17"
+        inclination: *cosmos_2569
+        right_ascension_ascending_node: &cosmos_2569_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2569, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2569_relative
+      cosmos-2584:
+        mean_altitude: &cosmos_2584
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2584]
+          period: "2026-11-16"
+        inclination: *cosmos_2584
+        right_ascension_ascending_node: &cosmos_2584_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2584, cosmos-2433]
+          period: "2026-11-16, 2026-11-18"
+        phase: *cosmos_2584_relative
+      cosmos-2596:
+        mean_altitude: &cosmos_2596
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [cosmos-2596]
+          period: "2026-11-17"
+        inclination: *cosmos_2596
+        right_ascension_ascending_node: &cosmos_2596_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Cosmos 2433 (GLONASS 720)'s at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [cosmos-2596, cosmos-2433]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *cosmos_2596_relative
+    limitations:
+      - The constellation's node and phase are arbitrary (its first satellite's are zero at the epoch), but each satellite keeps its node and phase relative to the first satellite's on the day of the element sets; satellites at slightly different altitudes drift apart in phase during an analysis, as they do between the operator's maneuvers.
+      - The orbits are circular, at TAT-C's mean altitudes (from the mean motion, above the mean radius); the satellites' small eccentricities are not represented.
+limitations:
+  - The satellites carry no instrument of the instrument catalog, as they transmit the signals that radio occultation receivers sound (see tatc.analysis.collect_ro_observations), and are built with TAT-C's default instrument.
+  - The spacecraft are those of CelesTrak's group on the date of their status, which follows its membership, not the health of their signals that the operator announces.

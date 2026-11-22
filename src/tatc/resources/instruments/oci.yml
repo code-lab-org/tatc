@@ -3,12 +3,7 @@ name: OCI
 aliases: [Ocean Color Instrument, PACE OCI]
 instrument_class: cross_track
 selection: Hyperspectral cross-track scanner of NASA's PACE mission (2024), for ocean color, aerosols, and clouds, whose telescope tilts fore or aft to avoid sun glint, with open data products.
-platforms:
-  - id: pace
-    name: PACE
-    norad_id: 58928
-    status: operational
-    as_of: 2026-11-10
+platforms: [pace]
 data_products:
   - name: PACE OCI Level-1B Science Data (PACE_OCI_L1B_SCI), version 3
     provider: NASA OB.DAAC

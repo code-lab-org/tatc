@@ -1,0 +1,41 @@
+{
+  "entry_id": "timed",
+  "configurations": {
+    "plane": {
+      "digest": "81c48677e67a2ae00f73db5ed590ed581d891a35724be2009ff1e5d87972c79b",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-01, 2026-11-18, 2026-11-21",
+      "platforms": [
+        "timed"
+      ],
+      "platform_periods": {
+        "timed": "2026-10-01, 2026-11-18, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.5722,
+          "scope": "timed"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0022,
+          "scope": "timed"
+        },
+        {
+          "name": "test_sets",
+          "value": 3.0,
+          "scope": "timed"
+        },
+        {
+          "name": "test_span_days",
+          "value": 51.0,
+          "scope": "timed"
+        }
+      ]
+    }
+  }
+}

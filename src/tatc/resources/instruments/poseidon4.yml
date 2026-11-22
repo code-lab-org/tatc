@@ -3,17 +3,7 @@ name: Poseidon-4
 aliases: [Sentinel-6 altimeter, Sentinel-6 Michael Freilich Poseidon-4]
 instrument_class: altimeter
 selection: Nadir radar altimeter of Sentinel-6 Michael Freilich, the reference mission for global mean sea level, which continues the TOPEX/Poseidon and Jason series, with open data products.
-platforms:
-  - id: sentinel-6a
-    name: Sentinel-6 Michael Freilich
-    norad_id: 46984
-    status: operational
-    as_of: 2026-11-09
-  - id: sentinel-6b
-    name: Sentinel-6B
-    norad_id: 66514
-    status: operational
-    as_of: 2026-11-09
+platforms: [sentinel-6a, sentinel-6b]
 data_products:
   - name: Sentinel-6A Level 2 low-resolution near-real-time reduced product (JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F)
     provider: NASA PO.DAAC

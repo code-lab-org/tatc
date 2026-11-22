@@ -1,0 +1,104 @@
+id: sentinel_2
+name: Copernicus Sentinel-2
+aliases: [Sentinel-2]
+system_class: sun_synchronous
+selection: Europe's high-resolution multispectral imaging constellation.
+operator: ESA
+spacecraft:
+  - id: sentinel-2a
+    name: Sentinel-2A
+    norad_id: 40697
+    status: extended
+    as_of: 2026-10-03
+  - id: sentinel-2b
+    name: Sentinel-2B
+    norad_id: 42063
+    status: operational
+    as_of: 2026-10-03
+  - id: sentinel-2c
+    name: Sentinel-2C
+    norad_id: 60989
+    status: operational
+    as_of: 2026-10-03
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-2a: {type: sso, mean_altitude: 796120, equator_crossing_time: "22:30:22", phase: 324}
+      sentinel-2b: {type: sso, mean_altitude: 796110, equator_crossing_time: "22:30:04", phase: 0}
+      sentinel-2c: {type: sso, mean_altitude: 796110, equator_crossing_time: "22:30:06", phase: 180}
+    provenance:
+      sentinel-2a:
+        mean_altitude: &sentinel_2a
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2a]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2a
+        phase:
+          kind: measured
+          source: ESA's extended campaign of Sentinel-2A, 36 deg from Sentinel-2B (SentiWiki, S2 Mission), behind it as the element sets of 2026-11-21 show
+          platforms: [sentinel-2a, sentinel-2b]
+          period: "2026-11-21"
+      sentinel-2b:
+        mean_altitude: &sentinel_2b
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2b]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2b
+        phase: &sentinel_2_phasing
+          kind: nominal
+          source: ESA's phasing of Sentinel-2B and Sentinel-2C, 180 deg apart in their plane (SentiWiki, S2 Mission)
+      sentinel-2c:
+        mean_altitude: &sentinel_2c
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-2c]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_2c
+        phase: *sentinel_2_phasing
+    limitations:
+      - The satellites keep the operator's relative phases (and planes), but the constellation's phase in its plane is arbitrary (relative phases are counted from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
+  ground_track:
+    grade: ground_track
+    description: Each satellite's orbit maintained on Sentinel-2's repeat ground track of 143 orbits in 10 days, pinned to an ascending node fitted to its element sets.
+    orbits:
+      sentinel-2a: {type: repeat, revolutions: 143, days: 10, ascending_node: {time: "2026-08-10T06:29:43.439Z", longitude: -119.840696}}
+      sentinel-2b: {type: repeat, revolutions: 143, days: 10, ascending_node: {time: "2026-08-10T06:19:21.122Z", longitude: -117.320273}}
+      sentinel-2c: {type: repeat, revolutions: 143, days: 10, ascending_node: {time: "2026-08-10T05:29:01.176Z", longitude: -104.731606}}
+    provenance:
+      sentinel-2a:
+        revolutions: &sentinel_2_repeat
+          kind: nominal
+          source: Sentinel-2's repeat ground track of 143 orbits in 10 days (ESA)
+        days: *sentinel_2_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [sentinel-2a]
+          period: "2026-08-10 to 2026-08-11"
+      sentinel-2b:
+        revolutions: *sentinel_2_repeat
+        days: *sentinel_2_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [sentinel-2b]
+          period: "2026-08-10 to 2026-08-11"
+      sentinel-2c:
+        revolutions: *sentinel_2_repeat
+        days: *sentinel_2_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [sentinel-2c]
+          period: "2026-08-10 to 2026-08-11"
+    limitations:
+      - Passes follow the maintained ground track to within the band in which it is maintained, and their times drift with the local time of the ascending node within its maintenance; analyses that need passes to seconds should build orbits from current element sets (by each spacecraft's NORAD catalog number).
+      - Each ascending node is fitted to the element sets of one or two days (as registered for validation), not to weeks of element sets, so it is the position of the ground track within its band on those days.
+      - The repeat cycle is of days of Terrestrial Time, so pass times slip from the Earth's rotation by the change of the difference between Terrestrial Time and Universal Time (a few tenths of a second a year).

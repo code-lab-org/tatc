@@ -3,12 +3,7 @@ name: TROPOMI
 aliases: [TROPOspheric Monitoring Instrument, Sentinel-5P]
 instrument_class: pushbroom
 selection: Pushbroom spectrometer with open, daily, global products of atmospheric composition.
-platforms:
-  - id: sentinel-5p
-    name: Sentinel-5P
-    norad_id: 42969
-    status: extended
-    as_of: 2026-11-05
+platforms: [sentinel-5p]
 data_products:
   - name: Sentinel-5P TROPOMI Aerosol Index (L2__AER_AI), near real time
     provider: Sentinel-5P Level 2 on the Registry of Open Data on AWS

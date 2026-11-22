@@ -3,22 +3,7 @@ name: AMSU-A
 aliases: [Advanced Microwave Sounding Unit-A]
 instrument_class: cross_track
 selection: Cross-track microwave temperature sounder with long-standing evidence of impact in numerical weather prediction, and open data products of Aqua's AMSU-A since 2002.
-platforms:
-  - id: aqua
-    name: Aqua
-    norad_id: 27424
-    status: extended
-    as_of: 2026-11-05
-  - id: metop-b
-    name: Metop-B
-    norad_id: 38771
-    status: extended
-    as_of: 2026-11-17
-  - id: metop-c
-    name: Metop-C
-    norad_id: 43689
-    status: operational
-    as_of: 2026-11-17
+platforms: [aqua, metop-b, metop-c]
 data_products:
   - name: AIRS/Aqua L1B AMSU (A1/A2) geolocated and calibrated brightness temperatures (AIRABRAD), version 005
     provider: NASA GES DISC

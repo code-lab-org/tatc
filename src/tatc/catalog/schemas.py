@@ -12,9 +12,10 @@ import copy
 import hashlib
 import json
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import geopandas as gpd
 import numpy as np
@@ -28,6 +29,7 @@ from ..schemas import (
     AttitudeSchedule,
     ConicalInstrument,
     GlintAttitude,
+    InSituInstrument,
     Instrument,
     PointedInstrument,
     Satellite,
@@ -51,10 +53,13 @@ from .standard import (
     serves,
 )
 
+if TYPE_CHECKING:
+    from .system_schemas import Spacecraft
+
 # the instrument schemas, by their `type`
 _INSTRUMENT_CLASSES: dict[str, type[Instrument]] = {
     cls.model_fields["type"].default: cls  # pylint: disable=unsubscriptable-object
-    for cls in (Instrument, PointedInstrument, ConicalInstrument)
+    for cls in (Instrument, PointedInstrument, ConicalInstrument, InSituInstrument)
 }
 _TAILORED = {"tailor": "time_step"}
 _TAILORED_FIELD = "along_track_field_of_view"
@@ -133,8 +138,8 @@ class InstrumentSpecification(_CatalogModel):
 
     type: str = Field(
         ...,
-        description="The instrument class: `instrument`, `pointed`, or `conical` "
-        + "(the `type` of its schema).",
+        description="The instrument class: `instrument`, `pointed`, `conical`, or "
+        + "`in_situ` (the `type` of its schema).",
     )
     parameters: dict[str, Any] = Field(..., description="The instrument's fields.")
     provenance: dict[str, Provenance] = Field(
@@ -560,9 +565,10 @@ class Occultation(_CatalogModel):
     constellations: tuple[str, ...] = Field(
         ...,
         min_length=1,
-        description="The constellations of transmitters tracked (such as `gps`, "
-        + "`glonass`, `galileo`, or `beidou`), whose satellites are the "
-        + "transmitters of an analysis.",
+        description="The constellations of transmitters tracked, by the "
+        + "identifiers of the catalog's navigation systems (`gps`, `glonass`, "
+        + "`galileo`, or `beidou`), whose satellites are the transmitters of an "
+        + "analysis (see `get_transmitters`).",
     )
     max_yaw: float = Field(
         ...,
@@ -595,6 +601,29 @@ class Occultation(_CatalogModel):
             raise ValueError("the sample elevation is within the range of elevations")
         return self
 
+    def get_transmitters(self, epoch: datetime) -> list[Satellite]:
+        """
+        Builds the satellites of the constellations tracked, from the catalog's
+        navigation systems (see `tatc.catalog.SatelliteSystem.build`): their
+        planes, with each satellite's node and phase relative to the others,
+        at an epoch (such as the start of an analysis).
+
+        Args:
+            epoch (datetime.datetime): The epoch of the orbits.
+
+        Returns:
+            list[Satellite]: The transmitters.
+        """
+        # deferred import, as the loader imports this module
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from . import loader
+
+        return [
+            satellite
+            for constellation in self.constellations
+            for satellite in loader.get_system(constellation).build(epoch=epoch)
+        ]
+
     def collect_observations(
         self,
         receivers: Satellite | list[Satellite],
@@ -611,7 +640,8 @@ class Occultation(_CatalogModel):
             receivers (Satellite | list[Satellite]): The satellites that carry the
                 receiver.
             transmitters (Satellite | list[Satellite]): The satellites of the
-                constellations tracked.
+                constellations tracked (such as `get_transmitters(start)`, or
+                satellites of current element sets).
             start (datetime.datetime): The start of the analysis.
             end (datetime.datetime): The end of the analysis.
             time_step (datetime.timedelta): The time step with which each
@@ -755,17 +785,25 @@ class Configuration(_CatalogModel):
             provenance for provenance in provenances if provenance.kind == "measured"
         ]
 
-    def get_holdout_gap(self, period: str) -> int | None:
+    def get_holdout_gap(
+        self, period: str, platform_periods: Mapping[str, str] | None = None
+    ) -> int | None:
         """
         Gets the days between the data to which values were fitted and the data
-        of a test: between the nearest days of the periods.
+        of a test: between the nearest days of the periods. An instrument's
+        fitted values apply on every platform, so the period of the test (of
+        every platform's data) is compared with them.
 
         Args:
             period (str): The period of the data of the test (see `Period`).
+            platform_periods (Mapping[str, str] | None): The period of each
+                platform's data, if they differ (within `period`), which does
+                not change the gap.
 
         Returns:
             int | None: The days, or `None` if no value was fitted.
         """
+        del platform_periods
         measured = self._get_measured()
         if not measured:
             return None
@@ -819,25 +857,6 @@ def _get_platform_suffix(configuration: Configuration) -> str | None:
     if len(configuration.platforms) != 1:
         return None
     return "_" + configuration.platforms[0].replace("-", "_")
-
-
-class Platform(_CatalogModel):
-    """
-    A platform that carries an instrument, with its status on a date.
-    """
-
-    id: str = Field(..., description="Platform identifier.")
-    name: str = Field(..., description="Platform name.")
-    norad_id: int = Field(
-        ...,
-        gt=0,
-        description="NORAD catalog number, from which to obtain current orbital "
-        + "elements, which are not cataloged because they age.",
-    )
-    status: Literal["operational", "extended", "retired"] = Field(
-        ..., description="The status on the date `as_of`."
-    )
-    as_of: date = Field(..., description="The date of the status.")
 
 
 class DataProduct(_CatalogModel):
@@ -908,8 +927,11 @@ class InstrumentEntry(_CatalogModel):
     aliases: tuple[str, ...] = Field(default=(), description="Other names.")
     instrument_class: InstrumentClass = Field(..., description="Instrument class.")
     selection: str = Field(..., description="Why the instrument is cataloged.")
-    platforms: tuple[Platform, ...] = Field(
-        ..., min_length=1, description="The platforms that carry it."
+    platforms: tuple[str, ...] = Field(
+        ...,
+        min_length=1,
+        description="The spacecraft that carry it, by the identifiers of the "
+        + "catalog's systems (see `get_spacecraft`).",
     )
     data_products: tuple[DataProduct, ...] = Field(
         ..., min_length=1, description="Its principal data products."
@@ -931,7 +953,9 @@ class InstrumentEntry(_CatalogModel):
     def _check_references(self) -> "InstrumentEntry":
         if self.default_configuration not in self.configurations:
             raise ValueError("default_configuration is not a configuration")
-        platforms = {platform.id for platform in self.platforms}
+        platforms = set(self.platforms)
+        if len(platforms) != len(self.platforms):
+            raise ValueError("platforms must be distinct")
         for key, configuration in self.configurations.items():
             unknown = set(configuration.platforms) - platforms
             if unknown:
@@ -987,6 +1011,20 @@ class InstrumentEntry(_CatalogModel):
         standard rather than declared (see `tatc.catalog.standard.evaluate_entry`).
         """
         return evaluate_entry(self)
+
+    def get_spacecraft(self) -> list[Spacecraft]:
+        """
+        Gets the spacecraft that carry this instrument, from the catalog's
+        systems (with their names, NORAD catalog numbers, and status).
+
+        Returns:
+            list[Spacecraft]: The spacecraft, in the order of `platforms`.
+        """
+        # deferred import, as the loader imports this module
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from . import loader
+
+        return [loader.get_spacecraft(platform) for platform in self.platforms]
 
     def get_variants(self, name: str) -> list[str]:
         """

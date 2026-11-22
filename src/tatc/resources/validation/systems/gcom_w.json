@@ -1,0 +1,97 @@
+{
+  "entry_id": "gcom_w",
+  "configurations": {
+    "ground_track": {
+      "digest": "87387cadb4e6ce03fa2cd411c9d30418ff163816d24cd30fce9eaf941f5608de",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-08, 2026-11-21",
+      "platforms": [
+        "gcom-w"
+      ],
+      "platform_periods": {
+        "gcom-w": "2026-11-08, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0503,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0071,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.1115,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "node_longitude_error_p95",
+          "value": 2.7225,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "node_time_error_p95",
+          "value": 4.7287,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "test_span_days",
+          "value": 13.0,
+          "scope": "gcom-w"
+        }
+      ]
+    },
+    "plane": {
+      "digest": "7fb6720b2d760c53f2adb9156e93e0f8bff3d2caeeee1ab37998b7914f226e6b",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-08, 2026-11-21",
+      "platforms": [
+        "gcom-w"
+      ],
+      "platform_periods": {
+        "gcom-w": "2026-11-08, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0534,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0071,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 0.1045,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "test_sets",
+          "value": 2.0,
+          "scope": "gcom-w"
+        },
+        {
+          "name": "test_span_days",
+          "value": 13.0,
+          "scope": "gcom-w"
+        }
+      ]
+    }
+  }
+}

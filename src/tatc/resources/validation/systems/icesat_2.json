@@ -1,0 +1,41 @@
+{
+  "entry_id": "icesat_2",
+  "configurations": {
+    "plane": {
+      "digest": "6cd6f70b5aab860e5c8ce7c9d481e9dc24a6ebc94068174838f935947fd0a89c",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21",
+      "platforms": [
+        "icesat-2"
+      ],
+      "platform_periods": {
+        "icesat-2": "2026-11-03, 2026-11-05 to 2026-11-06, 2026-11-08, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.1068,
+          "scope": "icesat-2"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0059,
+          "scope": "icesat-2"
+        },
+        {
+          "name": "test_sets",
+          "value": 5.0,
+          "scope": "icesat-2"
+        },
+        {
+          "name": "test_span_days",
+          "value": 18.0,
+          "scope": "icesat-2"
+        }
+      ]
+    }
+  }
+}

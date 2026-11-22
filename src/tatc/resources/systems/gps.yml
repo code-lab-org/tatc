@@ -1,0 +1,627 @@
+id: gps
+name: Global Positioning System
+aliases: [GPS, NAVSTAR]
+system_class: inclined
+selection: The United States' global navigation satellite system, whose signals radio occultation receivers (such as GRAS and COSMIC-2's TGRS) sound the atmosphere with.
+operator: U.S. Space Force
+role: transmitting
+spacecraft:
+  - id: gps-biir-5
+    name: GPS BIIR-5
+    norad_id: 26407
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biir-8
+    name: GPS BIIR-8
+    norad_id: 27663
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biir-11
+    name: GPS BIIR-11
+    norad_id: 28190
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biir-13
+    name: GPS BIIR-13
+    norad_id: 28474
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-1
+    name: GPS BIIRM-1
+    norad_id: 28874
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-2
+    name: GPS BIIRM-2
+    norad_id: 29486
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-3
+    name: GPS BIIRM-3
+    norad_id: 29601
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-4
+    name: GPS BIIRM-4
+    norad_id: 32260
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-5
+    name: GPS BIIRM-5
+    norad_id: 32384
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-6
+    name: GPS BIIRM-6
+    norad_id: 32711
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biirm-8
+    name: GPS BIIRM-8
+    norad_id: 35752
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-1
+    name: GPS BIIF-1
+    norad_id: 36585
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-3
+    name: GPS BIIF-3
+    norad_id: 38833
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-4
+    name: GPS BIIF-4
+    norad_id: 39166
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-5
+    name: GPS BIIF-5
+    norad_id: 39533
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-6
+    name: GPS BIIF-6
+    norad_id: 39741
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-7
+    name: GPS BIIF-7
+    norad_id: 40105
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-8
+    name: GPS BIIF-8
+    norad_id: 40294
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-9
+    name: GPS BIIF-9
+    norad_id: 40534
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-10
+    name: GPS BIIF-10
+    norad_id: 40730
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-11
+    name: GPS BIIF-11
+    norad_id: 41019
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biif-12
+    name: GPS BIIF-12
+    norad_id: 41328
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-1
+    name: GPS BIII-1
+    norad_id: 43873
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-2
+    name: GPS BIII-2
+    norad_id: 44506
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-3
+    name: GPS BIII-3
+    norad_id: 45854
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-4
+    name: GPS BIII-4
+    norad_id: 46826
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-5
+    name: GPS BIII-5
+    norad_id: 48859
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-6
+    name: GPS BIII-6
+    norad_id: 55268
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-7
+    name: GPS BIII-7
+    norad_id: 62339
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-8
+    name: GPS BIII-8
+    norad_id: 64202
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-9
+    name: GPS BIII-9
+    norad_id: 67588
+    status: operational
+    as_of: 2026-11-18
+  - id: gps-biii-10
+    name: GPS BIII-10
+    norad_id: 68791
+    status: operational
+    as_of: 2026-11-18
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, and its node and phase relative to the first satellite's (GPS BIIR-5), from its element set, so that the orbits keep the geometry of the constellation.
+    orbits:
+      gps-biir-5: {type: circular, mean_altitude: 20189740, inclination: 54.8245, right_ascension_ascending_node: 0, phase: 0}
+      gps-biir-8: {type: circular, mean_altitude: 20190340, inclination: 54.8536, right_ascension_ascending_node: 359.81, phase: 134.36}
+      gps-biir-11: {type: circular, mean_altitude: 20188670, inclination: 54.7115, right_ascension_ascending_node: 60.47, phase: 291.15}
+      gps-biir-13: {type: circular, mean_altitude: 20189430, inclination: 55.0378, right_ascension_ascending_node: 109.79, phase: 354.63}
+      gps-biirm-1: {type: circular, mean_altitude: 20190080, inclination: 54.7628, right_ascension_ascending_node: 57.97, phase: 319.44}
+      gps-biirm-2: {type: circular, mean_altitude: 20189400, inclination: 54.7260, right_ascension_ascending_node: 296.17, phase: 218.83}
+      gps-biirm-3: {type: circular, mean_altitude: 20190480, inclination: 54.9100, right_ascension_ascending_node: 358.86, phase: 280.57}
+      gps-biirm-4: {type: circular, mean_altitude: 20188480, inclination: 54.2181, right_ascension_ascending_node: 224.79, phase: 53.47}
+      gps-biirm-5: {type: circular, mean_altitude: 20188920, inclination: 54.9186, right_ascension_ascending_node: 58.97, phase: 179.25}
+      gps-biirm-6: {type: circular, mean_altitude: 20190060, inclination: 54.5167, right_ascension_ascending_node: 294.72, phase: 108.7}
+      gps-biirm-8: {type: circular, mean_altitude: 20188490, inclination: 56.2939, right_ascension_ascending_node: 172.56, phase: 126.93}
+      gps-biif-1: {type: circular, mean_altitude: 20190260, inclination: 54.2479, right_ascension_ascending_node: 353.31, phase: 245.88}
+      gps-biif-3: {type: circular, mean_altitude: 20189850, inclination: 53.6132, right_ascension_ascending_node: 288.23, phase: 347.4}
+      gps-biif-4: {type: circular, mean_altitude: 20189390, inclination: 54.3946, right_ascension_ascending_node: 53.7, phase: 83.79}
+      gps-biif-5: {type: circular, mean_altitude: 20188790, inclination: 53.6765, right_ascension_ascending_node: 293.98, phase: 80.09}
+      gps-biif-6: {type: circular, mean_altitude: 20190530, inclination: 56.4130, right_ascension_ascending_node: 116.63, phase: 235.28}
+      gps-biif-7: {type: circular, mean_altitude: 20188940, inclination: 55.4657, right_ascension_ascending_node: 233.38, phase: 175.06}
+      gps-biif-8: {type: circular, mean_altitude: 20189590, inclination: 57.0814, right_ascension_ascending_node: 176.18, phase: 265.34}
+      gps-biif-9: {type: circular, mean_altitude: 20189060, inclination: 53.1463, right_ascension_ascending_node: 348.75, phase: 170.99}
+      gps-biif-10: {type: circular, mean_altitude: 20188420, inclination: 53.8730, right_ascension_ascending_node: 51.73, phase: 52.41}
+      gps-biif-11: {type: circular, mean_altitude: 20189050, inclination: 57.0518, right_ascension_ascending_node: 176.03, phase: 11.67}
+      gps-biif-12: {type: circular, mean_altitude: 20188840, inclination: 55.6320, right_ascension_ascending_node: 234.4, phase: 310.66}
+      gps-biii-1: {type: circular, mean_altitude: 20189030, inclination: 55.7875, right_ascension_ascending_node: 237.15, phase: 202.79}
+      gps-biii-2: {type: circular, mean_altitude: 20189980, inclination: 55.5524, right_ascension_ascending_node: 116.14, phase: 108.15}
+      gps-biii-3: {type: circular, mean_altitude: 20188580, inclination: 56.7577, right_ascension_ascending_node: 174.12, phase: 42.56}
+      gps-biii-4: {type: circular, mean_altitude: 20189240, inclination: 53.9548, right_ascension_ascending_node: 355.48, phase: 21.12}
+      gps-biii-5: {type: circular, mean_altitude: 20189630, inclination: 55.0905, right_ascension_ascending_node: 117.38, phase: 206.88}
+      gps-biii-6: {type: circular, mean_altitude: 20189630, inclination: 55.1389, right_ascension_ascending_node: 293.41, phase: 246.66}
+      gps-biii-7: {type: circular, mean_altitude: 20189910, inclination: 54.7728, right_ascension_ascending_node: 119.06, phase: 328.43}
+      gps-biii-8: {type: circular, mean_altitude: 20189200, inclination: 55.3270, right_ascension_ascending_node: 176.09, phase: 153.1}
+      gps-biii-9: {type: circular, mean_altitude: 20189030, inclination: 55.1986, right_ascension_ascending_node: 233.62, phase: 73.59}
+      gps-biii-10: {type: circular, mean_altitude: 20190260, inclination: 54.9448, right_ascension_ascending_node: 352.65, phase: 276.89}
+    provenance:
+      gps-biir-5:
+        mean_altitude: &gps_biir_5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biir-5]
+          period: "2026-11-18"
+        inclination: *gps_biir_5
+        right_ascension_ascending_node: &gps_reference
+          kind: nominal
+          source: The reference of the constellation's relative nodes and phases (zero)
+        phase: *gps_reference
+      gps-biir-8:
+        mean_altitude: &gps_biir_8
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biir-8]
+          period: "2026-11-18"
+        inclination: *gps_biir_8
+        right_ascension_ascending_node: &gps_biir_8_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biir-8, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biir_8_relative
+      gps-biir-11:
+        mean_altitude: &gps_biir_11
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biir-11]
+          period: "2026-11-18"
+        inclination: *gps_biir_11
+        right_ascension_ascending_node: &gps_biir_11_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biir-11, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biir_11_relative
+      gps-biir-13:
+        mean_altitude: &gps_biir_13
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biir-13]
+          period: "2026-11-17"
+        inclination: *gps_biir_13
+        right_ascension_ascending_node: &gps_biir_13_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biir-13, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biir_13_relative
+      gps-biirm-1:
+        mean_altitude: &gps_biirm_1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-1]
+          period: "2026-11-18"
+        inclination: *gps_biirm_1
+        right_ascension_ascending_node: &gps_biirm_1_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-1, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biirm_1_relative
+      gps-biirm-2:
+        mean_altitude: &gps_biirm_2
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-2]
+          period: "2026-11-17"
+        inclination: *gps_biirm_2
+        right_ascension_ascending_node: &gps_biirm_2_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-2, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biirm_2_relative
+      gps-biirm-3:
+        mean_altitude: &gps_biirm_3
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-3]
+          period: "2026-11-17"
+        inclination: *gps_biirm_3
+        right_ascension_ascending_node: &gps_biirm_3_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-3, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biirm_3_relative
+      gps-biirm-4:
+        mean_altitude: &gps_biirm_4
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-4]
+          period: "2026-11-16"
+        inclination: *gps_biirm_4
+        right_ascension_ascending_node: &gps_biirm_4_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-4, gps-biir-5]
+          period: "2026-11-16, 2026-11-18"
+        phase: *gps_biirm_4_relative
+      gps-biirm-5:
+        mean_altitude: &gps_biirm_5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-5]
+          period: "2026-11-18"
+        inclination: *gps_biirm_5
+        right_ascension_ascending_node: &gps_biirm_5_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-5, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biirm_5_relative
+      gps-biirm-6:
+        mean_altitude: &gps_biirm_6
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-6]
+          period: "2026-11-17"
+        inclination: *gps_biirm_6
+        right_ascension_ascending_node: &gps_biirm_6_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-6, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biirm_6_relative
+      gps-biirm-8:
+        mean_altitude: &gps_biirm_8
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biirm-8]
+          period: "2026-11-18"
+        inclination: *gps_biirm_8
+        right_ascension_ascending_node: &gps_biirm_8_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biirm-8, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biirm_8_relative
+      gps-biif-1:
+        mean_altitude: &gps_biif_1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-1]
+          period: "2026-11-18"
+        inclination: *gps_biif_1
+        right_ascension_ascending_node: &gps_biif_1_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-1, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_1_relative
+      gps-biif-3:
+        mean_altitude: &gps_biif_3
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-3]
+          period: "2026-11-17"
+        inclination: *gps_biif_3
+        right_ascension_ascending_node: &gps_biif_3_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-3, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biif_3_relative
+      gps-biif-4:
+        mean_altitude: &gps_biif_4
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-4]
+          period: "2026-11-18"
+        inclination: *gps_biif_4
+        right_ascension_ascending_node: &gps_biif_4_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-4, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_4_relative
+      gps-biif-5:
+        mean_altitude: &gps_biif_5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-5]
+          period: "2026-11-17"
+        inclination: *gps_biif_5
+        right_ascension_ascending_node: &gps_biif_5_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-5, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biif_5_relative
+      gps-biif-6:
+        mean_altitude: &gps_biif_6
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-6]
+          period: "2026-11-18"
+        inclination: *gps_biif_6
+        right_ascension_ascending_node: &gps_biif_6_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-6, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_6_relative
+      gps-biif-7:
+        mean_altitude: &gps_biif_7
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-7]
+          period: "2026-11-17"
+        inclination: *gps_biif_7
+        right_ascension_ascending_node: &gps_biif_7_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-7, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biif_7_relative
+      gps-biif-8:
+        mean_altitude: &gps_biif_8
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-8]
+          period: "2026-11-17"
+        inclination: *gps_biif_8
+        right_ascension_ascending_node: &gps_biif_8_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-8, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biif_8_relative
+      gps-biif-9:
+        mean_altitude: &gps_biif_9
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-9]
+          period: "2026-11-18"
+        inclination: *gps_biif_9
+        right_ascension_ascending_node: &gps_biif_9_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-9, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_9_relative
+      gps-biif-10:
+        mean_altitude: &gps_biif_10
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-10]
+          period: "2026-11-18"
+        inclination: *gps_biif_10
+        right_ascension_ascending_node: &gps_biif_10_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-10, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_10_relative
+      gps-biif-11:
+        mean_altitude: &gps_biif_11
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-11]
+          period: "2026-11-18"
+        inclination: *gps_biif_11
+        right_ascension_ascending_node: &gps_biif_11_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-11, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biif_11_relative
+      gps-biif-12:
+        mean_altitude: &gps_biif_12
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biif-12]
+          period: "2026-11-17"
+        inclination: *gps_biif_12
+        right_ascension_ascending_node: &gps_biif_12_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biif-12, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biif_12_relative
+      gps-biii-1:
+        mean_altitude: &gps_biii_1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-1]
+          period: "2026-11-17"
+        inclination: *gps_biii_1
+        right_ascension_ascending_node: &gps_biii_1_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-1, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biii_1_relative
+      gps-biii-2:
+        mean_altitude: &gps_biii_2
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-2]
+          period: "2026-11-18"
+        inclination: *gps_biii_2
+        right_ascension_ascending_node: &gps_biii_2_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-2, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biii_2_relative
+      gps-biii-3:
+        mean_altitude: &gps_biii_3
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-3]
+          period: "2026-11-18"
+        inclination: *gps_biii_3
+        right_ascension_ascending_node: &gps_biii_3_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-3, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biii_3_relative
+      gps-biii-4:
+        mean_altitude: &gps_biii_4
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-4]
+          period: "2026-11-18"
+        inclination: *gps_biii_4
+        right_ascension_ascending_node: &gps_biii_4_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-4, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biii_4_relative
+      gps-biii-5:
+        mean_altitude: &gps_biii_5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-5]
+          period: "2026-11-18"
+        inclination: *gps_biii_5
+        right_ascension_ascending_node: &gps_biii_5_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-5, gps-biir-5]
+          period: "2026-11-18"
+        phase: *gps_biii_5_relative
+      gps-biii-6:
+        mean_altitude: &gps_biii_6
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-6]
+          period: "2026-11-17"
+        inclination: *gps_biii_6
+        right_ascension_ascending_node: &gps_biii_6_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-6, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biii_6_relative
+      gps-biii-7:
+        mean_altitude: &gps_biii_7
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-7]
+          period: "2026-11-16"
+        inclination: *gps_biii_7
+        right_ascension_ascending_node: &gps_biii_7_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-7, gps-biir-5]
+          period: "2026-11-16, 2026-11-18"
+        phase: *gps_biii_7_relative
+      gps-biii-8:
+        mean_altitude: &gps_biii_8
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-8]
+          period: "2026-11-16"
+        inclination: *gps_biii_8
+        right_ascension_ascending_node: &gps_biii_8_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-8, gps-biir-5]
+          period: "2026-11-16, 2026-11-18"
+        phase: *gps_biii_8_relative
+      gps-biii-9:
+        mean_altitude: &gps_biii_9
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-9]
+          period: "2026-11-16"
+        inclination: *gps_biii_9
+        right_ascension_ascending_node: &gps_biii_9_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-9, gps-biir-5]
+          period: "2026-11-16, 2026-11-18"
+        phase: *gps_biii_9_relative
+      gps-biii-10:
+        mean_altitude: &gps_biii_10
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gps-biii-10]
+          period: "2026-11-17"
+        inclination: *gps_biii_10
+        right_ascension_ascending_node: &gps_biii_10_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to GPS BIIR-5's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [gps-biii-10, gps-biir-5]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *gps_biii_10_relative
+    limitations:
+      - The constellation's node and phase are arbitrary (its first satellite's are zero at the epoch), but each satellite keeps its node and phase relative to the first satellite's on the day of the element sets; satellites at slightly different altitudes drift apart in phase during an analysis, as they do between the operator's maneuvers.
+      - The orbits are circular, at TAT-C's mean altitudes (from the mean motion, above the mean radius); the satellites' small eccentricities are not represented.
+limitations:
+  - The satellites carry no instrument of the instrument catalog, as they transmit the signals that radio occultation receivers sound (see tatc.analysis.collect_ro_observations), and are built with TAT-C's default instrument.
+  - The spacecraft are those of CelesTrak's group on the date of their status, which follows its membership, not the health of their signals that the operator announces.

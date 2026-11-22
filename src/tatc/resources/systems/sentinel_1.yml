@@ -1,0 +1,69 @@
+id: sentinel_1
+name: Copernicus Sentinel-1
+aliases: [Sentinel-1]
+system_class: sun_synchronous
+selection: Europe's C-band radar imaging constellation.
+operator: ESA
+spacecraft:
+  - id: sentinel-1c
+    name: Sentinel-1C
+    norad_id: 62261
+    status: operational
+    as_of: 2026-10-02
+  - id: sentinel-1d
+    name: Sentinel-1D
+    norad_id: 66315
+    status: operational
+    as_of: 2026-11-05
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      sentinel-1c: {type: sso, mean_altitude: 702900, equator_crossing_time: "18:00:14", phase: 0}
+      sentinel-1d: {type: sso, mean_altitude: 702890, equator_crossing_time: "18:00:28", phase: 180}
+    provenance:
+      sentinel-1c:
+        mean_altitude: &sentinel_1c
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-1c]
+          period: "2026-08-10"
+        equator_crossing_time: *sentinel_1c
+        phase: &sentinel_1_phasing
+          kind: nominal
+          source: ESA's phasing of the two-satellite constellation, 180 deg apart in their plane for a 6-day repeat, consistent with their element sets of 2026-11-21 (179.5 deg)
+      sentinel-1d:
+        mean_altitude: &sentinel_1d
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [sentinel-1d]
+          period: "2026-11-08"
+        equator_crossing_time: *sentinel_1d
+        phase: *sentinel_1_phasing
+    limitations:
+      - The satellites keep the operator's relative phases (and planes), but the constellation's phase in its plane is arbitrary (relative phases are counted from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
+  ground_track:
+    grade: ground_track
+    description: The satellite's orbit maintained on Sentinel-1's repeat ground track of 175 orbits in 12 days, pinned to an ascending node fitted to its element sets.
+    orbits:
+      sentinel-1c: {type: repeat, revolutions: 175, days: 12, ascending_node: {time: "2026-08-10T07:17:49.012Z", longitude: 160.603317}}
+    provenance:
+      sentinel-1c:
+        revolutions: &sentinel_1_repeat
+          kind: nominal
+          source: Sentinel-1's repeat ground track of 175 orbits in 12 days (ESA)
+        days: *sentinel_1_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [sentinel-1c]
+          period: "2026-08-10 to 2026-08-11"
+    limitations:
+      - Sentinel-1D, whose element sets are too recent to fit and test a node, has only its plane.
+      - Passes follow the maintained ground track to within the band in which it is maintained, and their times drift with the local time of the ascending node within its maintenance; analyses that need passes to seconds should build orbits from current element sets (by each spacecraft's NORAD catalog number).
+      - Each ascending node is fitted to the element sets of one or two days (as registered for validation), not to weeks of element sets, so it is the position of the ground track within its band on those days.
+      - The repeat cycle is of days of Terrestrial Time, so pass times slip from the Earth's rotation by the change of the difference between Terrestrial Time and Universal Time (a few tenths of a second a year).

@@ -3,12 +3,7 @@ name: AIRS
 aliases: [Atmospheric Infrared Sounder]
 instrument_class: cross_track
 selection: Cross-track hyperspectral infrared sounder, widely used in weather and climate research, with open data products of Aqua since 2002.
-platforms:
-  - id: aqua
-    name: Aqua
-    norad_id: 27424
-    status: extended
-    as_of: 2026-11-05
+platforms: [aqua]
 data_products:
   - name: AIRS/Aqua L1B Infrared (IR) geolocated and calibrated radiances (AIRSAQIRL1B), version 8.0
     provider: NASA GES DISC

@@ -1,0 +1,31 @@
+id: smap
+name: Soil Moisture Active Passive
+aliases: [SMAP]
+system_class: sun_synchronous
+selection: NASA's L-band soil moisture mission.
+operator: NASA
+spacecraft:
+  - id: smap
+    name: SMAP
+    norad_id: 40376
+    status: operational
+    as_of: 2026-10-24
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      smap: {type: sso, mean_altitude: 689430, equator_crossing_time: "17:59:28"}
+    provenance:
+      smap:
+        mean_altitude: &smap
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [smap]
+          period: "2026-09-19"
+        equator_crossing_time: *smap
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

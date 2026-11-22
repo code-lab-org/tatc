@@ -3,12 +3,7 @@ name: TMI
 aliases: [TRMM TMI, TRMM Microwave Imager]
 instrument_class: conical
 selection: Conically scanning microwave imager of the Tropical Rainfall Measuring Mission, with open precipitation and brightness temperature products from 1997 to 2015, the predecessor of GPM's GMI.
-platforms:
-  - id: trmm
-    name: TRMM
-    norad_id: 25063
-    status: retired
-    as_of: 2015-04-15
+platforms: [trmm]
 data_products:
   - name: GPM_1CTRMMTMI
     provider: NASA GES DISC

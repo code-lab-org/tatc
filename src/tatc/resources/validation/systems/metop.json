@@ -1,0 +1,73 @@
+{
+  "entry_id": "metop",
+  "configurations": {
+    "plane": {
+      "digest": "e042bf17e8fd341139adf2975924c31f6bca6c01e977601ddca50f2f42b0d700",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-07 to 2026-11-09, 2026-11-18, 2026-11-21",
+      "platforms": [
+        "metop-b",
+        "metop-c"
+      ],
+      "platform_periods": {
+        "metop-b": "2026-06-11 to 2026-06-13, 2026-10-04 to 2026-10-07, 2026-11-07 to 2026-11-08, 2026-11-18, 2026-11-21",
+        "metop-c": "2026-06-11 to 2026-06-13, 2026-10-03 to 2026-10-07, 2026-11-08 to 2026-11-09, 2026-11-18, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 0.1707,
+          "scope": "metop-b"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0732,
+          "scope": "metop-b"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 4.9175,
+          "scope": "metop-b"
+        },
+        {
+          "name": "test_sets",
+          "value": 11.0,
+          "scope": "metop-b"
+        },
+        {
+          "name": "test_span_days",
+          "value": 163.0,
+          "scope": "metop-b"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 0.0861,
+          "scope": "metop-c"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.038,
+          "scope": "metop-c"
+        },
+        {
+          "name": "local_time_error_p95",
+          "value": 1.7152,
+          "scope": "metop-c"
+        },
+        {
+          "name": "test_sets",
+          "value": 12.0,
+          "scope": "metop-c"
+        },
+        {
+          "name": "test_span_days",
+          "value": 163.0,
+          "scope": "metop-c"
+        }
+      ]
+    }
+  }
+}

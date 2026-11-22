@@ -49,7 +49,8 @@ Orbits and Propagation
      - 13 sun-synchronous missions; Galileo, BeiDou-3, GLONASS, OneWeb; Sentinel-2, Landsat, NOAA-20/21; Meridian,
        EKS, QZSS, GOES
      - Ascending node within 0.02 minutes of local time; Walker slots within 1 to 3 deg; trains within 29 to 45 km;
-       Molniya apogee drift under 0.07 deg per day; Tundra apogee latitudes within 0.03 deg (:doc:`orbits/ValidateOrbitGeneration`)
+       Molniya apogee drift under 0.07 deg per day; Tundra apogee latitudes within 0.03 deg; geosynchronous longitudes
+       held within 0.004 deg over 30 days (:doc:`orbits/ValidateOrbitGeneration`)
    * - Streets of coverage (`SOCConstellation`)
      - Iridium
      - Reproduces Iridium's 6 planes of 11 satellites and its continuous coverage (:doc:`orbits/ValidateConstellationIridium`)
@@ -288,7 +289,8 @@ Ground Systems and Navigation
    * - Ground radar (`RadarStation`, `compute_terrain_mask`)
      - Four NEXRAD radars in Arizona, Level II volume scans
      - DEM terrain masks agree with observed blockage at 90 to 92% of azimuths; observable area IoU 0.77 to 0.92 per
-       station and 0.84 to 0.93 for the network (:doc:`ground_systems/ValidateRadarNEXRAD`)
+       station and 0.84 to 0.93 for the network (:doc:`ground_systems/ValidateRadarNEXRAD`); siting and scan strategies
+       are tested across the network by the catalog's NEXRAD system (:doc:`systems`)
    * - Downlink latency (`collect_downlinks`, `compute_latencies`)
      - NOAA-20 product granules
      - Mean latency 21 vs. 23 minutes, within 9 minutes per granule (95th percentile), the difference being processing

@@ -3,12 +3,7 @@ name: CPR
 aliases: [EarthCARE CPR, Cloud Profiling Radar]
 instrument_class: profiler
 selection: 94 GHz Doppler cloud profiling radar of JAXA and NICT on EarthCARE, the first spaceborne Doppler cloud radar, with open profiles of reflectivity and vertical motion along a single beam at nadir, flying with ATLID, MSI, and BBR.
-platforms:
-  - id: earthcare
-    name: EarthCARE
-    norad_id: 59908
-    status: operational
-    as_of: 2026-11-07
+platforms: [earthcare]
 data_products:
   - name: CPR_NOM_1B
     provider: ESA MAAP (processed by JAXA)

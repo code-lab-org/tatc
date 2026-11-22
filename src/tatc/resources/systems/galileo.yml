@@ -1,0 +1,590 @@
+id: galileo
+name: Galileo
+aliases: [Galileo GNSS]
+system_class: inclined
+selection: The European Union's global navigation satellite system, whose signals radio occultation receivers sound the atmosphere with.
+operator: EUSPA and ESA
+role: transmitting
+spacecraft:
+  - id: galileo-gsat0101
+    name: Galileo GSAT0101
+    norad_id: 37846
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0102
+    name: Galileo GSAT0102
+    norad_id: 37847
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0103
+    name: Galileo GSAT0103
+    norad_id: 38857
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0203
+    name: Galileo GSAT0203
+    norad_id: 40544
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0204
+    name: Galileo GSAT0204
+    norad_id: 40545
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0206
+    name: Galileo GSAT0206
+    norad_id: 40890
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0209
+    name: Galileo GSAT0209
+    norad_id: 41174
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0208
+    name: Galileo GSAT0208
+    norad_id: 41175
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0211
+    name: Galileo GSAT0211
+    norad_id: 41549
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0210
+    name: Galileo GSAT0210
+    norad_id: 41550
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0207
+    name: Galileo GSAT0207
+    norad_id: 41859
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0212
+    name: Galileo GSAT0212
+    norad_id: 41860
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0213
+    name: Galileo GSAT0213
+    norad_id: 41861
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0214
+    name: Galileo GSAT0214
+    norad_id: 41862
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0215
+    name: Galileo GSAT0215
+    norad_id: 43055
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0216
+    name: Galileo GSAT0216
+    norad_id: 43056
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0217
+    name: Galileo GSAT0217
+    norad_id: 43057
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0218
+    name: Galileo GSAT0218
+    norad_id: 43058
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0221
+    name: Galileo GSAT0221
+    norad_id: 43564
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0222
+    name: Galileo GSAT0222
+    norad_id: 43565
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0219
+    name: Galileo GSAT0219
+    norad_id: 43566
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0220
+    name: Galileo GSAT0220
+    norad_id: 43567
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0223
+    name: Galileo GSAT0223
+    norad_id: 49809
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0224
+    name: Galileo GSAT0224
+    norad_id: 49810
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0225
+    name: Galileo GSAT0225
+    norad_id: 59598
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0227
+    name: Galileo GSAT0227
+    norad_id: 59600
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0232
+    name: Galileo GSAT0232
+    norad_id: 61182
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0226
+    name: Galileo GSAT0226
+    norad_id: 61183
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0233
+    name: Galileo GSAT0233
+    norad_id: 67160
+    status: operational
+    as_of: 2026-11-18
+  - id: galileo-gsat0234
+    name: Galileo GSAT0234
+    norad_id: 67162
+    status: operational
+    as_of: 2026-11-18
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, and its node and phase relative to the first satellite's (Galileo GSAT0101), from its element set, so that the orbits keep the geometry of the constellation.
+    orbits:
+      galileo-gsat0101: {type: circular, mean_altitude: 23229110, inclination: 56.9319, right_ascension_ascending_node: 0, phase: 0}
+      galileo-gsat0102: {type: circular, mean_altitude: 23229080, inclination: 56.9326, right_ascension_ascending_node: 0, phase: 45.76}
+      galileo-gsat0103: {type: circular, mean_altitude: 23229390, inclination: 55.9084, right_ascension_ascending_node: 119.61, phase: 334.87}
+      galileo-gsat0203: {type: circular, mean_altitude: 23229060, inclination: 56.7242, right_ascension_ascending_node: 359.81, phase: 136.75}
+      galileo-gsat0204: {type: circular, mean_altitude: 23229110, inclination: 56.7305, right_ascension_ascending_node: 359.83, phase: 339.41}
+      galileo-gsat0206: {type: circular, mean_altitude: 23229420, inclination: 54.9030, right_ascension_ascending_node: 239.59, phase: 346.59}
+      galileo-gsat0209: {type: circular, mean_altitude: 23229280, inclination: 55.9301, right_ascension_ascending_node: 119.33, phase: 243.3}
+      galileo-gsat0208: {type: circular, mean_altitude: 23229300, inclination: 55.9292, right_ascension_ascending_node: 119.33, phase: 107.93}
+      galileo-gsat0211: {type: circular, mean_altitude: 23229420, inclination: 55.0538, right_ascension_ascending_node: 239.7, phase: 32.08}
+      galileo-gsat0210: {type: circular, mean_altitude: 23229370, inclination: 55.0532, right_ascension_ascending_node: 239.7, phase: 234.42}
+      galileo-gsat0207: {type: circular, mean_altitude: 23229280, inclination: 55.6029, right_ascension_ascending_node: 119.12, phase: 63.29}
+      galileo-gsat0212: {type: circular, mean_altitude: 23229270, inclination: 55.6013, right_ascension_ascending_node: 119.11, phase: 153.37}
+      galileo-gsat0213: {type: circular, mean_altitude: 23229220, inclination: 55.6021, right_ascension_ascending_node: 119.12, phase: 288.21}
+      galileo-gsat0214: {type: circular, mean_altitude: 23229250, inclination: 55.6017, right_ascension_ascending_node: 119.11, phase: 198.31}
+      galileo-gsat0215: {type: circular, mean_altitude: 23229330, inclination: 55.0320, right_ascension_ascending_node: 239.51, phase: 258.05}
+      galileo-gsat0216: {type: circular, mean_altitude: 23229320, inclination: 55.0322, right_ascension_ascending_node: 239.51, phase: 79.37}
+      galileo-gsat0217: {type: circular, mean_altitude: 23229330, inclination: 55.0303, right_ascension_ascending_node: 239.51, phase: 303.87}
+      galileo-gsat0218: {type: circular, mean_altitude: 23229330, inclination: 55.0305, right_ascension_ascending_node: 239.51, phase: 168.8}
+      galileo-gsat0221: {type: circular, mean_altitude: 23229080, inclination: 57.1073, right_ascension_ascending_node: 0.04, phase: 227.29}
+      galileo-gsat0222: {type: circular, mean_altitude: 23229110, inclination: 57.1108, right_ascension_ascending_node: 0.04, phase: 92.38}
+      galileo-gsat0219: {type: circular, mean_altitude: 23229080, inclination: 57.1100, right_ascension_ascending_node: 0.04, phase: 316.87}
+      galileo-gsat0220: {type: circular, mean_altitude: 23229080, inclination: 57.1103, right_ascension_ascending_node: 0.04, phase: 181.24}
+      galileo-gsat0223: {type: circular, mean_altitude: 23229060, inclination: 57.0986, right_ascension_ascending_node: 359.93, phase: 272.13}
+      galileo-gsat0224: {type: circular, mean_altitude: 23229060, inclination: 57.0990, right_ascension_ascending_node: 359.93, phase: 24.83}
+      galileo-gsat0225: {type: circular, mean_altitude: 23229230, inclination: 55.2249, right_ascension_ascending_node: 119.07, phase: 18.28}
+      galileo-gsat0227: {type: circular, mean_altitude: 23229240, inclination: 55.2207, right_ascension_ascending_node: 119.07, phase: 265.72}
+      galileo-gsat0232: {type: circular, mean_altitude: 23229370, inclination: 55.1443, right_ascension_ascending_node: 239.33, phase: 121.15}
+      galileo-gsat0226: {type: circular, mean_altitude: 23229370, inclination: 55.1433, right_ascension_ascending_node: 239.34, phase: 212.47}
+      galileo-gsat0233: {type: circular, mean_altitude: 23229240, inclination: 54.4410, right_ascension_ascending_node: 120.03, phase: 309.4}
+      galileo-gsat0234: {type: circular, mean_altitude: 23229240, inclination: 54.4430, right_ascension_ascending_node: 120.03, phase: 129.44}
+    provenance:
+      galileo-gsat0101:
+        mean_altitude: &galileo_gsat0101
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0101]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0101
+        right_ascension_ascending_node: &galileo_reference
+          kind: nominal
+          source: The reference of the constellation's relative nodes and phases (zero)
+        phase: *galileo_reference
+      galileo-gsat0102:
+        mean_altitude: &galileo_gsat0102
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0102]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0102
+        right_ascension_ascending_node: &galileo_gsat0102_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0102, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0102_relative
+      galileo-gsat0103:
+        mean_altitude: &galileo_gsat0103
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0103]
+          period: "2026-11-16"
+        inclination: *galileo_gsat0103
+        right_ascension_ascending_node: &galileo_gsat0103_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0103, galileo-gsat0101]
+          period: "2026-11-16, 2026-11-18"
+        phase: *galileo_gsat0103_relative
+      galileo-gsat0203:
+        mean_altitude: &galileo_gsat0203
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0203]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0203
+        right_ascension_ascending_node: &galileo_gsat0203_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0203, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0203_relative
+      galileo-gsat0204:
+        mean_altitude: &galileo_gsat0204
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0204]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0204
+        right_ascension_ascending_node: &galileo_gsat0204_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0204, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0204_relative
+      galileo-gsat0206:
+        mean_altitude: &galileo_gsat0206
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0206]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0206
+        right_ascension_ascending_node: &galileo_gsat0206_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0206, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0206_relative
+      galileo-gsat0209:
+        mean_altitude: &galileo_gsat0209
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0209]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0209
+        right_ascension_ascending_node: &galileo_gsat0209_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0209, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0209_relative
+      galileo-gsat0208:
+        mean_altitude: &galileo_gsat0208
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0208]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0208
+        right_ascension_ascending_node: &galileo_gsat0208_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0208, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0208_relative
+      galileo-gsat0211:
+        mean_altitude: &galileo_gsat0211
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0211]
+          period: "2026-11-16"
+        inclination: *galileo_gsat0211
+        right_ascension_ascending_node: &galileo_gsat0211_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0211, galileo-gsat0101]
+          period: "2026-11-16, 2026-11-18"
+        phase: *galileo_gsat0211_relative
+      galileo-gsat0210:
+        mean_altitude: &galileo_gsat0210
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0210]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0210
+        right_ascension_ascending_node: &galileo_gsat0210_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0210, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0210_relative
+      galileo-gsat0207:
+        mean_altitude: &galileo_gsat0207
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0207]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0207
+        right_ascension_ascending_node: &galileo_gsat0207_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0207, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0207_relative
+      galileo-gsat0212:
+        mean_altitude: &galileo_gsat0212
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0212]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0212
+        right_ascension_ascending_node: &galileo_gsat0212_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0212, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0212_relative
+      galileo-gsat0213:
+        mean_altitude: &galileo_gsat0213
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0213]
+          period: "2026-11-16"
+        inclination: *galileo_gsat0213
+        right_ascension_ascending_node: &galileo_gsat0213_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0213, galileo-gsat0101]
+          period: "2026-11-16, 2026-11-18"
+        phase: *galileo_gsat0213_relative
+      galileo-gsat0214:
+        mean_altitude: &galileo_gsat0214
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0214]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0214
+        right_ascension_ascending_node: &galileo_gsat0214_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0214, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0214_relative
+      galileo-gsat0215:
+        mean_altitude: &galileo_gsat0215
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0215]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0215
+        right_ascension_ascending_node: &galileo_gsat0215_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0215, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0215_relative
+      galileo-gsat0216:
+        mean_altitude: &galileo_gsat0216
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0216]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0216
+        right_ascension_ascending_node: &galileo_gsat0216_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0216, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0216_relative
+      galileo-gsat0217:
+        mean_altitude: &galileo_gsat0217
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0217]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0217
+        right_ascension_ascending_node: &galileo_gsat0217_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0217, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0217_relative
+      galileo-gsat0218:
+        mean_altitude: &galileo_gsat0218
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0218]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0218
+        right_ascension_ascending_node: &galileo_gsat0218_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0218, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0218_relative
+      galileo-gsat0221:
+        mean_altitude: &galileo_gsat0221
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0221]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0221
+        right_ascension_ascending_node: &galileo_gsat0221_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0221, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0221_relative
+      galileo-gsat0222:
+        mean_altitude: &galileo_gsat0222
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0222]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0222
+        right_ascension_ascending_node: &galileo_gsat0222_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0222, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0222_relative
+      galileo-gsat0219:
+        mean_altitude: &galileo_gsat0219
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0219]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0219
+        right_ascension_ascending_node: &galileo_gsat0219_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0219, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0219_relative
+      galileo-gsat0220:
+        mean_altitude: &galileo_gsat0220
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0220]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0220
+        right_ascension_ascending_node: &galileo_gsat0220_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0220, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0220_relative
+      galileo-gsat0223:
+        mean_altitude: &galileo_gsat0223
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0223]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0223
+        right_ascension_ascending_node: &galileo_gsat0223_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0223, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0223_relative
+      galileo-gsat0224:
+        mean_altitude: &galileo_gsat0224
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0224]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0224
+        right_ascension_ascending_node: &galileo_gsat0224_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0224, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0224_relative
+      galileo-gsat0225:
+        mean_altitude: &galileo_gsat0225
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0225]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0225
+        right_ascension_ascending_node: &galileo_gsat0225_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0225, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0225_relative
+      galileo-gsat0227:
+        mean_altitude: &galileo_gsat0227
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0227]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0227
+        right_ascension_ascending_node: &galileo_gsat0227_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0227, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0227_relative
+      galileo-gsat0232:
+        mean_altitude: &galileo_gsat0232
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0232]
+          period: "2026-11-18"
+        inclination: *galileo_gsat0232
+        right_ascension_ascending_node: &galileo_gsat0232_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0232, galileo-gsat0101]
+          period: "2026-11-18"
+        phase: *galileo_gsat0232_relative
+      galileo-gsat0226:
+        mean_altitude: &galileo_gsat0226
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0226]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0226
+        right_ascension_ascending_node: &galileo_gsat0226_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0226, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0226_relative
+      galileo-gsat0233:
+        mean_altitude: &galileo_gsat0233
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0233]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0233
+        right_ascension_ascending_node: &galileo_gsat0233_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0233, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0233_relative
+      galileo-gsat0234:
+        mean_altitude: &galileo_gsat0234
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [galileo-gsat0234]
+          period: "2026-11-17"
+        inclination: *galileo_gsat0234
+        right_ascension_ascending_node: &galileo_gsat0234_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to Galileo GSAT0101's at 12:00 UTC on 2026-11-18, from their element sets
+          platforms: [galileo-gsat0234, galileo-gsat0101]
+          period: "2026-11-17 to 2026-11-18"
+        phase: *galileo_gsat0234_relative
+    limitations:
+      - The constellation's node and phase are arbitrary (its first satellite's are zero at the epoch), but each satellite keeps its node and phase relative to the first satellite's on the day of the element sets; satellites at slightly different altitudes drift apart in phase during an analysis, as they do between the operator's maneuvers.
+      - The orbits are circular, at TAT-C's mean altitudes (from the mean motion, above the mean radius); the satellites' small eccentricities are not represented.
+limitations:
+  - The satellites carry no instrument of the instrument catalog, as they transmit the signals that radio occultation receivers sound (see tatc.analysis.collect_ro_observations), and are built with TAT-C's default instrument.
+  - The spacecraft are those of CelesTrak's group on the date of their status, which follows its membership, not the health of their signals that the operator announces.
+  - The two satellites launched into eccentric orbits (GSAT0201 and GSAT0202), which are not circular, are not included.

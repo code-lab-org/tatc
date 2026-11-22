@@ -11,10 +11,12 @@ that it requires only its own dependencies.
 from typing import Any
 
 _MODULES = {
+    "aircraft_from_hyplan": "airborne",
     "estimate_attitude": "airborne",
     "instrument_from_sensor": "airborne",
     "sample_flight_plan": "airborne",
     "states_from_iwg1": "airborne",
+    "trajectory_from_waypoints": "airborne",
     "read_raster_weights": "raster",
     "add_local_incidence_angles": "terrain",
     "compute_terrain_mask": "terrain",

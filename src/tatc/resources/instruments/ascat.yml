@@ -3,17 +3,7 @@ name: ASCAT
 aliases: [Advanced Scatterometer, Metop ASCAT]
 instrument_class: scatterometer
 selection: C-band scatterometer of the Metop satellites, which measures ocean surface winds in two swaths beside a nadir gap, with open data products and wide use in numerical weather prediction.
-platforms:
-  - id: metop-c
-    name: Metop-C
-    norad_id: 43689
-    status: operational
-    as_of: 2026-11-09
-  - id: metop-b
-    name: Metop-B
-    norad_id: 38771
-    status: extended
-    as_of: 2026-11-17
+platforms: [metop-c, metop-b]
 data_products:
   - name: MetOp-C ASCAT Level 2 25.0 km Ocean Surface Wind Vectors in Full Orbit Swath (ASCATC-L2-25km), EUMETSAT OSI SAF (KNMI)
     provider: NASA PO.DAAC

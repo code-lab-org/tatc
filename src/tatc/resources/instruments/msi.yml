@@ -3,22 +3,7 @@ name: MSI
 aliases: [MultiSpectral Instrument, Sentinel-2]
 instrument_class: pushbroom
 selection: Pushbroom imager of the Copernicus Sentinel-2 mission, which passed Landsat in annual publications in 2025, with open data products.
-platforms:
-  - id: sentinel-2a
-    name: Sentinel-2A
-    norad_id: 40697
-    status: extended
-    as_of: 2026-10-03
-  - id: sentinel-2b
-    name: Sentinel-2B
-    norad_id: 42063
-    status: operational
-    as_of: 2026-10-03
-  - id: sentinel-2c
-    name: Sentinel-2C
-    norad_id: 60989
-    status: operational
-    as_of: 2026-10-03
+platforms: [sentinel-2a, sentinel-2b, sentinel-2c]
 data_products:
   - name: Sentinel-2 Level-2A
     provider: Microsoft Planetary Computer

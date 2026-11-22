@@ -3,17 +3,7 @@ name: MHS
 aliases: [Microwave Humidity Sounder]
 instrument_class: cross_track
 selection: Cross-track microwave humidity sounder of the Metop satellites, with open data products and wide use in numerical weather prediction.
-platforms:
-  - id: metop-c
-    name: Metop-C
-    norad_id: 43689
-    status: operational
-    as_of: 2026-11-05
-  - id: metop-b
-    name: Metop-B
-    norad_id: 38771
-    status: operational
-    as_of: 2026-11-05
+platforms: [metop-c, metop-b]
 data_products:
   - name: GPM_1CMETOPCMHS
     provider: NASA GES DISC

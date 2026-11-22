@@ -1,0 +1,30 @@
+id: iss
+name: International Space Station
+aliases: [ISS]
+system_class: inclined
+selection: The crewed station that hosts Earth observation instruments in a precessing orbit.
+operator: NASA, Roscosmos, ESA, JAXA, and CSA
+spacecraft:
+  - id: iss
+    name: International Space Station
+    norad_id: 25544
+    status: operational
+    as_of: 2026-11-09
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, from its element set.
+    orbits:
+      iss: {type: circular, mean_altitude: 427670, inclination: 51.6332}
+    provenance:
+      iss:
+        mean_altitude: &iss
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [iss]
+          period: "2026-04-01"
+        inclination: *iss
+    limitations:
+      - The satellites' phases in their planes and the right ascensions of their ascending nodes are arbitrary (each spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

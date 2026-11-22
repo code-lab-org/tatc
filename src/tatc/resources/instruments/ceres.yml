@@ -3,17 +3,7 @@ name: CERES
 aliases: [Clouds and the Earth's Radiant Energy System]
 instrument_class: cross_track
 selection: Broadband radiometer that measures the Earth's radiation budget, flown since 1997 and heavily used in climate research, with open data products.
-platforms:
-  - id: noaa-20
-    name: NOAA-20
-    norad_id: 43013
-    status: operational
-    as_of: 2026-11-09
-  - id: suomi-npp
-    name: Suomi NPP
-    norad_id: 37849
-    status: retired
-    as_of: 2026-11-02
+platforms: [noaa-20, suomi-npp]
 data_products:
   - name: CERES NOAA-20 FM6 ES-8 (CER_ES8_NOAA20-FM6), Edition1
     provider: NASA Langley ASDC

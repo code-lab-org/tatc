@@ -1,0 +1,51 @@
+id: gcom_w
+name: Global Change Observation Mission - Water
+aliases: [GCOM-W, Shizuku]
+system_class: sun_synchronous
+selection: Japan's microwave imaging mission, in the afternoon constellation.
+operator: JAXA
+spacecraft:
+  - id: gcom-w
+    name: GCOM-W
+    norad_id: 38337
+    status: operational
+    as_of: 2026-11-01
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      gcom-w: {type: sso, mean_altitude: 709640, equator_crossing_time: "13:32:57"}
+    provenance:
+      gcom-w:
+        mean_altitude: &gcom_w
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [gcom-w]
+          period: "2026-10-04"
+        equator_crossing_time: *gcom_w
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
+  ground_track:
+    grade: ground_track
+    description: The satellite's orbit maintained on GCOM-W's repeat ground track of 233 orbits in 16 days, pinned to an ascending node fitted to its element sets.
+    orbits:
+      gcom-w: {type: repeat, revolutions: 233, days: 16, ascending_node: {time: "2026-10-04T01:37:58.586Z", longitude: 178.741249}}
+    provenance:
+      gcom-w:
+        revolutions: &gcom_w_repeat
+          kind: nominal
+          source: The A-Train's repeat ground track of 233 orbits in 16 days (the World Reference System 2), on which JAXA maintains GCOM-W
+        days: *gcom_w_repeat
+        ascending_node:
+          kind: measured
+          source: validate_system_orbits.py --fit, the middle of the nodes of the element sets (fit_ascending_node)
+          platforms: [gcom-w]
+          period: "2026-10-04"
+    limitations:
+      - Passes follow the maintained ground track to within the band in which it is maintained, and their times drift with the local time of the ascending node within its maintenance; analyses that need passes to seconds should build orbits from current element sets (by each spacecraft's NORAD catalog number).
+      - Each ascending node is fitted to the element sets of one or two days (as registered for validation), not to weeks of element sets, so it is the position of the ground track within its band on those days.
+      - The repeat cycle is of days of Terrestrial Time, so pass times slip from the Earth's rotation by the change of the difference between Terrestrial Time and Universal Time (a few tenths of a second a year).

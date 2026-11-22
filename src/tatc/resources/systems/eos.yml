@@ -1,0 +1,63 @@
+id: eos
+name: Earth Observing System
+aliases: [EOS]
+system_class: sun_synchronous
+selection: NASA's flagship Earth observation satellites Terra, Aqua, and Aura, now drifting from their maintained local times.
+operator: NASA
+spacecraft:
+  - id: terra
+    name: Terra
+    norad_id: 25994
+    status: extended
+    as_of: 2026-11-05
+  - id: aqua
+    name: Aqua
+    norad_id: 27424
+    status: extended
+    as_of: 2026-11-05
+  - id: aura
+    name: Aura
+    norad_id: 28376
+    status: extended
+    as_of: 2026-11-15
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      terra: {type: sso, mean_altitude: 696530, equator_crossing_time: "20:37:38", inclination: 97.9333, reference_time: "2026-10-06T07:11:41Z"}
+      aqua: {type: sso, mean_altitude: 692990, equator_crossing_time: "15:48:21", inclination: 98.4481, reference_time: "2026-11-07T06:55:39Z"}
+      aura: {type: sso, mean_altitude: 695770, equator_crossing_time: "14:42:07", inclination: 98.3460, reference_time: "2026-08-14T14:18:14Z"}
+    provenance:
+      terra:
+        mean_altitude: &terra
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [terra]
+          period: "2026-10-06"
+        equator_crossing_time: *terra
+        inclination: *terra
+        reference_time: *terra
+      aqua:
+        mean_altitude: &aqua
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [aqua]
+          period: "2026-11-07"
+        equator_crossing_time: *aqua
+        inclination: *aqua
+        reference_time: *aqua
+      aura:
+        mean_altitude: &aura
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [aura]
+          period: "2026-08-14"
+        equator_crossing_time: *aura
+        inclination: *aura
+        reference_time: *aura
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites' local times are no longer maintained, so each orbit has its own inclination, at whose rate (the J2 precession of its node) its local time drifts from the cataloged one at its reference time (the epoch of the element set to which it was fitted) to the epoch and during an analysis. The drift of the inclination itself, and any maneuver, are not modeled, so the local time departs from the actual one the further the epoch is from the reference time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

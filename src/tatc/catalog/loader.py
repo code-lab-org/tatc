@@ -22,10 +22,20 @@ from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
 from .schemas import InstrumentEntry, InstrumentPayload
 from .standard import Grade, InstrumentClass, Tier
+from .system_schemas import (
+    SatelliteSystem,
+    Spacecraft,
+    SystemEntry,
+    _read_table,
+    parse_system,
+)
+from .system_standard import SystemClass
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
 _ENTRIES = _RESOURCES / "instruments"
 _RECORDS = _RESOURCES / "validation"
+_SYSTEMS = _RESOURCES / "systems"
+_SYSTEM_RECORDS = _RECORDS / "systems"
 
 
 def get_entry_ids() -> list[str]:
@@ -88,13 +98,18 @@ def get_entry(entry_id: str) -> InstrumentEntry:
 def list_entries(
     instrument_class: InstrumentClass | str | None = None,
     tier: Tier | str | None = None,
+    *,
+    platform: str | None = None,
 ) -> list[InstrumentEntry]:
     """
-    Lists catalog entries, optionally of one class or validation tier.
+    Lists catalog entries, optionally of one class or validation tier, or that
+    list a platform.
 
     Args:
         instrument_class (InstrumentClass | str | None): The class, if any.
         tier (Tier | str | None): The validation tier, if any.
+        platform (str | None): The identifier of a spacecraft of the catalog's
+            systems (see `get_spacecraft`) that the entries list, if any.
 
     Returns:
         list[InstrumentEntry]: Copies of the entries, sorted by identifier.
@@ -104,9 +119,10 @@ def list_entries(
     )
     wanted_tier = None if tier is None else Tier(tier)
     return [
-        entry
-        for entry in map(get_entry, get_entry_ids())
+        entry.model_copy(deep=True)
+        for entry in map(_load_entry, get_entry_ids())
         if (wanted_class is None or entry.instrument_class == wanted_class)
+        and (platform is None or platform in entry.platforms)
         and (wanted_tier is None or entry.validation.tier == wanted_tier)
     ]
 
@@ -178,6 +194,12 @@ def build_payload(
                 end=end,
             )
         )
+    if any(payload.sounding is not None for payload in payloads):
+        if len(payloads) > 1:
+            raise ValueError(
+                f"a sounding is analyzed alone, not with other references: {references}"
+            )
+        return payloads[0]
     attitude = payloads[0].attitude
     for payload in payloads[1:]:
         if payload.attitude != attitude:
@@ -205,3 +227,181 @@ def build_payload(
             dict.fromkeys(text for payload in payloads for text in payload.limitations)
         ),
     )
+
+
+def get_system_ids() -> list[str]:
+    """
+    Gets the identifiers of the catalog's systems.
+
+    Returns:
+        list[str]: The sorted identifiers.
+    """
+    return sorted(path.stem for path in _SYSTEMS.glob("*.yml"))
+
+
+@functools.lru_cache(maxsize=None)
+def _load_system(system_id: str) -> SystemEntry:
+    """
+    Loads a system and its validation record, if any, from files.
+
+    Args:
+        system_id (str): The identifier of the system.
+
+    Returns:
+        SystemEntry: The system, which callers must not modify.
+    """
+    with open(_SYSTEMS / f"{system_id}.yml", "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if data.get("id") != system_id:
+        raise ValueError(f"the file of system {system_id!r} has id {data.get('id')!r}")
+    record_path = _SYSTEM_RECORDS / f"{system_id}.json"
+    if record_path.exists():
+        with open(record_path, "r", encoding="utf-8") as f:
+            data["record"] = json.load(f)
+    return parse_system(data)
+
+
+def get_system(system_id: str) -> SystemEntry:
+    """
+    Gets a catalog system by its identifier or one of its aliases (ignoring
+    case).
+
+    Args:
+        system_id (str): The identifier or alias.
+
+    Returns:
+        SystemEntry: A copy of the system.
+
+    Raises:
+        KeyError: If there is no such system.
+    """
+    wanted = system_id.casefold()
+    for candidate in get_system_ids():
+        if wanted == candidate:
+            return _load_system(candidate).model_copy(deep=True)
+    for candidate in get_system_ids():
+        entry = _load_system(candidate)
+        if wanted in (name.casefold() for name in (entry.name, *entry.aliases)):
+            return entry.model_copy(deep=True)
+    raise KeyError(f"no catalog system {system_id!r}: {get_system_ids()}")
+
+
+def list_systems(
+    system_class: SystemClass | str | None = None,
+    tier: Tier | str | None = None,
+    *,
+    satellite: bool | None = None,
+) -> list[SystemEntry]:
+    """
+    Lists catalog systems, optionally of one class or validation tier, or only
+    satellite systems (or only networks).
+
+    Args:
+        system_class (SystemClass | str | None): The class, if any.
+        tier (Tier | str | None): The validation tier, if any.
+        satellite (bool | None): `True` for satellite systems only, `False` for
+            networks only, or `None` (the default) for both.
+
+    Returns:
+        list[SystemEntry]: Copies of the systems, sorted by identifier.
+    """
+    wanted_class = None if system_class is None else SystemClass(system_class)
+    wanted_tier = None if tier is None else Tier(tier)
+    return [
+        entry
+        for entry in map(get_system, get_system_ids())
+        if (wanted_class is None or entry.system_class == wanted_class)
+        and (satellite is None or entry.system_class.is_satellite() == satellite)
+        and (wanted_tier is None or entry.validation.tier == wanted_tier)
+    ]
+
+
+@functools.lru_cache(maxsize=None)
+def _get_spacecraft_systems() -> dict[str, str]:
+    """
+    Gets the system of each spacecraft, by the spacecraft's identifier.
+
+    Returns:
+        dict[str, str]: The identifiers of the systems.
+
+    Raises:
+        ValueError: If a spacecraft belongs to several systems.
+    """
+    systems: dict[str, str] = {}
+    for system_id in get_system_ids():
+        system = _load_system(system_id)
+        if not isinstance(system, SatelliteSystem):
+            continue
+        for spacecraft in system.spacecraft:
+            if spacecraft.id in systems:
+                raise ValueError(
+                    f"spacecraft {spacecraft.id!r} belongs to systems "
+                    f"{systems[spacecraft.id]!r} and {system_id!r}"
+                )
+            systems[spacecraft.id] = system_id
+    return systems
+
+
+def _find_spacecraft(spacecraft: str) -> str:
+    """
+    Gets the identifier of a spacecraft given by its identifier or name
+    (ignoring case).
+    """
+    systems = _get_spacecraft_systems()
+    if spacecraft in systems:
+        return spacecraft
+    wanted = spacecraft.casefold()
+    for spacecraft_id, system_id in systems.items():
+        found = _load_system(system_id).get_spacecraft(spacecraft_id)
+        if wanted in (found.id.casefold(), found.name.casefold()):
+            return spacecraft_id
+    raise KeyError(f"no catalog spacecraft {spacecraft!r}")
+
+
+def get_spacecraft(spacecraft: str) -> Spacecraft:
+    """
+    Gets a spacecraft of a catalog system by its identifier (which instrument
+    entries list) or name, ignoring case.
+
+    Args:
+        spacecraft (str): The identifier or name of the spacecraft (such as
+            `noaa-20` or `NOAA-20`).
+
+    Returns:
+        Spacecraft: The spacecraft.
+
+    Raises:
+        KeyError: If no system has such a spacecraft.
+    """
+    spacecraft_id = _find_spacecraft(spacecraft)
+    return _load_system(_get_spacecraft_systems()[spacecraft_id]).get_spacecraft(
+        spacecraft_id
+    )
+
+
+def get_spacecraft_system(spacecraft: str) -> SystemEntry:
+    """
+    Gets the system of a spacecraft.
+
+    Args:
+        spacecraft (str): The identifier or name of the spacecraft.
+
+    Returns:
+        SystemEntry: A copy of its system.
+
+    Raises:
+        KeyError: If no system has such a spacecraft.
+    """
+    return get_system(_get_spacecraft_systems()[_find_spacecraft(spacecraft)])
+
+
+def clear_cache() -> None:
+    """
+    Clears the catalog's cached entries, systems, records, and tables of
+    stations, so that files rewritten during a session (as by the validation
+    scripts) are read again.
+    """
+    _load_entry.cache_clear()
+    _load_system.cache_clear()
+    _get_spacecraft_systems.cache_clear()
+    _read_table.cache_clear()

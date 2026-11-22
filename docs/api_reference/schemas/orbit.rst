@@ -22,6 +22,17 @@ Sun-synchronous Orbit
   :members:
   :inherited-members: BaseModel
 
+Repeat Ground Track Orbit
+-------------------------
+
+.. autopydantic_model:: tatc.schemas.RepeatGroundTrackOrbit
+  :members:
+  :inherited-members: BaseModel
+
+.. autopydantic_model:: tatc.schemas.orbit.AscendingNode
+  :members:
+  :inherited-members: BaseModel
+
 Geosynchronous Orbit
 ---------------------
 

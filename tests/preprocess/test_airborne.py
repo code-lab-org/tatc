@@ -8,6 +8,7 @@ The tests of flight plans and sensor models use HyPlan, if installed.
 
 import importlib.util
 import unittest
+import warnings
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -19,10 +20,12 @@ from shapely.geometry import LineString, Point
 
 from tatc.analysis import collect_airborne_ground_track
 from tatc.preprocess import (
+    aircraft_from_hyplan,
     estimate_attitude,
     instrument_from_sensor,
     sample_flight_plan,
     states_from_iwg1,
+    trajectory_from_waypoints,
 )
 from tatc.schemas import Aircraft, Trajectory
 from tatc.schemas.air.trajectory import _get_radius_of_curvature
@@ -648,6 +651,153 @@ class TestInstrumentFromSensor(unittest.TestCase):
                 self.assertAlmostEqual(forward, expected.y, delta=1.0)
                 footprints = collect_airborne_ground_track(aircraft)
                 self.assertTrue(footprints["valid_obs"].all())
+
+
+def _hyplan_aircraft_classes() -> list:
+    """Gets HyPlan's aircraft models (the concrete subclasses of its Aircraft)."""
+    import hyplan  # pylint: disable=import-outside-toplevel
+
+    classes, pending = [], list(hyplan.aircraft.Aircraft.__subclasses__())
+    while pending:
+        cls = pending.pop()
+        pending += cls.__subclasses__()
+        classes.append(cls)
+    return sorted(classes, key=lambda cls: cls.__name__)
+
+
+@unittest.skipUnless(HAS_HYPLAN, "requires hyplan")
+class TestHyPlanConformance(unittest.TestCase):
+    """
+    Conformance of TAT-C's adapters to HyPlan's catalog of aircraft and sensors,
+    which TAT-C adapts rather than catalogs: the swaths of the instruments of
+    HyPlan's sensors, and the speeds of trajectories of HyPlan's aircraft.
+    """
+
+    # sensors whose observations are not views of a scene: profiling lidars
+    # and dropsondes
+    UNSUPPORTED = {
+        "AVAPS_NRD41",
+        "AWP",
+        "AXCTD",
+        "Aerosol Wind Profiler",
+        "AerosolWindProfiler",
+        "CPL",
+        "Cloud Physics Lidar",
+        "HALO",
+        "HSRL",
+        "HSRL-2",
+        "HSRL2",
+        "High Altitude Lidar Observatory",
+        "NRD41",
+        "RD94",
+        "SIPPICAN_AXCTD",
+        "Sippican AXCTD",
+        "Vaisala NRD41",
+        "Vaisala RD94",
+    }
+
+    def test_sensor_swaths(self):
+        """
+        Test that the footprint of the instrument of each of HyPlan's sensors
+        that views a scene is as wide as HyPlan's swath, within 1% (TAT-C
+        projects views onto the ellipsoid, HyPlan onto a plane), at altitudes of
+        1, 5, and 15 km over the ground, and that other sensors are rejected.
+        """
+        import hyplan  # pylint: disable=import-outside-toplevel
+        from hyplan.instruments.registry import (  # pylint: disable=import-outside-toplevel
+            SENSOR_REGISTRY,
+        )
+
+        start = TAKEOFF.to_pydatetime()
+        unsupported = set()
+        for name in sorted(SENSOR_REGISTRY):
+            sensor = hyplan.create_sensor(name)
+            try:
+                instrument = instrument_from_sensor(sensor)
+            except TypeError:
+                unsupported.add(name)
+                continue
+            if not callable(getattr(sensor, "swath_width", None)):
+                continue
+            for height in (1000, 5000, 15000):
+                with self.subTest(sensor=name, height=height):
+                    trajectory = Trajectory.from_waypoints(
+                        [(0, -0.5), (0, 0.5)], start=start, speed=200, altitude=height
+                    )
+                    aircraft = Aircraft(
+                        name="A", trajectory=trajectory, instruments=[instrument]
+                    )
+                    footprint = collect_airborne_ground_track(
+                        aircraft, [start + timedelta(seconds=250)]
+                    ).geometry.iloc[0]
+                    west, south, east, north = footprint.bounds
+                    latitude = (south + north) / 2
+                    width = GEOD.inv(west, latitude, east, latitude)[2]
+                    swath = sensor.swath_width(height * hyplan.ureg.meter).m_as("meter")
+                    self.assertAlmostEqual(width / swath, 1, delta=0.01)
+        self.assertEqual(unsupported, self.UNSUPPORTED)
+
+    def test_aircraft_speeds(self):
+        """
+        Test that a trajectory of each of HyPlan's aircraft flies at its cruise
+        speed at the altitude, below its ceiling.
+        """
+        import hyplan  # pylint: disable=import-outside-toplevel
+
+        start = TAKEOFF.to_pydatetime()
+        for cls in _hyplan_aircraft_classes():
+            with self.subTest(aircraft=cls.__name__):
+                aircraft = cls()
+                altitude = 0.8 * aircraft.service_ceiling.m_as("meter")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    trajectory = trajectory_from_waypoints(
+                        aircraft, [(-100, 35), (-99, 35)], start, altitude
+                    )
+                cruise = aircraft.cruise_speed_at(altitude * hyplan.ureg.meter)
+                self.assertAlmostEqual(
+                    trajectory.ground_speed[0], cruise.m_as("meter / second"), places=6
+                )
+                geoid = compute_geoid_height(-100, 35)
+                self.assertAlmostEqual(
+                    trajectory.altitude[0], altitude + geoid, places=6
+                )
+
+    def test_ceiling_and_endurance(self):
+        """
+        Test that an altitude above the service ceiling is an error, and a flight
+        beyond the endurance is warned of.
+        """
+        import hyplan  # pylint: disable=import-outside-toplevel
+
+        aircraft = hyplan.NASA_P3()
+        start = TAKEOFF.to_pydatetime()
+        with self.assertRaisesRegex(ValueError, "service ceiling"):
+            trajectory_from_waypoints(aircraft, [(-100, 35), (-99, 35)], start, 20000)
+        with self.assertWarnsRegex(UserWarning, "endurance"):
+            trajectory_from_waypoints(
+                aircraft, [(-100, 35), (-100, -35), (-100, 35)], start, 6000
+            )
+
+    def test_aircraft(self):
+        """
+        Test that the aircraft carries the instruments of the sensors, named by
+        its type and tail number.
+        """
+        import hyplan  # pylint: disable=import-outside-toplevel
+
+        aircraft = hyplan.NASA_P3()
+        trajectory = trajectory_from_waypoints(
+            aircraft, [(-100, 35), (-99, 35)], TAKEOFF.to_pydatetime(), 6000
+        )
+        built = aircraft_from_hyplan(
+            aircraft, trajectory, [hyplan.create_sensor("HyTES")]
+        )
+        self.assertEqual(built.name, "P-3 Orion (NASA 426)")
+        self.assertEqual([i.name for i in built.instruments], ["HyTES"])
+        self.assertEqual(
+            aircraft_from_hyplan(aircraft, trajectory).instruments[0].name, "Default"
+        )
 
 
 if __name__ == "__main__":

@@ -3,17 +3,7 @@ name: AVHRR
 aliases: [Advanced Very High Resolution Radiometer, AVHRR/3]
 instrument_class: cross_track
 selection: Cross-track imager with the longest record of any weather satellite imager, flown since 1978 and still carried by Metop-B and Metop-C, with open full-resolution swath products.
-platforms:
-  - id: metop-c
-    name: Metop-C
-    norad_id: 43689
-    status: operational
-    as_of: 2026-11-05
-  - id: metop-b
-    name: Metop-B
-    norad_id: 38771
-    status: operational
-    as_of: 2026-11-05
+platforms: [metop-c, metop-b]
 data_products:
   - name: GHRSST NOAA/STAR Metop-C AVHRR FRAC ACSPO L2P (AVHRRF_MC-STAR-L2P-v2.80), version 2.80
     provider: NASA PO.DAAC

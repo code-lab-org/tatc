@@ -3,12 +3,7 @@ name: GEDI
 aliases: [Global Ecosystem Dynamics Investigation]
 instrument_class: lidar
 selection: Multibeam lidar on the International Space Station that measures forest structure and canopy height in eight tracks, with open data products.
-platforms:
-  - id: iss
-    name: International Space Station
-    norad_id: 25544
-    status: operational
-    as_of: 2026-11-09
+platforms: [iss]
 data_products:
   - name: GEDI L1B Geolocated Waveform Data (GEDI01_B), version 003
     provider: NASA LP DAAC

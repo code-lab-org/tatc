@@ -19,8 +19,13 @@ class _Cache(dict):
     it: some (such as Skyfield satellites) cannot be pickled, as needed to
     send objects to other processes. A copy of an object (for example, from
     pydantic's `model_copy`) or an unpickled object starts with an empty
-    cache.
+    cache. Caches are equal to each other, since their values are computed
+    from the objects' fields, so that they do not change whether objects
+    are equal (and a value cached on itself, as an element already
+    maintained on its repeat ground track is, does not recurse).
     """
+
+    __hash__ = None  # type: ignore[assignment]
 
     def __init__(self, owner: int | None = None):
         """
@@ -31,6 +36,12 @@ class _Cache(dict):
         """
         super().__init__()
         self.owner = owner
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Cache)
+
+    def __ne__(self, other: object) -> bool:
+        return not isinstance(other, _Cache)
 
     def __copy__(self) -> "_Cache":
         return _Cache()

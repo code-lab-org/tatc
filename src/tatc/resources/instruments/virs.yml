@@ -3,12 +3,7 @@ name: VIRS
 aliases: [TRMM VIRS, Visible and Infrared Scanner]
 instrument_class: cross_track
 selection: Cross-track visible and infrared scanner of the Tropical Rainfall Measuring Mission, with open calibrated radiances from 1997 to 2014, flying with the PR and TMI for cloud context of precipitation.
-platforms:
-  - id: trmm
-    name: TRMM
-    norad_id: 25063
-    status: retired
-    as_of: 2015-04-15
+platforms: [trmm]
 data_products:
   - name: GPM_1BVIRS
     provider: NASA GES DISC

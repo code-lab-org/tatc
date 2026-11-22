@@ -1,0 +1,85 @@
+{
+  "entry_id": "tropics",
+  "configurations": {
+    "plane": {
+      "digest": "4a66098e3d69745513400699d3bee87feb519c2cef72c7f772b0af9ace5fb782",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2024-08-31 to 2024-10-15",
+      "platforms": [
+        "tropics-03",
+        "tropics-05",
+        "tropics-06"
+      ],
+      "platform_periods": {
+        "tropics-03": "2024-08-31 to 2024-10-15",
+        "tropics-05": "2024-09-01 to 2024-10-15",
+        "tropics-06": "2024-08-31 to 2024-10-15"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 17.8897,
+          "scope": "tropics-03"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0019,
+          "scope": "tropics-03"
+        },
+        {
+          "name": "test_sets",
+          "value": 46.0,
+          "scope": "tropics-03"
+        },
+        {
+          "name": "test_span_days",
+          "value": 45.0,
+          "scope": "tropics-03"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 18.4036,
+          "scope": "tropics-05"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.003,
+          "scope": "tropics-05"
+        },
+        {
+          "name": "test_sets",
+          "value": 45.0,
+          "scope": "tropics-05"
+        },
+        {
+          "name": "test_span_days",
+          "value": 44.0,
+          "scope": "tropics-05"
+        },
+        {
+          "name": "altitude_error_p95",
+          "value": 20.1089,
+          "scope": "tropics-06"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.002,
+          "scope": "tropics-06"
+        },
+        {
+          "name": "test_sets",
+          "value": 46.0,
+          "scope": "tropics-06"
+        },
+        {
+          "name": "test_span_days",
+          "value": 45.0,
+          "scope": "tropics-06"
+        }
+      ]
+    }
+  }
+}

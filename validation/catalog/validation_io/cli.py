@@ -2,7 +2,8 @@
 The command line shared by the validation scripts, with defaults from the catalog:
 the days of a run default to those of the entry's record (or, with `--fit`, to
 those of the data to which its values were fitted), and the platforms to those of
-the entry.
+the entry. The scripts of the catalog's systems share a similar command line
+(`parse_system_run`), whose days default as each script defines.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -14,7 +15,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
-from tatc.catalog import InstrumentEntry, get_entry
+from tatc.catalog import (
+    InstrumentEntry,
+    SystemClass,
+    SystemEntry,
+    get_entry,
+    get_system,
+    list_systems,
+)
+from tatc.catalog.records import format_period
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 
 from .archives import get_element_set
@@ -204,7 +213,7 @@ def parse_run(
         default_platform = entry.configurations[entry.default_configuration].platforms[
             0
         ]
-    platforms = sorted(platform.id for platform in entry.platforms)
+    platforms = sorted(entry.platforms)
     parser = argparse.ArgumentParser(
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -314,4 +323,151 @@ def parse_run(
         elements=options.elements,
         source=source_of(sys.modules["__main__"].__file__),
         options=extra,
+    )
+
+
+@dataclass
+class SystemRun:
+    """
+    What a run of a system's validation script tests: the system's
+    `configurations` on the data of `days` (if the script takes days); or, with
+    `fit`, the values it fits. Options that a script adds are its attributes
+    too.
+    """
+
+    entry: SystemEntry
+    directory: pathlib.Path
+    days: list[date]
+    configurations: tuple[str, ...]
+    fit: bool
+    write: bool
+    source: str
+    options: argparse.Namespace = field(default_factory=argparse.Namespace)
+
+    def __getattr__(self, name):
+        # the options a script adds
+        options = self.__dict__.get("options")
+        if options is not None and hasattr(options, name):
+            return getattr(options, name)
+        raise AttributeError(name)
+
+    @property
+    def period(self) -> str:
+        """The days of the data, as a record states them."""
+        return format_period(self.days)
+
+    def warn_holdout(
+        self,
+        key: str,
+        period: str | None = None,
+        platform_periods: dict[str, str] | None = None,
+    ) -> None:
+        """
+        Warns if a configuration's fitted values are fewer than
+        `MIN_HOLDOUT_GAP_DAYS` from the data of the test (by default, the run's
+        days), which its validation reports as a gap.
+        """
+        gap = self.entry.get_holdout_gap(
+            key, self.period if period is None else period, platform_periods
+        )
+        if gap is not None and gap < MIN_HOLDOUT_GAP_DAYS:
+            print(
+                f"warning: {key}'s fitted values are {gap} days from these data "
+                f"(fewer than {MIN_HOLDOUT_GAP_DAYS}), which its validation "
+                "reports as a gap"
+            )
+
+
+def parse_system_run(
+    description: str,
+    *,
+    system_classes: Sequence[SystemClass],
+    default_days: Callable[[SystemEntry, bool], list[date]] | None = None,
+    add_arguments: Callable[[argparse.ArgumentParser], None] | None = None,
+    arguments: Sequence[str] | None = None,
+) -> SystemRun:
+    """
+    Parses the command line of a system's validation script:
+
+        <script> SYSTEM DIRECTORY [DAY ...] [--configuration KEY ...] [--fit]
+            [--write]
+
+    Args:
+        description (str): The script's usage, its docstring.
+        system_classes (Sequence[SystemClass]): The classes of the systems the
+            script validates.
+        default_days (Callable | None): Gets the days of a run without days
+            given, from the system and whether the run fits values (by default,
+            none); it raises `ValueError` if the run needs days given.
+        add_arguments (Callable | None): Adds the script's own options to the
+            parser.
+        arguments (Sequence[str] | None): The arguments, by default those of the
+            command line.
+
+    Returns:
+        SystemRun: The run.
+    """
+    systems = [s.id for s in list_systems() if s.system_class in system_classes]
+    parser = argparse.ArgumentParser(
+        description=description, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("system", choices=systems, help="the system")
+    parser.add_argument(
+        "directory", type=pathlib.Path, help="where downloaded data are cached"
+    )
+    parser.add_argument(
+        "days",
+        nargs="*",
+        metavar="DAY",
+        help="the days of the data (UTC, as 2026-10-02), by default the script's",
+    )
+    parser.add_argument(
+        "--configuration",
+        action="append",
+        help="a configuration to test (repeatable; default: all of the system's)",
+    )
+    parser.add_argument(
+        "--fit",
+        action="store_true",
+        help="fit the values (or build the table of stations), without testing",
+    )
+    parser.add_argument(
+        "--write", action="store_true", help="write the validation record"
+    )
+    if add_arguments is not None:
+        add_arguments(parser)
+    options = parser.parse_args(arguments)
+    entry = get_system(options.system)
+    keys = list(entry.configurations)
+    if options.configuration:
+        unknown = sorted(set(options.configuration) - set(keys))
+        if unknown:
+            parser.error(f"{entry.id} has no configurations {unknown}: {keys}")
+        keys = [k for k in keys if k in options.configuration]
+    days: list[date] = []
+    if options.days:
+        try:
+            days = [parse_day(text).date() for text in options.days]
+        except ValueError as error:
+            parser.error(str(error))
+    elif default_days is not None:
+        try:
+            days = default_days(entry, options.fit)
+        except ValueError as error:
+            parser.error(str(error))
+        if days:
+            print(f"days: {format_period(days)}")
+    options.directory.mkdir(parents=True, exist_ok=True)
+    common = ("system", "directory", "days", "configuration", "fit", "write")
+    return SystemRun(
+        entry=entry,
+        directory=options.directory,
+        days=sorted(set(days)),
+        configurations=tuple(keys),
+        fit=options.fit,
+        write=options.write,
+        source=source_of(sys.modules["__main__"].__file__),
+        options=argparse.Namespace(
+            **{k: v for k, v in vars(options).items() if k not in common}
+        ),
     )

@@ -1,0 +1,28 @@
+id: himawari
+name: Himawari
+system_class: geostationary
+selection: Japan's geostationary weather satellites, which observe East Asia and the western Pacific.
+operator: Japan Meteorological Agency
+spacecraft:
+  - id: himawari-9
+    name: Himawari-9
+    norad_id: 41836
+    status: operational
+    as_of: 2026-11-09
+default_configuration: slot
+configurations:
+  slot:
+    grade: ground_track
+    description: The longitude of each satellite's subpoint, maintained by station-keeping, from its element set.
+    orbits:
+      himawari-9: {type: geosynchronous, longitude: 140.764, inclination: 0.04}
+    provenance:
+      himawari-9:
+        longitude: &himawari_9
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [himawari-9]
+          period: "2026-11-09"
+        inclination: *himawari_9
+    limitations:
+      - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.

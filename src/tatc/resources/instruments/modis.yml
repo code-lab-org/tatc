@@ -3,17 +3,7 @@ name: MODIS
 aliases: [Moderate Resolution Imaging Spectroradiometer]
 instrument_class: cross_track
 selection: Cross-track imager with the broadest range of applications in the literature, and open data products since 2000.
-platforms:
-  - id: terra
-    name: Terra
-    norad_id: 25994
-    status: extended
-    as_of: 2026-11-05
-  - id: aqua
-    name: Aqua
-    norad_id: 27424
-    status: extended
-    as_of: 2026-11-05
+platforms: [terra, aqua]
 data_products:
   - name: MODIS/Terra geolocation (MOD03), Collection 7
     provider: NASA LAADS DAAC

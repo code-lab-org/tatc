@@ -6,6 +6,7 @@ Object schemas for geosynchronous orbits.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Literal
 
 import numpy as np
@@ -13,6 +14,7 @@ from pydantic import AliasChoices, Field
 
 from ... import constants, utils
 from .base_circular import CircularOrbitBase
+from .gp import GeneralPerturbationsOrbit
 
 # mean altitude (meters) yielding an orbit period of exactly one sidereal
 # day, via Kepler's third law
@@ -26,6 +28,14 @@ class GeosynchronousOrbit(CircularOrbitBase):
     """
     Orbit defined by geosynchronous parameters: a fixed longitude rather
     than a right ascension of ascending node.
+
+    The orbit is propagated as maintained at its longitude (as by
+    station-keeping), on a repeat ground track with a repeat cycle of one
+    nodal day (see `GeneralPerturbationsOrbit.repeat_cycle`): its mean motion
+    is adjusted so that it completes one orbit per nodal day, and every time
+    is propagated within a day of its epoch. Otherwise, the Earth's
+    oblateness and the Moon and Sun would move its longitude by tenths of a
+    degree within a month.
     """
 
     type: Literal["geosynchronous"] = Field(
@@ -100,4 +110,19 @@ class GeosynchronousOrbit(CircularOrbitBase):
             longitude=longitude,
             true_anomaly=true_anomaly,
             epoch=self.epoch,
+        )
+
+    def _compute_gp_orbit(self) -> GeneralPerturbationsOrbit:
+        """
+        Computes a general perturbations orbit representation of this orbit,
+        maintained at its longitude on a repeat ground track with a repeat
+        cycle of one nodal day.
+
+        Returns:
+            GeneralPerturbationsOrbit: the general perturbations orbit
+        """
+        return GeneralPerturbationsOrbit(
+            elements=super()._compute_gp_orbit().elements,
+            remove_drag=True,
+            repeat_cycle=timedelta(days=1),
         )

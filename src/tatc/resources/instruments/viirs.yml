@@ -3,22 +3,7 @@ name: VIIRS
 aliases: [Visible Infrared Imaging Radiometer Suite]
 instrument_class: cross_track
 selection: Cross-track imager of the Joint Polar Satellite System, with open data products, and NASA's recommended successor to MODIS.
-platforms:
-  - id: noaa-20
-    name: NOAA-20
-    norad_id: 43013
-    status: operational
-    as_of: 2026-10-02
-  - id: noaa-21
-    name: NOAA-21
-    norad_id: 54234
-    status: operational
-    as_of: 2026-11-05
-  - id: suomi-npp
-    name: Suomi NPP
-    norad_id: 37849
-    status: retired
-    as_of: 2026-11-02
+platforms: [noaa-20, noaa-21, suomi-npp]
 data_products:
   - name: VIIRS terrain-corrected moderate-resolution geolocation (GMTCO)
     provider: NOAA Open Data Dissemination

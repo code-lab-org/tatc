@@ -1,6 +1,6 @@
 # Catalog Validation
 
-Scripts that validate the entries of the instrument catalog (`src/tatc/resources/instruments/*.yml`) against reference data from operational missions, following the [validation standard](../docs/validation/standard.rst). Their results are published on the catalog page of the documentation, which `docs/validation/catalog_page.py` generates from the entries and their records.
+Scripts that validate the entries of the instrument catalog (`src/tatc/resources/instruments/*.yml`) against reference data from operational missions, following the [validation standard](../docs/validation/standard.rst), and the systems of the catalog (`src/tatc/resources/systems/*.yml`: satellite programs, radar networks, and surface networks) against element sets and station metadata, following its system standard. Their results are published on the catalog and systems pages of the documentation, which `docs/validation/catalog_page.py` and `systems_page.py` generate from the entries and their records.
 
 The validation notebooks, which test orbits, analyses, and the modeling choices behind several entries, are in [`docs/validation`](../docs/validation).
 
@@ -41,13 +41,23 @@ Without `--write`, a script prints its results. Some scripts have options of the
 
 Element sets come from, in order: `--elements`; the set registered for the platform and day in `catalog/elements/element_sets.yml`; NOAA's operational element set of a JPSS satellite (whose archive may no longer hold days of earlier records); or the file in `catalog/elements/` that holds the platform's sets (the set nearest the middle of the day). To test a day for which none of these has a set, register one, or give a file.
 
+## Systems
+
+Systems have scripts of their own, with a command line like the instruments' (`validation_io/cli.py`, `parse_system_run`): `SCRIPT SYSTEM DIRECTORY [DAY ...] [--configuration KEY ...] [--fit] [--write]`, which caches downloads in `DIRECTORY` (such as `validation/data/elements`), writes records to `src/tatc/resources/validation/systems/<system>.json` with `--write` (warning if fitted values are fewer than 30 days from the data), and with `--fit` fits values or builds a table instead of testing:
+
+- `catalog/validate_system_orbits.py SYSTEM DIRECTORY [DAY ...] [--step N] [--end DAY]`: the orbits of a satellite system against element sets, each standing for the day of its own epoch, on each spacecraft's days at least 30 days after its fit to `--end` (by default yesterday, or a retired spacecraft's last day): the registered days, the days of the files of element sets, and, for the JPSS satellites, every `--step` days of NOAA's archives, which keep about the last 90 days, weekdays only). Its metrics are in `validation_io/orbits.py`: the mean elements of each set, the mean longitude of a geostationary satellite, and the ascending nodes within 6 hours of each set's epoch compared with those of an orbit maintained on a repeat ground track; with `--fit`, the node of such an orbit is the middle of the nodes of the sets of its fitting days (`fit_ascending_node`).
+- `catalog/validate_system_nexrad.py nexrad DIRECTORY [DAY ...]`: on the week from 30 days after the table's snapshot by default, the NEXRAD table (built with `--fit` and a day from the radars' own Level II metadata, for the WSR-88D stations of NCEI's table) against NCEI's table and the stations recording Level II volumes, and each configuration against sampled whole volumes of its volume coverage patterns (about 1 GB). Helpers are in `validation_io/stations.py`.
+- `catalog/validate_system_surface.py SYSTEM DIRECTORY` (`uscrn`, `asos`, or `awos`, as of the day of the run): the table (built with `--fit` from NCEI's HOMR) against NCEI's GHCN-Daily station inventory and the stations the Iowa Environmental Mesonet reports online on the day of the test.
+
+To test a satellite on a day without archived or registered element sets, register one in `catalog/elements/element_sets.yml` (the current sets of CelesTrak, for example).
+
 ## Adding an entry
 
 Write the entry's YAML file, then a script `validate_catalog_<entry>.py` that reads the reference data and compares them with the entry through public TAT-C methods: `run = parse_run("<entry>", __doc__)` gives the run, `run.element_set()` its element set, and `write_results(run, key, reference=..., metrics=..., fixture=...)` writes each configuration's results when `run.write`. Scanners whose products give each sample's position can use `scanner.Setup` with `validate_beams` and `validate_swath`, as the scripts of ATMS and DPR do. Then add the fixture's tests to `tests/catalog`.
 
 ## Accounts
 
-- NOAA Open Data Dissemination (JPSS, GOES, Himawari) and Microsoft Planetary Computer: anonymous.
+- NOAA Open Data Dissemination (JPSS, GOES, Himawari), the NEXRAD Level II archive on AWS, NCEI, the Iowa Environmental Mesonet, and Microsoft Planetary Computer: anonymous.
 - NASA DAACs: a [NASA Earthdata Login](https://urs.earthdata.nasa.gov/) account, as a token in `EARTHDATA_TOKEN` or, failing that, the credentials of `urs.earthdata.nasa.gov` in `~/.netrc`.
 - EarthCARE (ATLID, BBR, CPR, MSI): an ESA MAAP offline token in `ESA_MAAP_KEY`.
 

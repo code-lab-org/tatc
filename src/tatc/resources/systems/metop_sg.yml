@@ -1,0 +1,31 @@
+id: metop_sg
+name: Metop Second Generation
+aliases: [Metop-SG, EPS-SG]
+system_class: sun_synchronous
+selection: The successors of Metop in the mid-morning orbit, whose A satellites carry sounders and imagers.
+operator: EUMETSAT
+spacecraft:
+  - id: metop-sga1
+    name: Metop-SG A1
+    norad_id: 65159
+    status: operational
+    as_of: 2026-11-17
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      metop-sga1: {type: sso, mean_altitude: 827510, equator_crossing_time: "21:28:45"}
+    provenance:
+      metop-sga1:
+        mean_altitude: &metop_sga1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [metop-sga1]
+          period: "2026-10-13"
+        equator_crossing_time: *metop_sga1
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

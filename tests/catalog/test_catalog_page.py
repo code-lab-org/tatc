@@ -6,20 +6,13 @@ documentation, so these check the page here.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-import importlib.util
-import pathlib
 import unittest
 
 from tatc.catalog import get_entry, get_entry_ids
 
-SCRIPT = pathlib.Path(__file__).parents[2] / "docs" / "validation" / "catalog_page.py"
+from .pages import load_page_script
 
-
-def _load_script():
-    spec = importlib.util.spec_from_file_location("catalog_page", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+catalog_page = load_page_script("catalog_page")
 
 
 class TestCatalogPage(unittest.TestCase):
@@ -29,7 +22,7 @@ class TestCatalogPage(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.script = _load_script()
+        cls.script = catalog_page
         cls.page = cls.script.render()
 
     def test_every_entry_listed_with_its_tier(self):

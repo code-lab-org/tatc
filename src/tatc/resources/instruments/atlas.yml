@@ -3,12 +3,7 @@ name: ATLAS
 aliases: [ICESat-2 ATLAS, Advanced Topographic Laser Altimeter System]
 instrument_class: lidar
 selection: Photon-counting laser altimeter of ICESat-2, with open products of ice, land, vegetation, and ocean heights along six narrow beams.
-platforms:
-  - id: icesat-2
-    name: ICESat-2
-    norad_id: 43613
-    status: operational
-    as_of: 2026-10-01
+platforms: [icesat-2]
 data_products:
   - name: ATL08QL
     provider: NASA NSIDC DAAC

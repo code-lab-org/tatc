@@ -3,12 +3,7 @@ name: DPR
 aliases: [GPM DPR, Dual-frequency Precipitation Radar, KuPR]
 instrument_class: cross_track
 selection: Cross-track precipitation radar of the Global Precipitation Measurement mission, with open three-dimensional precipitation products, flying with GMI.
-platforms:
-  - id: gpm
-    name: GPM Core Observatory
-    norad_id: 39574
-    status: operational
-    as_of: 2026-10-03
+platforms: [gpm]
 data_products:
   - name: GPM_2ADPR
     provider: NASA GES DISC

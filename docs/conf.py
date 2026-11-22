@@ -25,20 +25,29 @@ author = "Stevens Institute of Technology"
 
 import importlib.util
 import pathlib
+import sys
 
 import tatc
 
 release = tatc.__version__
 
-# write the catalog page from the catalog's entries and validation records
-_spec = importlib.util.spec_from_file_location(
-    "catalog_page", pathlib.Path(__file__).parent / "validation" / "catalog_page.py"
-)
-_catalog_page = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_catalog_page)
-_catalog_page.write_catalog_page(
-    pathlib.Path(__file__).parent / "validation" / "catalog.rst"
-)
+# write the pages of the catalog's instruments and systems from their entries
+# and validation records, loading their scripts by path (docs/validation is not
+# put on the import path, whose folders, such as `coverage`, would shadow
+# installed packages)
+_VALIDATION = pathlib.Path(__file__).parent / "validation"
+
+
+def _load_page_script(name):
+    spec = importlib.util.spec_from_file_location(name, _VALIDATION / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_load_page_script("catalog_page").write_catalog_page(_VALIDATION / "catalog.rst")
+_load_page_script("systems_page").write_systems_page(_VALIDATION / "systems.rst")
 
 
 # -- General configuration ---------------------------------------------------

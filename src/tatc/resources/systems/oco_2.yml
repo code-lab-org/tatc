@@ -1,0 +1,31 @@
+id: oco_2
+name: Orbiting Carbon Observatory-2
+aliases: [OCO-2]
+system_class: sun_synchronous
+selection: NASA's carbon dioxide mission, in the afternoon constellation.
+operator: NASA
+spacecraft:
+  - id: oco-2
+    name: OCO-2
+    norad_id: 40059
+    status: operational
+    as_of: 2026-11-09
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      oco-2: {type: sso, mean_altitude: 709590, equator_crossing_time: "13:35:56"}
+    provenance:
+      oco-2:
+        mean_altitude: &oco_2
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [oco-2]
+          period: "2026-11-09"
+        equator_crossing_time: *oco_2
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The inclination is the sun-synchronous one of the altitude, not the one operators maintain to steer the local time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.

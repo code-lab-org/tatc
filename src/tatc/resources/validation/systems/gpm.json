@@ -1,0 +1,41 @@
+{
+  "entry_id": "gpm",
+  "configurations": {
+    "plane": {
+      "digest": "803d6bcba5b20c85b6f4284c8bc360fabbb0351a0ad7d1ebfb73f64e43db59ea",
+      "standard_version": 3,
+      "tatc_version": "3.6.0",
+      "source": "validation/catalog/validate_system_orbits.py",
+      "reference": "Element sets of the spacecraft (registered, from NOAA's archives of the JPSS satellites, or in files of element sets)",
+      "period": "2026-10-04, 2026-11-06, 2026-11-11, 2026-11-21",
+      "platforms": [
+        "gpm"
+      ],
+      "platform_periods": {
+        "gpm": "2026-10-04, 2026-11-06, 2026-11-11, 2026-11-21"
+      },
+      "metrics": [
+        {
+          "name": "altitude_error_p95",
+          "value": 1.0469,
+          "scope": "gpm"
+        },
+        {
+          "name": "inclination_error_p95",
+          "value": 0.0014,
+          "scope": "gpm"
+        },
+        {
+          "name": "test_sets",
+          "value": 4.0,
+          "scope": "gpm"
+        },
+        {
+          "name": "test_span_days",
+          "value": 48.0,
+          "scope": "gpm"
+        }
+      ]
+    }
+  }
+}

@@ -3,17 +3,7 @@ name: OLI
 aliases: [Operational Land Imager, OLI-2, Landsat]
 instrument_class: pushbroom
 selection: Pushbroom imager of the longest-running Earth observation program, with the largest cumulative publication count of the missions compared, and open data products.
-platforms:
-  - id: landsat-9
-    name: Landsat 9
-    norad_id: 49260
-    status: operational
-    as_of: 2026-11-05
-  - id: landsat-8
-    name: Landsat 8
-    norad_id: 39084
-    status: operational
-    as_of: 2026-11-03
+platforms: [landsat-9, landsat-8]
 data_products:
   - name: Landsat Collection 2 Level-1 scene catalog
     provider: USGS

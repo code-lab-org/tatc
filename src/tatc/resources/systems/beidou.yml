@@ -1,0 +1,552 @@
+id: beidou
+name: BeiDou Navigation Satellite System
+aliases: [BeiDou, BDS]
+system_class: inclined
+selection: China's global navigation satellite system (its BeiDou-3 satellites in medium Earth orbit), whose signals radio occultation receivers sound the atmosphere with.
+operator: China Satellite Navigation Office
+role: transmitting
+spacecraft:
+  - id: beidou-3-m1
+    name: BeiDou-3 M1
+    norad_id: 43001
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m2
+    name: BeiDou-3 M2
+    norad_id: 43002
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m7
+    name: BeiDou-3 M7
+    norad_id: 43107
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m8
+    name: BeiDou-3 M8
+    norad_id: 43108
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m4
+    name: BeiDou-3 M4
+    norad_id: 43207
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m3
+    name: BeiDou-3 M3
+    norad_id: 43208
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m9
+    name: BeiDou-3 M9
+    norad_id: 43245
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m10
+    name: BeiDou-3 M10
+    norad_id: 43246
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m5
+    name: BeiDou-3 M5
+    norad_id: 43581
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m6
+    name: BeiDou-3 M6
+    norad_id: 43582
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m12
+    name: BeiDou-3 M12
+    norad_id: 43602
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m11
+    name: BeiDou-3 M11
+    norad_id: 43603
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m13
+    name: BeiDou-3 M13
+    norad_id: 43622
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m14
+    name: BeiDou-3 M14
+    norad_id: 43623
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m16
+    name: BeiDou-3 M16
+    norad_id: 43647
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m15
+    name: BeiDou-3 M15
+    norad_id: 43648
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m17
+    name: BeiDou-3 M17
+    norad_id: 43706
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m18
+    name: BeiDou-3 M18
+    norad_id: 43707
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m24
+    name: BeiDou-3 M24
+    norad_id: 44542
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m23
+    name: BeiDou-3 M23
+    norad_id: 44543
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m22
+    name: BeiDou-3 M22
+    norad_id: 44793
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m21
+    name: BeiDou-3 M21
+    norad_id: 44794
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m19
+    name: BeiDou-3 M19
+    norad_id: 44864
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m20
+    name: BeiDou-3 M20
+    norad_id: 44865
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m28
+    name: BeiDou-3 M28
+    norad_id: 58654
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m26
+    name: BeiDou-3 M26
+    norad_id: 58655
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m25
+    name: BeiDou-3 M25
+    norad_id: 61186
+    status: operational
+    as_of: 2026-11-22
+  - id: beidou-3-m27
+    name: BeiDou-3 M27
+    norad_id: 61187
+    status: operational
+    as_of: 2026-11-22
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and inclination, and its node and phase relative to the first satellite's (BeiDou-3 M1), from its element set, so that the orbits keep the geometry of the constellation.
+    orbits:
+      beidou-3-m1: {type: circular, mean_altitude: 21535170, inclination: 56.8329, right_ascension_ascending_node: 0, phase: 0}
+      beidou-3-m2: {type: circular, mean_altitude: 21535200, inclination: 56.8325, right_ascension_ascending_node: 0.04, phase: 40.87}
+      beidou-3-m7: {type: circular, mean_altitude: 21535450, inclination: 54.1855, right_ascension_ascending_node: 238.87, phase: 213.43}
+      beidou-3-m8: {type: circular, mean_altitude: 21535160, inclination: 54.1782, right_ascension_ascending_node: 238.85, phase: 251.99}
+      beidou-3-m4: {type: circular, mean_altitude: 21535190, inclination: 56.7921, right_ascension_ascending_node: 0.06, phase: 314.16}
+      beidou-3-m3: {type: circular, mean_altitude: 21535150, inclination: 56.7899, right_ascension_ascending_node: 0.06, phase: 269.56}
+      beidou-3-m9: {type: circular, mean_altitude: 21535450, inclination: 54.0504, right_ascension_ascending_node: 236.48, phase: 122.94}
+      beidou-3-m10: {type: circular, mean_altitude: 21535350, inclination: 54.0477, right_ascension_ascending_node: 236.51, phase: 167.52}
+      beidou-3-m5: {type: circular, mean_altitude: 21535400, inclination: 54.0804, right_ascension_ascending_node: 118.89, phase: 17.48}
+      beidou-3-m6: {type: circular, mean_altitude: 21535460, inclination: 54.0800, right_ascension_ascending_node: 118.87, phase: 108.79}
+      beidou-3-m12: {type: circular, mean_altitude: 21535500, inclination: 54.1765, right_ascension_ascending_node: 117.64, phase: 149.88}
+      beidou-3-m11: {type: circular, mean_altitude: 21535550, inclination: 54.1738, right_ascension_ascending_node: 117.6, phase: 58.96}
+      beidou-3-m13: {type: circular, mean_altitude: 21535180, inclination: 56.7664, right_ascension_ascending_node: 359.56, phase: 89.91}
+      beidou-3-m14: {type: circular, mean_altitude: 21535180, inclination: 56.7682, right_ascension_ascending_node: 359.56, phase: 180.17}
+      beidou-3-m16: {type: circular, mean_altitude: 21535060, inclination: 53.9458, right_ascension_ascending_node: 236.51, phase: 77.8}
+      beidou-3-m15: {type: circular, mean_altitude: 21535560, inclination: 53.9414, right_ascension_ascending_node: 236.51, phase: 348.87}
+      beidou-3-m17: {type: circular, mean_altitude: 21535440, inclination: 54.1639, right_ascension_ascending_node: 118.89, phase: 240.87}
+      beidou-3-m18: {type: circular, mean_altitude: 21535600, inclination: 54.1649, right_ascension_ascending_node: 118.88, phase: 331.53}
+      beidou-3-m24: {type: circular, mean_altitude: 21572890, inclination: 54.3721, right_ascension_ascending_node: 119.35, phase: 269.27}
+      beidou-3-m23: {type: circular, mean_altitude: 21535510, inclination: 54.3897, right_ascension_ascending_node: 119.32, phase: 197.62}
+      beidou-3-m22: {type: circular, mean_altitude: 21535540, inclination: 53.7912, right_ascension_ascending_node: 236.33, phase: 32.94}
+      beidou-3-m21: {type: circular, mean_altitude: 21535490, inclination: 53.7649, right_ascension_ascending_node: 236.29, phase: 299.33}
+      beidou-3-m19: {type: circular, mean_altitude: 21535140, inclination: 56.7001, right_ascension_ascending_node: 359.69, phase: 137.62}
+      beidou-3-m20: {type: circular, mean_altitude: 21535140, inclination: 56.7015, right_ascension_ascending_node: 359.72, phase: 227.21}
+      beidou-3-m28: {type: circular, mean_altitude: 21535330, inclination: 55.8952, right_ascension_ascending_node: 359.09, phase: 248.06}
+      beidou-3-m26: {type: circular, mean_altitude: 21535350, inclination: 55.8984, right_ascension_ascending_node: 359.08, phase: 23.76}
+      beidou-3-m25: {type: circular, mean_altitude: 21535280, inclination: 54.3312, right_ascension_ascending_node: 238.82, phase: 141.89}
+      beidou-3-m27: {type: circular, mean_altitude: 21535260, inclination: 54.3270, right_ascension_ascending_node: 238.8, phase: 276.97}
+    provenance:
+      beidou-3-m1:
+        mean_altitude: &beidou_3_m1
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m1]
+          period: "2026-11-21"
+        inclination: *beidou_3_m1
+        right_ascension_ascending_node: &beidou_reference
+          kind: nominal
+          source: The reference of the constellation's relative nodes and phases (zero)
+        phase: *beidou_reference
+      beidou-3-m2:
+        mean_altitude: &beidou_3_m2
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m2]
+          period: "2026-11-21"
+        inclination: *beidou_3_m2
+        right_ascension_ascending_node: &beidou_3_m2_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m2, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m2_relative
+      beidou-3-m7:
+        mean_altitude: &beidou_3_m7
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m7]
+          period: "2026-11-21"
+        inclination: *beidou_3_m7
+        right_ascension_ascending_node: &beidou_3_m7_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m7, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m7_relative
+      beidou-3-m8:
+        mean_altitude: &beidou_3_m8
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m8]
+          period: "2026-11-21"
+        inclination: *beidou_3_m8
+        right_ascension_ascending_node: &beidou_3_m8_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m8, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m8_relative
+      beidou-3-m4:
+        mean_altitude: &beidou_3_m4
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m4]
+          period: "2026-11-21"
+        inclination: *beidou_3_m4
+        right_ascension_ascending_node: &beidou_3_m4_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m4, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m4_relative
+      beidou-3-m3:
+        mean_altitude: &beidou_3_m3
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m3]
+          period: "2026-11-19"
+        inclination: *beidou_3_m3
+        right_ascension_ascending_node: &beidou_3_m3_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m3, beidou-3-m1]
+          period: "2026-11-19, 2026-11-21"
+        phase: *beidou_3_m3_relative
+      beidou-3-m9:
+        mean_altitude: &beidou_3_m9
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m9]
+          period: "2026-11-21"
+        inclination: *beidou_3_m9
+        right_ascension_ascending_node: &beidou_3_m9_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m9, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m9_relative
+      beidou-3-m10:
+        mean_altitude: &beidou_3_m10
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m10]
+          period: "2026-11-21"
+        inclination: *beidou_3_m10
+        right_ascension_ascending_node: &beidou_3_m10_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m10, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m10_relative
+      beidou-3-m5:
+        mean_altitude: &beidou_3_m5
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m5]
+          period: "2026-11-20"
+        inclination: *beidou_3_m5
+        right_ascension_ascending_node: &beidou_3_m5_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m5, beidou-3-m1]
+          period: "2026-11-20 to 2026-11-21"
+        phase: *beidou_3_m5_relative
+      beidou-3-m6:
+        mean_altitude: &beidou_3_m6
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m6]
+          period: "2026-11-20"
+        inclination: *beidou_3_m6
+        right_ascension_ascending_node: &beidou_3_m6_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m6, beidou-3-m1]
+          period: "2026-11-20 to 2026-11-21"
+        phase: *beidou_3_m6_relative
+      beidou-3-m12:
+        mean_altitude: &beidou_3_m12
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m12]
+          period: "2026-11-19"
+        inclination: *beidou_3_m12
+        right_ascension_ascending_node: &beidou_3_m12_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m12, beidou-3-m1]
+          period: "2026-11-19, 2026-11-21"
+        phase: *beidou_3_m12_relative
+      beidou-3-m11:
+        mean_altitude: &beidou_3_m11
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m11]
+          period: "2026-11-20"
+        inclination: *beidou_3_m11
+        right_ascension_ascending_node: &beidou_3_m11_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m11, beidou-3-m1]
+          period: "2026-11-20 to 2026-11-21"
+        phase: *beidou_3_m11_relative
+      beidou-3-m13:
+        mean_altitude: &beidou_3_m13
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m13]
+          period: "2026-11-21"
+        inclination: *beidou_3_m13
+        right_ascension_ascending_node: &beidou_3_m13_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m13, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m13_relative
+      beidou-3-m14:
+        mean_altitude: &beidou_3_m14
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m14]
+          period: "2026-11-21"
+        inclination: *beidou_3_m14
+        right_ascension_ascending_node: &beidou_3_m14_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m14, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m14_relative
+      beidou-3-m16:
+        mean_altitude: &beidou_3_m16
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m16]
+          period: "2026-11-21"
+        inclination: *beidou_3_m16
+        right_ascension_ascending_node: &beidou_3_m16_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m16, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m16_relative
+      beidou-3-m15:
+        mean_altitude: &beidou_3_m15
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m15]
+          period: "2026-11-21"
+        inclination: *beidou_3_m15
+        right_ascension_ascending_node: &beidou_3_m15_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m15, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m15_relative
+      beidou-3-m17:
+        mean_altitude: &beidou_3_m17
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m17]
+          period: "2026-11-21"
+        inclination: *beidou_3_m17
+        right_ascension_ascending_node: &beidou_3_m17_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m17, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m17_relative
+      beidou-3-m18:
+        mean_altitude: &beidou_3_m18
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m18]
+          period: "2026-11-20"
+        inclination: *beidou_3_m18
+        right_ascension_ascending_node: &beidou_3_m18_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m18, beidou-3-m1]
+          period: "2026-11-20 to 2026-11-21"
+        phase: *beidou_3_m18_relative
+      beidou-3-m24:
+        mean_altitude: &beidou_3_m24
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m24]
+          period: "2026-11-08"
+        inclination: *beidou_3_m24
+        right_ascension_ascending_node: &beidou_3_m24_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m24, beidou-3-m1]
+          period: "2026-11-08, 2026-11-21"
+        phase: *beidou_3_m24_relative
+      beidou-3-m23:
+        mean_altitude: &beidou_3_m23
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m23]
+          period: "2026-11-19"
+        inclination: *beidou_3_m23
+        right_ascension_ascending_node: &beidou_3_m23_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m23, beidou-3-m1]
+          period: "2026-11-19, 2026-11-21"
+        phase: *beidou_3_m23_relative
+      beidou-3-m22:
+        mean_altitude: &beidou_3_m22
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m22]
+          period: "2026-11-21"
+        inclination: *beidou_3_m22
+        right_ascension_ascending_node: &beidou_3_m22_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m22, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m22_relative
+      beidou-3-m21:
+        mean_altitude: &beidou_3_m21
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m21]
+          period: "2026-11-21"
+        inclination: *beidou_3_m21
+        right_ascension_ascending_node: &beidou_3_m21_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m21, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m21_relative
+      beidou-3-m19:
+        mean_altitude: &beidou_3_m19
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m19]
+          period: "2026-11-21"
+        inclination: *beidou_3_m19
+        right_ascension_ascending_node: &beidou_3_m19_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m19, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m19_relative
+      beidou-3-m20:
+        mean_altitude: &beidou_3_m20
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m20]
+          period: "2026-11-21"
+        inclination: *beidou_3_m20
+        right_ascension_ascending_node: &beidou_3_m20_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m20, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m20_relative
+      beidou-3-m28:
+        mean_altitude: &beidou_3_m28
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m28]
+          period: "2026-11-20"
+        inclination: *beidou_3_m28
+        right_ascension_ascending_node: &beidou_3_m28_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m28, beidou-3-m1]
+          period: "2026-11-20 to 2026-11-21"
+        phase: *beidou_3_m28_relative
+      beidou-3-m26:
+        mean_altitude: &beidou_3_m26
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m26]
+          period: "2026-11-21"
+        inclination: *beidou_3_m26
+        right_ascension_ascending_node: &beidou_3_m26_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m26, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m26_relative
+      beidou-3-m25:
+        mean_altitude: &beidou_3_m25
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m25]
+          period: "2026-11-21"
+        inclination: *beidou_3_m25
+        right_ascension_ascending_node: &beidou_3_m25_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m25, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m25_relative
+      beidou-3-m27:
+        mean_altitude: &beidou_3_m27
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [beidou-3-m27]
+          period: "2026-11-21"
+        inclination: *beidou_3_m27
+        right_ascension_ascending_node: &beidou_3_m27_relative
+          kind: measured
+          source: validate_system_orbits.py --fit, relative to BeiDou-3 M1's at 12:00 UTC on 2026-11-21, from their element sets
+          platforms: [beidou-3-m27, beidou-3-m1]
+          period: "2026-11-21"
+        phase: *beidou_3_m27_relative
+    limitations:
+      - The constellation's node and phase are arbitrary (its first satellite's are zero at the epoch), but each satellite keeps its node and phase relative to the first satellite's on the day of the element sets; satellites at slightly different altitudes drift apart in phase during an analysis, as they do between the operator's maneuvers.
+      - The orbits are circular, at TAT-C's mean altitudes (from the mean motion, above the mean radius); the satellites' small eccentricities are not represented.
+limitations:
+  - The satellites carry no instrument of the instrument catalog, as they transmit the signals that radio occultation receivers sound (see tatc.analysis.collect_ro_observations), and are built with TAT-C's default instrument.
+  - The spacecraft are those of CelesTrak's group on the date of their status, which follows its membership, not the health of their signals that the operator announces.
+  - Only BeiDou-3's satellites in medium Earth orbit are included, not its inclined geosynchronous (IGSO) or geostationary satellites, or those of BeiDou-2, whose orbits are not of the same plane grade.

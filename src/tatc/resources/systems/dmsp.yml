@@ -1,0 +1,33 @@
+id: dmsp
+name: Defense Meteorological Satellite Program
+aliases: [DMSP]
+system_class: sun_synchronous
+selection: The United States' military polar-orbiting weather satellites.
+operator: U.S. Space Force
+spacecraft:
+  - id: dmsp-f18
+    name: DMSP F18
+    norad_id: 35951
+    status: extended
+    as_of: 2026-11-03
+default_configuration: plane
+configurations:
+  plane:
+    grade: plane
+    description: The plane of each satellite's orbit, by its mean altitude and the local time of its ascending node, from its element set.
+    orbits:
+      dmsp-f18: {type: sso, mean_altitude: 849570, equator_crossing_time: "16:21:34", inclination: 98.9223, reference_time: "2026-11-08T06:09:32Z"}
+    provenance:
+      dmsp-f18:
+        mean_altitude: &dmsp_f18
+          kind: measured
+          source: validate_system_orbits.py --fit, from the element set nearest the middle of the day
+          platforms: [dmsp-f18]
+          period: "2026-11-08"
+        equator_crossing_time: *dmsp_f18
+        inclination: *dmsp_f18
+        reference_time: *dmsp_f18
+    limitations:
+      - The satellites' phases in their planes are arbitrary (spaced evenly among the satellites built, from zero at the epoch), so the orbits represent the statistics of revisits and coverage, not the times or tracks of passes.
+      - The satellites' local times are no longer maintained, so each orbit has its own inclination, at whose rate (the J2 precession of its node) its local time drifts from the cataloged one at its reference time (the epoch of the element set to which it was fitted) to the epoch and during an analysis. The drift of the inclination itself, and any maneuver, are not modeled, so the local time departs from the actual one the further the epoch is from the reference time.
+      - Altitudes are TAT-C's mean altitudes (from the mean motion, above the mean radius), not the operators' nominal altitudes.
