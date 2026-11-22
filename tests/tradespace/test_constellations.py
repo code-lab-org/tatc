@@ -11,6 +11,7 @@ import numpy as np
 
 import tatc.tradespace
 
+from tatc.catalog import build_payload
 from tatc.schemas import (
     AttitudeSchedule,
     CircularOrbit,
@@ -265,6 +266,34 @@ class TestBuild(unittest.TestCase):
             end=EPOCH + timedelta(days=2),
         )[0]
         self.assertIsInstance(tilted.attitude, AttitudeSchedule)
+        # the grade and platform select the catalog configuration
+        selected = build_constellation(
+            design.layout,
+            "atms",
+            epoch=EPOCH,
+            altitude=830e3,
+            time_step=30,
+            grade="sample_size",
+            platform="noaa-21",
+        )[0]
+        expected = build_payload(
+            "atms",
+            orbit=selected.orbit,
+            grade="sample_size",
+            platform="noaa-21",
+            time_step=30,
+        )
+        self.assertEqual(selected.instruments, expected.instruments)
+        self.assertNotEqual(selected.instruments, satellite.instruments)
+        with self.assertWarnsRegex(UserWarning, "was tested on"):
+            build_constellation(
+                design.layout,
+                "atms",
+                epoch=EPOCH,
+                altitude=830e3,
+                time_step=30,
+                platform="metop-b",
+            )
         custom = build_constellation(
             design.layout,
             lambda name, orbit: Satellite(name=name, orbit=orbit, instruments=[IMAGER]),

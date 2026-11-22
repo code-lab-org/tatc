@@ -149,7 +149,7 @@ FIELDS = {
 }
 
 
-def sample_field(observations, design):
+def sample_scenario(observations, design):
     """The shares (%) of points sampled sufficiently and accurately (of its field)."""
     return sample(observations, design.decorrelation_time)
 
