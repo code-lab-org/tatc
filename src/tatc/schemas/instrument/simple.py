@@ -29,6 +29,7 @@ from ...utils.projection import (
     compute_footprint,
     compute_projected_ray_position,
 )
+from ..resources import InstrumentPerformance, InstrumentResources
 
 
 class Instrument(BaseModel):
@@ -115,6 +116,16 @@ class Instrument(BaseModel):
         + "is rotated (`geodetic`: the WGS 84 ellipsoid normal; `geocentric`: "
         + "toward the Earth's center). The two differ by up to about 0.19 "
         + "degrees at middle latitudes.",
+    )
+    performance: InstrumentPerformance | None = Field(
+        default=None,
+        description="The nominal ground sample distance and signal-to-noise "
+        + "ratio at a reference altitude, and their scaling with altitude, if "
+        + "given. They do not affect which observations are made.",
+    )
+    resources: InstrumentResources | None = Field(
+        default=None,
+        description="The mass, power, and data rate, if given.",
     )
     # the attitude of the space system that carries this instrument (see
     # `bind_attitude`), from which its views are rotated

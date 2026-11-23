@@ -54,6 +54,50 @@ def list_table(header: list[str], rows: list[list[str]], widths: list[int]) -> s
     return "\n".join(lines) + "\n"
 
 
+# the label and unit of each sourced value, in the order they are shown
+SOURCED_VALUES = {
+    "reference_altitude": ("Reference altitude", 1e3, "km"),
+    "ground_sample_distance": ("Ground sample distance", 1, "m"),
+    "ground_sample_distance_exponent": ("Exponent of ground sample distance", 1, ""),
+    "signal_to_noise_ratio": ("Signal-to-noise ratio", 1, ""),
+    "signal_to_noise_exponent": ("Exponent of signal-to-noise ratio", 1, ""),
+    "mass": ("Mass", 1, "kg"),
+    "power": ("Power", 1, "W"),
+    "data_rate": ("Data rate", 1e6, "Mbit/s"),
+    "launch_mass": ("Launch mass", 1, "kg"),
+    "dry_mass": ("Dry mass", 1, "kg"),
+    "design_life": ("Design life", 1, "years"),
+    "storage": ("Storage", 1e9, "Gbit"),
+    "downlink_rate": ("Downlink rate", 1e6, "Mbit/s"),
+}
+
+
+def render_sourced(sourced: list) -> str:
+    """
+    Writes a table of sourced values (performance and resources), with the
+    origin of each.
+
+    Args:
+        sourced (list): The models of sourced values, or `None`.
+
+    Returns:
+        str: The table, or an empty string without values.
+    """
+    rows = []
+    for model in sourced:
+        if model is None:
+            continue
+        for field, provenance in model.provenance.items():
+            label, scale, unit = SOURCED_VALUES[field]
+            value = f"{getattr(model, field) / scale:g}" + (f" {unit}" if unit else "")
+            rows.append(
+                [label, value, f"{provenance.kind}: {escape(provenance.source)}"]
+            )
+    if not rows:
+        return ""
+    return list_table(["Value", "Amount", "Source"], rows, [25, 15, 60])
+
+
 def heading(text: str, character: str) -> str:
     """
     Writes a section heading.
@@ -192,6 +236,10 @@ def render_configuration(entry, key: str) -> str:
         parts.append(
             "\n".join(f"* {escape(text)}" for text in configuration.limitations) + "\n"
         )
+    table = render_sourced([configuration.performance, configuration.resources])
+    if table:
+        parts.append("Performance and resources, which replace the entry's:\n")
+        parts.append(table)
     return "\n".join(parts)
 
 
@@ -253,6 +301,13 @@ def render_entry(entry) -> str:
             + "\n".join(f"* {escape(text)}" for text in entry.limitations)
             + "\n"
         )
+    table = render_sourced([entry.performance, entry.resources])
+    if table:
+        parts.append(
+            "Performance and resources (nominal, and not validated), unless a "
+            "configuration replaces them:\n"
+        )
+        parts.append(table)
     for key in entry.configurations:
         parts.append(render_configuration(entry, key))
     return "\n".join(parts)

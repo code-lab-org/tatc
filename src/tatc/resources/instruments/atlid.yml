@@ -10,6 +10,38 @@ data_products:
     url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
     access: registration
 default_configuration: profile
+performance:
+  reference_altitude: 393140
+  ground_sample_distance: 30
+  ground_sample_distance_exponent: 1
+  signal_to_noise_exponent: 2
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"an altitude of 393.14 km\" (https://www.eoportal.org/satellite-missions/earthcare)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, ATLID: \"Horizontal: 30 m IFOV sampled at 100 m intervals along track.\" (https://space.oscar.wmo.int/instruments/view/atlid)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A lidar's footprint is set by the divergence of its beam, so it grows in proportion to altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a lidar from a target that fills its footprint falls as the square of range"
+resources:
+  mass: 230
+  power: 310
+  data_rate: 822000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, ATLID: \"230 kg\" (https://space.oscar.wmo.int/instruments/view/atlid)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, ATLID: \"310 W\" (https://space.oscar.wmo.int/instruments/view/atlid)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, ATLID: \"822 kbps\" (https://space.oscar.wmo.int/instruments/view/atlid)"
 configurations:
   profile:
     grade: timing

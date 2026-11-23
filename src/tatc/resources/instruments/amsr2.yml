@@ -10,6 +10,20 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1CGCOMW1AMSR2_08/summary
     access: registration
 default_configuration: swath
+resources:
+  mass: 320
+  power: 400
+  data_rate: 130000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, AMSR2: \"320 kg\" (https://space.oscar.wmo.int/instruments/view/amsr2)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, AMSR2: \"400 W\" (https://space.oscar.wmo.int/instruments/view/amsr2)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, AMSR2: \"130 kbps\" (https://space.oscar.wmo.int/instruments/view/amsr2)"
 configurations:
   swath:
     grade: timing

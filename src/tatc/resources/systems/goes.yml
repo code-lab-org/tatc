@@ -10,11 +10,34 @@ spacecraft:
     norad_id: 60133
     status: operational
     as_of: 2026-10-03
+    resources: &resources_goes_r
+      launch_mass: 5500
+      dry_mass: 2800
+      power: 4000
+      design_life: 15
+      downlink_rate: 120000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, GOES-18: \"Mass at launch 5500 kg\" (https://space.oscar.wmo.int/satellites/view/goes_18); the same for GOES-19"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, GOES-18: \"Dry mass 2800 kg\" (https://space.oscar.wmo.int/satellites/view/goes_18); the same for GOES-19"
+        power:
+          kind: nominal
+          source: "WMO OSCAR/Space, GOES-18: \"Power 4000 W\" (https://space.oscar.wmo.int/satellites/view/goes_18); the same for GOES-19"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GOES-R: \"Spacecraft design life 15 years (10 operational, after 5 years on-orbit spare)\" (https://www.eoportal.org/satellite-missions/goes-r)"
+        downlink_rate:
+          kind: nominal
+          source: "WMO OSCAR/Space, GOES-18: \"Raw Data Link ... 120000 kbps Raw data\" (https://space.oscar.wmo.int/satellites/view/goes_18); the same for GOES-19"
   - id: goes-18
     name: GOES-18
     norad_id: 51850
     status: operational
     as_of: 2026-11-17
+    resources: *resources_goes_r
 default_configuration: slot
 configurations:
   slot:

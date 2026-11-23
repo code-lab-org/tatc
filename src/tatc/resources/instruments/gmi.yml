@@ -10,6 +10,20 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1CGPMGMI_08/summary
     access: registration
 default_configuration: feeds
+resources:
+  mass: 150
+  power: 140
+  data_rate: 25000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, GMI: \"150 kg\" (https://space.oscar.wmo.int/instruments/view/gmi_core)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, GMI: \"140 W\" (https://space.oscar.wmo.int/instruments/view/gmi_core)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, GMI: \"25 kbps\" (https://space.oscar.wmo.int/instruments/view/gmi_core)"
 configurations:
   feeds:
     grade: timing

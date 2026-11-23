@@ -11,41 +11,84 @@ spacecraft:
     norad_id: 19548
     status: retired
     as_of: 2026-05-22
+    resources: &resources_tdrs_first
+      launch_mass: 2100
+      power: 1700
+      design_life: 10
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, TDRS: \"with a launch mass of approximately 2100 kg\" (https://www.eoportal.org/satellite-missions/tdrs); of the first generation"
+        power:
+          kind: nominal
+          source: "eoPortal, TDRS: \"providing 2 kW of beginning-of-life (BOL) power generation and 1.7 kW at end-of-life (EOL)\" (https://www.eoportal.org/satellite-missions/tdrs); of the first generation"
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, TDRS 1-7: \"Lifetime: 10 years (design)\" (https://space.skyrocket.de/doc_sdat/tdrs-1.htm)"
   - id: tdrs-5
     name: TDRS 5
     norad_id: 21639
     status: retired
     as_of: 2026-05-22
+    resources: *resources_tdrs_first
   - id: tdrs-6
     name: TDRS 6
     norad_id: 22314
     status: storage
     as_of: 2026-05-22
+    resources: *resources_tdrs_first
   - id: tdrs-7
     name: TDRS 7
     norad_id: 23613
     status: storage
     as_of: 2026-05-22
+    resources: *resources_tdrs_first
   - id: tdrs-8
     name: TDRS 8
     norad_id: 26388
     status: storage
     as_of: 2026-05-22
+    resources: &resources_tdrs_second
+      launch_mass: 3196
+      power: 2300
+      design_life: 11
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, TDRS: \"The second generation of TDRS uses the Boeing BSS-601 satellite platform. ... with a launch mass of 3196 kg.\" (https://www.eoportal.org/satellite-missions/tdrs)"
+        power:
+          kind: nominal
+          source: "eoPortal, TDRS: \"two bus-mounted silicon solar arrays, providing up to 2300 W of power\" (https://www.eoportal.org/satellite-missions/tdrs); of the second generation"
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, TDRS 8-10: \"Lifetime: 11 years\" (https://space.skyrocket.de/doc_sdat/tdrs-8.htm)"
   - id: tdrs-11
     name: TDRS 11
     norad_id: 39070
     status: operational
     as_of: 2026-05-22
+    resources: &resources_tdrs_third
+      launch_mass: 3454
+      design_life: 15
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "Gunter's Space Page, TDRS 11-13: \"Mass: 3454 kg\" (https://space.skyrocket.de/doc_sdat/tdrs-11.htm)"
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, TDRS 11-13: \"Lifetime: 15 years\" (https://space.skyrocket.de/doc_sdat/tdrs-11.htm)"
   - id: tdrs-12
     name: TDRS 12
     norad_id: 39504
     status: operational
     as_of: 2026-05-22
+    resources: *resources_tdrs_third
   - id: tdrs-13
     name: TDRS 13
     norad_id: 42915
     status: operational
     as_of: 2026-05-22
+    resources: *resources_tdrs_third
 default_configuration: slot
 configurations:
   slot:

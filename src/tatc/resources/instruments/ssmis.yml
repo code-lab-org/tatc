@@ -10,6 +10,20 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1CF18SSMIS_08/summary
     access: registration
 default_configuration: swath
+resources:
+  mass: 96
+  power: 135
+  data_rate: 14200
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, SSMIS: \"96 kg\" (https://space.oscar.wmo.int/instruments/view/ssmis)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, SSMIS: \"135 W\" (https://space.oscar.wmo.int/instruments/view/ssmis)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, SSMIS: \"14.2 kbps\" (https://space.oscar.wmo.int/instruments/view/ssmis)"
 configurations:
   swath:
     grade: timing

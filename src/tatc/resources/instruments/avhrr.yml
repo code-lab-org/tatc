@@ -10,6 +10,42 @@ data_products:
     url: https://podaac.jpl.nasa.gov/dataset/AVHRRF_MC-STAR-L2P-v2.80
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 830000
+  ground_sample_distance: 1100
+  ground_sample_distance_exponent: 1
+  signal_to_noise_ratio: 9
+  signal_to_noise_exponent: 0
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Metop-B: \"830 km\" (https://space.oscar.wmo.int/satellites/view/metop_b)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, AVHRR/3: \"1.1 km s.s.p. IFOV\" (https://space.oscar.wmo.int/instruments/view/avhrr_3)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+    signal_to_noise_ratio:
+      kind: nominal
+      source: "WMO OSCAR/Space, AVHRR/3: \"9 @ 0.5 % albedo\" (https://space.oscar.wmo.int/instruments/view/avhrr_3); of the 0.630 um channel"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "A passive instrument with a fixed instantaneous field of view collects the same radiance from an extended scene at any range"
+resources:
+  mass: 33
+  power: 27
+  data_rate: 621300
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, AVHRR/3: \"33 kg\" (https://space.oscar.wmo.int/instruments/view/avhrr_3)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, AVHRR/3: \"27 W\" (https://space.oscar.wmo.int/instruments/view/avhrr_3)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, AVHRR/3: \"621.3 kbps\" (https://space.oscar.wmo.int/instruments/view/avhrr_3)"
 configurations:
   swath:
     grade: timing

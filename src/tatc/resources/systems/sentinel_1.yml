@@ -10,11 +10,38 @@ spacecraft:
     norad_id: 62261
     status: operational
     as_of: 2026-10-02
+    resources: &resources_sentinel_1cd
+      launch_mass: 2300
+      dry_mass: 2146
+      power: 4800
+      design_life: 7.25
+      storage: 1410000000000
+      downlink_rate: 520000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-1C: \"Mass at launch 2300 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_1c); the same for Sentinel-1D"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-1C: \"Dry mass 2146 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_1c); the same for Sentinel-1D"
+        power:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-1: \"EPS (Electric Power Subsystem) 4800 W average (End-of-Life)\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); of the Sentinel-1 platform"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-1: \"Spacecraft design life 7.25 years\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); of the Sentinel-1 platform"
+        storage:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-1: \"Onboard science data storage capacity 1410 Gbit (End-of-Life)\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); of the Sentinel-1 platform"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-1: \"a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); of the Sentinel-1 platform"
   - id: sentinel-1d
     name: Sentinel-1D
     norad_id: 66315
     status: operational
     as_of: 2026-11-05
+    resources: *resources_sentinel_1cd
 default_configuration: plane
 configurations:
   plane:

@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 25063
     status: retired
     as_of: 2015-04-15
+    resources: &resources_trmm
+      launch_mass: 3620
+      dry_mass: 2730
+      power: 1100
+      design_life: 3
+      downlink_rate: 2000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, TRMM: \"the S/C mass = 3620 kg (including 890 kg of fuel)\" (https://www.eoportal.org/satellite-missions/trmm)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, TRMM: \"Dry mass 2730 kg\" (https://space.oscar.wmo.int/satellites/view/trmm)"
+        power:
+          kind: nominal
+          source: "eoPortal, TRMM: \"Two solar panels provide 1100 W of power (850 W average)\" (https://www.eoportal.org/satellite-missions/trmm)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, TRMM: \"design life = 3 years\" (https://www.eoportal.org/satellite-missions/trmm)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, TRMM: \"Via TDRS, 32 kbit/s (real time), 2 Mbit/s (playback)\" (https://www.eoportal.org/satellite-missions/trmm)"
 default_configuration: plane
 configurations:
   plane:

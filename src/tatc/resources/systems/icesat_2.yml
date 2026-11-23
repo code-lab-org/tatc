@@ -10,6 +10,32 @@ spacecraft:
     norad_id: 43613
     status: operational
     as_of: 2026-10-01
+    resources: &resources_icesat_2
+      launch_mass: 1390
+      dry_mass: 1230
+      power: 1320
+      design_life: 3
+      storage: 704000000000
+      downlink_rate: 220000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, ICESat-2: \"Mass at launch 1390 kg\" (https://space.oscar.wmo.int/satellites/view/icesat_2)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, ICESat-2: \"Dry mass 1230 kg\" (https://space.oscar.wmo.int/satellites/view/icesat_2)"
+        power:
+          kind: nominal
+          source: "eoPortal, ICESat-2: \"4 solar panels which produce an average of 1320 Watts\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, ICESat-2: \"Mission design life 3 years with a 5 year goal\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+        storage:
+          kind: nominal
+          source: "eoPortal, ICESat-2: \"Onboard data storage capacity 704 Gbit at EOL\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, ICESat-2: \"Data downlink X-band, data rate of 220 Mbit/s\" (https://www.eoportal.org/satellite-missions/icesat-2)"
 default_configuration: plane
 configurations:
   plane:

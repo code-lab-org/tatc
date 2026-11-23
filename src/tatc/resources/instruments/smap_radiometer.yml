@@ -10,6 +10,26 @@ data_products:
     url: https://nsidc.org/data/spl1btb
     access: registration
 default_configuration: looks
+performance:
+  reference_altitude: 685000
+  ground_sample_distance: 47000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "SMAP Handbook (JPL, 2014): \"1000-km swath width at orbit altitude of 685 km\" (https://smap.jpl.nasa.gov/system/internal_resources/details/original/178_SMAP_Handbook_FINAL_1_JULY_2014_Web.pdf)"
+    ground_sample_distance:
+      kind: nominal
+      source: "SMAP Handbook (JPL, 2014): \"an effective field of view (EFOV) of 39 km x 47 km\" (https://smap.jpl.nasa.gov/system/internal_resources/details/original/178_SMAP_Handbook_FINAL_1_JULY_2014_Web.pdf); the coarser dimension"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 356
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, L-Band Radiometer: \"356 kg\" (https://space.oscar.wmo.int/instruments/view/l_band_radiometer); of the whole instrument, whose radar and radiometer share the reflector"
 configurations:
   looks:
     grade: timing

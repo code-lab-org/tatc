@@ -10,6 +10,38 @@ data_products:
     url: https://podaac.jpl.nasa.gov/dataset/SWOT_L2_LR_SSH_BASIC_D
     access: registration
 default_configuration: swaths
+performance:
+  reference_altitude: 891000
+  ground_sample_distance: 1000
+  ground_sample_distance_exponent: 0
+  signal_to_noise_exponent: 3
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, SWOT: \"891 km\" (https://space.oscar.wmo.int/satellites/view/swot)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, KaRIn: \"Horizontal 50 m over land, 1 km over ocean\" (https://space.oscar.wmo.int/instruments/view/karin); over the ocean"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A synthetic aperture radar's resolution is set by its bandwidth and antenna length, not by its range"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a synthetic aperture radar from a distributed target falls as the cube of range, as its synthetic aperture grows with range"
+resources:
+  mass: 300
+  power: 1100
+  data_rate: 320000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, KaRIn: \"300 kg\" (https://space.oscar.wmo.int/instruments/view/karin)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, KaRIn: \"1100 W\" (https://space.oscar.wmo.int/instruments/view/karin)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, KaRIn: \"320Mbps\" (https://space.oscar.wmo.int/instruments/view/karin)"
 configurations:
   swaths:
     grade: timing

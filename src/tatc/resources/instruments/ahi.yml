@@ -10,6 +10,34 @@ data_products:
     url: https://registry.opendata.aws/noaa-himawari/
     access: open
 default_configuration: full_disk
+performance:
+  reference_altitude: 35786000
+  ground_sample_distance: 2000
+  ground_sample_distance_exponent: 1
+  signal_to_noise_ratio: 300
+  signal_to_noise_exponent: 0
+  provenance:
+    reference_altitude:
+      kind: derived
+      source: "The altitude of the geostationary orbit, at whose sub-satellite point the resolution is stated"
+    ground_sample_distance:
+      kind: nominal
+      source: "JMA MSC, Himawari-8/9 AHI: \"5 | 1.6 | 2\" (https://www.data.jma.go.jp/mscweb/en/himawari89/space_segment/spsg_ahi.html); the resolution (km) of bands 5 to 16 at the sub-satellite point"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+    signal_to_noise_ratio:
+      kind: nominal
+      source: "WMO OSCAR/Space, AHI: \"\u2265 300 @ 100 % albedo\" (https://space.oscar.wmo.int/instruments/view/ahi); of the reflective bands"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "A passive instrument with a fixed instantaneous field of view collects the same radiance from an extended scene at any range"
+resources:
+  data_rate: 66000000
+  provenance:
+    data_rate:
+      kind: nominal
+      source: "eoPortal, Himawari-8/9: \"The data rate is 66 Mbit/s for AHI\" (https://www.eoportal.org/satellite-missions/himawari-8-9)"
 configurations:
   full_disk:
     grade: coverage

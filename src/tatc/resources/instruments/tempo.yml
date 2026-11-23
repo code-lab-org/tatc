@@ -10,6 +10,16 @@ data_products:
     url: https://asdc.larc.nasa.gov/project/TEMPO
     access: registration
 default_configuration: field_of_regard
+resources:
+  mass: 148
+  power: 134
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, TEMPO: \"Instrument mass 148 kg Mature mass = CBE + 15%\" (https://www.eoportal.org/satellite-missions/tempo)"
+    power:
+      kind: nominal
+      source: "eoPortal, TEMPO: \"Average operational power 134 W Mature power = CBE + 10%\" (https://www.eoportal.org/satellite-missions/tempo)"
 configurations:
   field_of_regard:
     grade: coverage

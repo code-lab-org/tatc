@@ -10,6 +10,24 @@ spacecraft:
     norad_id: 42969
     status: extended
     as_of: 2026-11-05
+    resources: &resources_sentinel_5p
+      launch_mass: 980
+      power: 1500
+      design_life: 7
+      downlink_rate: 310000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-5P: \"Spacecraft launch mass 980 kg\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+        power:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-5P: \"Spacecraft power 1500 W (EOL), 430 W average power consumption\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-5P: \"Mission lifetime 7 years with reliability of 0.75\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-5P: \"X-band science data downlink at 310 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
 default_configuration: plane
 configurations:
   plane:

@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 54754
     status: operational
     as_of: 2026-11-04
+    resources: &resources_swot
+      launch_mass: 2200
+      power: 2000
+      design_life: 3
+      storage: 2300000000000
+      downlink_rate: 800000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, SWOT: \"Mass at launch 2200 kg\" (https://space.oscar.wmo.int/satellites/view/swot); eoPortal gives about 2000 kg"
+        power:
+          kind: nominal
+          source: "eoPortal, SWOT: \"Spacecraft power 2 kW total power demand\" (https://www.eoportal.org/satellite-missions/swot)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, SWOT: \"Mission life 3 years (5 years goal)\" (https://www.eoportal.org/satellite-missions/swot)"
+        storage:
+          kind: nominal
+          source: "eoPortal, SWOT: \"a SSR (Solid State Recorder) of 2.3 Tbit capacity\" (https://www.eoportal.org/satellite-missions/swot)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, SWOT: \"an X-band downlink of 800 Mbit/s\" (https://www.eoportal.org/satellite-missions/swot)"
 default_configuration: plane
 configurations:
   plane:

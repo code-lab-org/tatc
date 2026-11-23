@@ -10,6 +10,24 @@ spacecraft:
     norad_id: 39574
     status: operational
     as_of: 2026-10-03
+    resources: &resources_gpm
+      launch_mass: 3850
+      power: 1950
+      design_life: 3
+      downlink_rate: 2300000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, GPM: \"The GPM spacecraft has a mass of about 3850 kg\" (https://www.eoportal.org/satellite-missions/gpm)"
+        power:
+          kind: nominal
+          source: "eoPortal, GPM: \"a power of ~1.95 kW\" (https://www.eoportal.org/satellite-missions/gpm)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GPM: \"The design life is 3 years\" (https://www.eoportal.org/satellite-missions/gpm)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, GPM: \"~2.3 Mbit/s in SA mode\" (https://www.eoportal.org/satellite-missions/gpm); through TDRS"
 default_configuration: plane
 configurations:
   plane:

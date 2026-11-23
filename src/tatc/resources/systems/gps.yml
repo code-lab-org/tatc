@@ -11,161 +11,224 @@ spacecraft:
     norad_id: 26407
     status: operational
     as_of: 2026-11-18
+    resources: &resources_gps_iir
+      power: 1136
+      design_life: 7.5
+      provenance:
+        power:
+          kind: nominal
+          source: "Air & Space Forces Magazine, GPS: \"Solar panels generating 1,136 watts (IIR/IIR-M)\" (https://www.airandspaceforces.com/weapons-platforms/gps/)"
+        design_life:
+          kind: nominal
+          source: "Air & Space Forces Magazine, GPS: \"7.5 yr (IIR/IIR-M)\" (https://www.airandspaceforces.com/weapons-platforms/gps/)"
   - id: gps-biir-8
     name: GPS BIIR-8
     norad_id: 27663
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biir-11
     name: GPS BIIR-11
     norad_id: 28190
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biir-13
     name: GPS BIIR-13
     norad_id: 28474
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-1
     name: GPS BIIRM-1
     norad_id: 28874
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-2
     name: GPS BIIRM-2
     norad_id: 29486
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-3
     name: GPS BIIRM-3
     norad_id: 29601
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-4
     name: GPS BIIRM-4
     norad_id: 32260
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-5
     name: GPS BIIRM-5
     norad_id: 32384
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-6
     name: GPS BIIRM-6
     norad_id: 32711
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biirm-8
     name: GPS BIIRM-8
     norad_id: 35752
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iir
   - id: gps-biif-1
     name: GPS BIIF-1
     norad_id: 36585
     status: operational
     as_of: 2026-11-18
+    resources: &resources_gps_iif
+      power: 1952
+      design_life: 12
+      provenance:
+        power:
+          kind: nominal
+          source: "Steigenberger, Thoelert & Montenbruck (2020), Adv. Space Res. 66(12): \"Block IIF ... Power ... 1952 W\" (https://elib.dlr.de/134969/1/1-s2.0-S0273117720301988-main%5B1%5D.pdf); at end of life (Table 1)"
+        design_life:
+          kind: nominal
+          source: "Air & Space Forces Magazine, GPS: \"12 yr (IIF)\" (https://www.airandspaceforces.com/weapons-platforms/gps/)"
   - id: gps-biif-3
     name: GPS BIIF-3
     norad_id: 38833
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-4
     name: GPS BIIF-4
     norad_id: 39166
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-5
     name: GPS BIIF-5
     norad_id: 39533
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-6
     name: GPS BIIF-6
     norad_id: 39741
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-7
     name: GPS BIIF-7
     norad_id: 40105
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-8
     name: GPS BIIF-8
     norad_id: 40294
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-9
     name: GPS BIIF-9
     norad_id: 40534
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-10
     name: GPS BIIF-10
     norad_id: 40730
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-11
     name: GPS BIIF-11
     norad_id: 41019
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biif-12
     name: GPS BIIF-12
     norad_id: 41328
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iif
   - id: gps-biii-1
     name: GPS BIII-1
     norad_id: 43873
     status: operational
     as_of: 2026-11-18
+    resources: &resources_gps_iii
+      launch_mass: 3681
+      power: 4480
+      design_life: 15
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "Steigenberger, Thoelert & Montenbruck (2020), Adv. Space Res. 66(12): \"The GPS III launch mass is 3681 kg\" (https://elib.dlr.de/134969/1/1-s2.0-S0273117720301988-main%5B1%5D.pdf)"
+        power:
+          kind: nominal
+          source: "Steigenberger, Thoelert & Montenbruck (2020), Adv. Space Res. 66(12): \"Block III ... Power ... 4480 W\" (https://elib.dlr.de/134969/1/1-s2.0-S0273117720301988-main%5B1%5D.pdf); at end of life (Table 1)"
+        design_life:
+          kind: nominal
+          source: "Steigenberger, Thoelert & Montenbruck (2020), Adv. Space Res. 66(12): \"a design life time of 15 years\" (https://elib.dlr.de/134969/1/1-s2.0-S0273117720301988-main%5B1%5D.pdf)"
   - id: gps-biii-2
     name: GPS BIII-2
     norad_id: 44506
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-3
     name: GPS BIII-3
     norad_id: 45854
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-4
     name: GPS BIII-4
     norad_id: 46826
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-5
     name: GPS BIII-5
     norad_id: 48859
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-6
     name: GPS BIII-6
     norad_id: 55268
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-7
     name: GPS BIII-7
     norad_id: 62339
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-8
     name: GPS BIII-8
     norad_id: 64202
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-9
     name: GPS BIII-9
     norad_id: 67588
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
   - id: gps-biii-10
     name: GPS BIII-10
     norad_id: 68791
     status: operational
     as_of: 2026-11-18
+    resources: *resources_gps_iii
 default_configuration: plane
 configurations:
   plane:

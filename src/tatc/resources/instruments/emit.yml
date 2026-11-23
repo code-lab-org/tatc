@@ -10,6 +10,20 @@ data_products:
     url: https://lpdaac.usgs.gov/products/emitl1bradv002/
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 400000
+  ground_sample_distance: 68
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "EMIT L1B ATBD v1 (LP DAAC): \"From the 400\u00b125-km ISS altitude\" (https://lpdaac.usgs.gov/documents/1570/EMITL1B_ATBD_v1.pdf)"
+    ground_sample_distance:
+      kind: nominal
+      source: "EMIT L1B ATBD v1 (LP DAAC): \"a pixel footprint size of approximately 62m x 68m\" (https://lpdaac.usgs.gov/documents/1570/EMITL1B_ATBD_v1.pdf); the coarser dimension"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
 configurations:
   swath:
     grade: timing

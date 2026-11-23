@@ -10,6 +10,20 @@ spacecraft:
     norad_id: 40376
     status: operational
     as_of: 2026-10-24
+    resources: &resources_smap
+      design_life: 3
+      storage: 1024000000000
+      downlink_rate: 130000000
+      provenance:
+        design_life:
+          kind: nominal
+          source: "eoPortal, SMAP: \"Baseline of three-year mission life\" (https://www.eoportal.org/satellite-missions/smap)"
+        storage:
+          kind: nominal
+          source: "eoPortal, SMAP: \"including a 128 GB NVM (Non-Volatile Memory)\" (https://www.eoportal.org/satellite-missions/smap)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, SMAP: \"The payload downlink is in X-band at 130 Mbit/s\" (https://www.eoportal.org/satellite-missions/smap)"
 default_configuration: plane
 configurations:
   plane:

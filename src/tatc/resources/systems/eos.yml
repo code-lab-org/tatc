@@ -10,16 +10,74 @@ spacecraft:
     norad_id: 25994
     status: extended
     as_of: 2026-11-05
+    resources: &resources_terra
+      launch_mass: 5190
+      dry_mass: 4864
+      power: 2530
+      design_life: 6
+      downlink_rate: 150000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, Terra: \"the spacecraft has a total launch mass of 5190 kg\" (https://www.eoportal.org/satellite-missions/terra)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Terra: \"Dry mass 4864 kg\" (https://space.oscar.wmo.int/satellites/view/terra)"
+        power:
+          kind: nominal
+          source: "WMO OSCAR/Space, Terra: \"Power 2530 W\" (https://space.oscar.wmo.int/satellites/view/terra)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Terra: \"The design life of the Terra spacecraft is six years.\" (https://www.eoportal.org/satellite-missions/terra)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Terra: \"The science data recorded onboard are transmitted via Ku-band at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/terra); through TDRS"
   - id: aqua
     name: Aqua
     norad_id: 27424
     status: extended
     as_of: 2026-11-05
+    resources: &resources_aqua
+      launch_mass: 2934
+      dry_mass: 2832
+      power: 4860
+      design_life: 6
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "NASA Science, Aqua: \"Weight (at launch): 2,934 kg\" (https://science.nasa.gov/mission/aqua/about-aqua-spacecraft-and-instruments)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Aqua: \"Dry mass 2832 kg\" (https://space.oscar.wmo.int/satellites/view/aqua)"
+        power:
+          kind: nominal
+          source: "NASA Science, Aqua: \"Power: 4,860 watts end of life\" (https://science.nasa.gov/mission/aqua/about-aqua-spacecraft-and-instruments)"
+        design_life:
+          kind: nominal
+          source: "NASA Science, Aqua: \"Mission design life: 6 years\" (https://science.nasa.gov/mission/aqua/about-aqua-spacecraft-and-instruments)"
   - id: aura
     name: Aura
     norad_id: 28376
     status: extended
     as_of: 2026-11-15
+    resources: &resources_aura
+      launch_mass: 2967
+      power: 4600
+      design_life: 6
+      storage: 100000000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, Aura: \"with a total mass of 2,967 kg at launch\" (https://www.eoportal.org/satellite-missions/aura)"
+        power:
+          kind: nominal
+          source: "NASA Science, Aura: \"provides 4600 watts of power in sunlight\" (https://science.nasa.gov/mission/aura/spacecraft-and-instruments)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Aura: \"The S/C design life is six years.\" (https://www.eoportal.org/satellite-missions/aura)"
+        storage:
+          kind: nominal
+          source: "eoPortal, Aura: \"Onboard storage capacity of 100 Gbit of payload data.\" (https://www.eoportal.org/satellite-missions/aura)"
 default_configuration: plane
 configurations:
   plane:

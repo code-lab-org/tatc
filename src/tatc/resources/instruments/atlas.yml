@@ -10,6 +10,34 @@ data_products:
     url: https://nsidc.org/data/atl08ql
     access: registration
 default_configuration: beam_pairs
+performance:
+  reference_altitude: 496000
+  ground_sample_distance: 10
+  ground_sample_distance_exponent: 1
+  signal_to_noise_exponent: 2
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, ICESat-2: \"at an altitude of 496 km\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, ICESat-2: \"10 m ground footprints\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A lidar's footprint is set by the divergence of its beam, so it grows in proportion to altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a lidar from a target that fills its footprint falls as the square of range"
+resources:
+  mass: 298
+  power: 300
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, ICESat-2: \"The ATLAS instrument has a mass of 298 kg and a power consumption of 300 W.\" (https://www.eoportal.org/satellite-missions/icesat-2)"
+    power:
+      kind: nominal
+      source: "eoPortal, ICESat-2: \"The ATLAS instrument has a mass of 298 kg and a power consumption of 300 W.\" (https://www.eoportal.org/satellite-missions/icesat-2)"
 configurations:
   beam_pairs:
     grade: timing

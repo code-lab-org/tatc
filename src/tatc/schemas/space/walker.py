@@ -193,6 +193,7 @@ class WalkerConstellation(BaseConstellation):
                 ),
                 instruments=copy.deepcopy(self.instruments),
                 attitude=copy.deepcopy(self.attitude),
+                resources=copy.deepcopy(self.resources),
             )
             for i in range(self.number_satellites)
         ]

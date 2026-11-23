@@ -10,6 +10,38 @@ data_products:
     url: https://planetarycomputer.microsoft.com/dataset/sentinel-1-grd
     access: open
 default_configuration: iw
+performance:
+  reference_altitude: 693000
+  ground_sample_distance: 20
+  ground_sample_distance_exponent: 0
+  signal_to_noise_exponent: 3
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "SentiWiki, S1 Mission: \"693 km\" (https://sentiwiki.copernicus.eu/web/s1-mission)"
+    ground_sample_distance:
+      kind: nominal
+      source: "SentiWiki, S1 Mission: \"at 5 m by 20 m spatial resolution (single look)\" (https://sentiwiki.copernicus.eu/web/s1-mission); of the Interferometric Wide swath mode; the coarser dimension"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A synthetic aperture radar's resolution is set by its bandwidth and antenna length, not by its range"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a synthetic aperture radar from a distributed target falls as the cube of range, as its synthetic aperture grows with range"
+resources:
+  mass: 945
+  power: 3870
+  data_rate: 600000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "SentiWiki, S1 Mission: \"945 kg\" (https://sentiwiki.copernicus.eu/web/s1-mission); with the antenna"
+    power:
+      kind: nominal
+      source: "SentiWiki, S1 Mission: \"3870 W (Interferometric Wide-swath Mode, two polarisations)\" (https://sentiwiki.copernicus.eu/web/s1-mission)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, SAR-C (Sentinel-1): \"600 Mbps\" (https://space.oscar.wmo.int/instruments/view/sar_c_sentinel_1)"
 configurations:
   iw:
     grade: timing
@@ -51,6 +83,24 @@ configurations:
       - Swept swaths were added after the configuration's holdout, where views tailored to the time step reached beyond the swath at long time steps; the swath's intersection over union was 0.956 (5th percentile 0.924) at 10 s, but 0.919 (0.853) at 30 s and 0.716 (0.673) at 120 s. The results above are rescored with swept swaths on the same data, with the other results unchanged.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
   ew:
+    performance:
+      reference_altitude: 693000
+      ground_sample_distance: 40
+      ground_sample_distance_exponent: 0
+      signal_to_noise_exponent: 3
+      provenance:
+        reference_altitude:
+          kind: nominal
+          source: "SentiWiki, S1 Mission: \"693 km\" (https://sentiwiki.copernicus.eu/web/s1-mission)"
+        ground_sample_distance:
+          kind: nominal
+          source: "SentiWiki, S1 Mission: \"at 20 m by 40 m spatial resolution\" (https://sentiwiki.copernicus.eu/web/s1-mission); of the Extra Wide swath mode; the coarser dimension"
+        ground_sample_distance_exponent:
+          kind: derived
+          source: "A synthetic aperture radar's resolution is set by its bandwidth and antenna length, not by its range"
+        signal_to_noise_exponent:
+          kind: derived
+          source: "The return of a synthetic aperture radar from a distributed target falls as the cube of range, as its synthetic aperture grows with range"
     grade: timing
     description: The Extra Wide swath (EW) mode, looking to the right, whose roll steering is a profile of roll angles around the orbit, with a view tailored to the analysis time step.
     platforms: [sentinel-1c]

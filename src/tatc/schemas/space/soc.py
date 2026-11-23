@@ -226,6 +226,7 @@ class SOCConstellation(BaseConstellation):
             orbit=self.orbit,
             instruments=self.instruments,
             attitude=self.attitude,
+            resources=self.resources,
             number_satellites=number_satellites,
             number_planes=number_planes,
             # offset adjacent planes by half a within-plane satellite
@@ -259,6 +260,7 @@ class SOCConstellation(BaseConstellation):
                 ),
                 instruments=copy.deepcopy(self.instruments),
                 attitude=copy.deepcopy(self.attitude),
+                resources=copy.deepcopy(self.resources),
             )
             for i in range(number_satellites)
         ]

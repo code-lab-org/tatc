@@ -19,6 +19,18 @@ Conical Instrument
 .. autopydantic_model:: tatc.schemas.ConicalInstrument
   :members:
 
+Performance and Resources
+-------------------------
+
+.. autopydantic_model:: tatc.schemas.InstrumentPerformance
+  :members:
+
+.. autopydantic_model:: tatc.schemas.InstrumentResources
+  :members:
+
+.. autopydantic_model:: tatc.schemas.SpacecraftResources
+  :members:
+
 Attitude
 --------
 

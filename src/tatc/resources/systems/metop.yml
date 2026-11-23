@@ -10,11 +10,63 @@ spacecraft:
     norad_id: 38771
     status: extended
     as_of: 2026-11-17
+    resources: &resources_metop_b
+      launch_mass: 4087
+      dry_mass: 3771
+      power: 3890
+      design_life: 5
+      storage: 24000000000
+      downlink_rate: 70000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Metop-B: \"Mass at launch 4087 kg\" (https://space.oscar.wmo.int/satellites/view/metop_b)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Metop-B: \"Dry mass 3771 kg\" (https://space.oscar.wmo.int/satellites/view/metop_b)"
+        power:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Single sided solar arrays provide a power of 3.890 kW (EOL)\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        design_life:
+          kind: nominal
+          source: "eoPortal, MetOp: \"The mission design life is 5 years.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        storage:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Onboard storage capacity of 24 Gbit\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Instrument data is downlinked in X-band at a rate of 70 Mbit/s.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
   - id: metop-c
     name: Metop-C
     norad_id: 43689
     status: operational
     as_of: 2026-11-17
+    resources: &resources_metop_c
+      launch_mass: 3950
+      dry_mass: 3650
+      power: 3890
+      design_life: 5
+      storage: 24000000000
+      downlink_rate: 70000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Metop-C: \"Mass at launch 3950 kg\" (https://space.oscar.wmo.int/satellites/view/metop_c)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Metop-C: \"Dry mass 3650 kg\" (https://space.oscar.wmo.int/satellites/view/metop_c)"
+        power:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Single sided solar arrays provide a power of 3.890 kW (EOL)\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        design_life:
+          kind: nominal
+          source: "eoPortal, MetOp: \"The mission design life is 5 years.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        storage:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Onboard storage capacity of 24 Gbit\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, MetOp: \"Instrument data is downlinked in X-band at a rate of 70 Mbit/s.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
 default_configuration: plane
 configurations:
   plane:

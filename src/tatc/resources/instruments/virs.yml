@@ -10,6 +10,34 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1BVIRS_08/summary
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 350000
+  ground_sample_distance: 2200
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, TRMM: \"Target altitude 350\u00b1 1.25 km 402.5\u00b1 1 km\" (https://www.eoportal.org/satellite-missions/trmm); before the boost of August 2001"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, TRMM: \"VIRS 720 833 2.2 2.4\" (https://www.eoportal.org/satellite-missions/trmm); the resolution (km) before and after the boost of August 2001"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 34.5
+  power: 40
+  data_rate: 50000
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, TRMM: \"instrument mass = 34.5 kg\" (https://www.eoportal.org/satellite-missions/trmm)"
+    power:
+      kind: nominal
+      source: "eoPortal, TRMM: \"power = 40 W\" (https://www.eoportal.org/satellite-missions/trmm)"
+    data_rate:
+      kind: nominal
+      source: "eoPortal, TRMM: \"Data rate = 50 kbit/s (day) = 28.8 kbit/s (night)\" (https://www.eoportal.org/satellite-missions/trmm); by day"
 configurations:
   swath:
     grade: timing

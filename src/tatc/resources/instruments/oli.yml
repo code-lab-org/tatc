@@ -14,6 +14,34 @@ data_products:
     url: https://planetarycomputer.microsoft.com/dataset/landsat-c2-l2
     access: open
 default_configuration: swath
+performance:
+  reference_altitude: 705000
+  ground_sample_distance: 30
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "NASA Science, Landsat OLI: \"over an 185 km swath from 705 km altitude\" (https://science.nasa.gov/mission/landsat/oli)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, OLI: \"30 m (8 narrow-band channels)\" (https://space.oscar.wmo.int/instruments/view/oli)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 450
+  power: 375
+  data_rate: 265000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, OLI: \"450 kg\" (https://space.oscar.wmo.int/instruments/view/oli); of OLI; no separate values of OLI-2 were found"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, OLI: \"375 W\" (https://space.oscar.wmo.int/instruments/view/oli); of OLI; no separate values of OLI-2 were found"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, OLI: \"265 Mbps\" (https://space.oscar.wmo.int/instruments/view/oli); of OLI; OLI-2 downlinks 14-bit rather than 12-bit data"
 configurations:
   swath:
     grade: coverage

@@ -10,6 +10,38 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_2APR_07/summary
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 350000
+  ground_sample_distance: 4300
+  ground_sample_distance_exponent: 1
+  signal_to_noise_exponent: 2
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, TRMM: \"Target altitude 350\u00b1 1.25 km 402.5\u00b1 1 km\" (https://www.eoportal.org/satellite-missions/trmm); before the boost of August 2001"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, TRMM: \"PR 215 247 4.3 5.0\" (https://www.eoportal.org/satellite-missions/trmm); the horizontal resolution (km) before and after the boost of August 2001"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A real-aperture radar's footprint is set by its beam width, so it grows in proportion to altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a radar from a target that fills its beam (precipitation or cloud) falls as the square of range"
+resources:
+  mass: 465
+  power: 250
+  data_rate: 93200
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, TRMM: \"465 kg (max)\" (https://www.eoportal.org/satellite-missions/trmm); a maximum"
+    power:
+      kind: nominal
+      source: "eoPortal, TRMM: \"250 W (max)\" (https://www.eoportal.org/satellite-missions/trmm); a maximum"
+    data_rate:
+      kind: nominal
+      source: "eoPortal, TRMM: \"Data rate 93.2 kbit/s\" (https://www.eoportal.org/satellite-missions/trmm)"
 configurations:
   swath:
     grade: timing

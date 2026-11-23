@@ -14,6 +14,20 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/ML2T_006/summary
     access: registration
 default_configuration: scans
+resources:
+  mass: 430
+  power: 530
+  data_rate: 100000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, MLS (EOS-Aura): \"430 kg\" (https://space.oscar.wmo.int/instruments/view/mls_eos_aura)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, MLS (EOS-Aura): \"530 W\" (https://space.oscar.wmo.int/instruments/view/mls_eos_aura)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, MLS (EOS-Aura): \"100 kbps\" (https://space.oscar.wmo.int/instruments/view/mls_eos_aura)"
 configurations:
   scans:
     grade: timing

@@ -30,6 +30,7 @@ from .orbit import (
     TundraOrbit,
     TwoLineElements,
 )
+from .resources import InstrumentPerformance, InstrumentResources, SpacecraftResources
 from .space import (
     AllSpaceObjects,
     MOGConstellation,
@@ -74,6 +75,8 @@ __all__ = [
     "GroundStation",
     "InSituInstrument",
     "Instrument",
+    "InstrumentPerformance",
+    "InstrumentResources",
     "KeplerianOrbit",
     "MOGConstellation",
     "MolniyaOrbit",
@@ -85,6 +88,7 @@ __all__ = [
     "Relay",
     "SOCConstellation",
     "Satellite",
+    "SpacecraftResources",
     "SunSynchronousOrbit",
     "SurfacePlatform",
     "TargetAttitude",

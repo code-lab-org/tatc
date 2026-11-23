@@ -10,6 +10,42 @@ data_products:
     url: https://registry.opendata.aws/noaa-goes/
     access: open
 default_configuration: full_disk
+performance:
+  reference_altitude: 35786000
+  ground_sample_distance: 2000
+  ground_sample_distance_exponent: 1
+  signal_to_noise_ratio: 300
+  signal_to_noise_exponent: 0
+  provenance:
+    reference_altitude:
+      kind: derived
+      source: "The altitude of the geostationary orbit, at whose sub-satellite point the resolution is stated"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, ABI: \"2.0 km\" (https://space.oscar.wmo.int/instruments/view/abi); at the sub-satellite point, of the 1.38 and 2.26 um and infrared channels"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+    signal_to_noise_ratio:
+      kind: nominal
+      source: "WMO OSCAR/Space, ABI: \"300 @ 100 % albedo\" (https://space.oscar.wmo.int/instruments/view/abi); of the 0.47 um channel"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "A passive instrument with a fixed instantaneous field of view collects the same radiance from an extended scene at any range"
+resources:
+  mass: 338
+  power: 450
+  data_rate: 66000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, ABI: \"338 kg\" (https://space.oscar.wmo.int/instruments/view/abi)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, ABI: \"450 W\" (https://space.oscar.wmo.int/instruments/view/abi)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, ABI: \"66 Mbps\" (https://space.oscar.wmo.int/instruments/view/abi)"
 configurations:
   full_disk:
     grade: coverage

@@ -10,6 +10,38 @@ data_products:
     url: https://podaac.jpl.nasa.gov/dataset/JASON_CS_S6A_L2_ALT_LR_RED_OST_NRT_F
     access: registration
 default_configuration: nadir
+performance:
+  reference_altitude: 1336000
+  ground_sample_distance: 20000
+  ground_sample_distance_exponent: 0.5
+  signal_to_noise_exponent: 3
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Sentinel-6A: \"1336 km\" (https://space.oscar.wmo.int/satellites/view/sentinel_6a)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, Poseidon-4: \"20 km IFOV.\" (https://space.oscar.wmo.int/instruments/view/poseidon_4); the footprint in low-resolution mode"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A pulse-limited altimeter's footprint has a diameter of 2 (c tau h)^(1/2), so it grows as the square root of altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a pulse-limited altimeter from the sea surface falls as the cube of altitude"
+resources:
+  mass: 60
+  power: 90
+  data_rate: 12000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, Poseidon-4: \"60 kg\" (https://space.oscar.wmo.int/instruments/view/poseidon_4)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, Poseidon-4: \"90 W\" (https://space.oscar.wmo.int/instruments/view/poseidon_4)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, Poseidon-4: \"100 kbps, 12 Mbps (SAR)\" (https://space.oscar.wmo.int/instruments/view/poseidon_4); in SAR mode"
 configurations:
   nadir:
     grade: timing

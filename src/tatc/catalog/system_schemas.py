@@ -41,7 +41,12 @@ from ..schemas.space.base import AllAttitudes
 from ..schemas.surface.radar import RadarBand
 from ..utils import compute_geoid_height
 from .records import ValidationRecord, _CatalogModel, _get_days_apart
-from .schemas import InstrumentSpecification, Provenance, _check_provenance
+from .schemas import (
+    InstrumentSpecification,
+    Provenance,
+    SpacecraftResourceSpecification,
+    _check_provenance,
+)
 from .standard import EntryValidation, Grade, InstrumentClass, Tier
 from .system_orbits import (
     RELATIVE_VALUES,
@@ -85,6 +90,13 @@ class Spacecraft(_CatalogModel):
         + "a configuration (its tests include every spacecraft).",
     )
     as_of: date = Field(..., description="The date of the status.")
+    resources: SpacecraftResourceSpecification | None = Field(
+        default=None,
+        description="The spacecraft's mass, power, design life, and data "
+        + "handling, with their provenance, which the satellites built of it "
+        + "have (see `SatelliteSystem.build`). They are not validated and are "
+        + "not part of a configuration's digest.",
+    )
 
 
 def _as_list(values: str | Sequence[str]) -> list[str]:
@@ -980,7 +992,8 @@ class SatelliteSystem(SystemEntry):
     ) -> list[Satellite]:
         """
         Builds the satellites of a configuration (see `select_configuration`),
-        named by their spacecraft's `name`, with the orbits of
+        named by their spacecraft's `name`, with their spacecraft's `resources`
+        (if cataloged), with the orbits of
         `OrbitConfiguration.build_orbits`: an orbit at the plane grade is built
         at the `epoch` (by default, the `start`), with the relative phases of a
         constellation whose operator maintains them, or else with phases (and,
@@ -1069,6 +1082,9 @@ class SatelliteSystem(SystemEntry):
         orbits = selected.build_orbits(ids, epoch or start)
         satellites = []
         for member, orbit in zip(spacecraft, orbits):
+            resources = (
+                None if member.resources is None else member.resources.to_resources()
+            )
             if not references[member.id]:
                 if payload is not False:
                     carried = (
@@ -1081,7 +1097,9 @@ class SatelliteSystem(SystemEntry):
                         "default instrument (a field of regard of 180 deg)",
                         stacklevel=2,
                     )
-                satellites.append(Satellite(name=member.name, orbit=orbit))
+                satellites.append(
+                    Satellite(name=member.name, orbit=orbit, resources=resources)
+                )
                 continue
             try:
                 built = _loader().build_payload(
@@ -1101,7 +1119,9 @@ class SatelliteSystem(SystemEntry):
                         f"time step of the analysis: {error}"
                     ) from error
                 raise
-            satellites.append(built.to_satellite(orbit, name=member.name))
+            satellites.append(
+                built.to_satellite(orbit, name=member.name, resources=resources)
+            )
         return satellites
 
     def build_relay(

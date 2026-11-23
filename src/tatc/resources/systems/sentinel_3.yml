@@ -10,11 +10,38 @@ spacecraft:
     norad_id: 41335
     status: operational
     as_of: 2026-11-04
+    resources: &resources_sentinel_3
+      launch_mass: 1250
+      dry_mass: 1150
+      power: 2050
+      design_life: 7.5
+      storage: 300000000000
+      downlink_rate: 520000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-3A: \"Mass at launch 1250 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_3a); the same for Sentinel-3B"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-3A: \"Dry mass 1150 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_3a); the same for Sentinel-3B"
+        power:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-1: \"1250 kg 3.9 m x 2.2 m x 2.2 m 2.05 kW (EOL)\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); Sentinel-3 in the table comparing Sentinels 1, 2, and 3"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-3: \"The design life is 7.5 years\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
+        storage:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-3: \"An onboard data storage capacity of 300 Gbit (EOL)\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-3: \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
   - id: sentinel-3b
     name: Sentinel-3B
     norad_id: 43437
     status: operational
     as_of: 2026-11-17
+    resources: *resources_sentinel_3
 default_configuration: plane
 configurations:
   plane:

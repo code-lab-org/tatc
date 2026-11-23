@@ -10,6 +10,20 @@ spacecraft:
     norad_id: 56174
     status: operational
     as_of: 2026-11-09
+    resources: &resources_intelsat_40e
+      launch_mass: 5440
+      power: 8000
+      design_life: 15
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "SatBeams, Intelsat 40e: \"Model LS-1300 Mass 5440 kg\" (https://satbeams.com/satellites/2738-intelsat-40e)"
+        power:
+          kind: nominal
+          source: "SpaceNews (2020): \"roughly eight kilowatts of power\" (https://spacenews.com/maxar-says-last-years-unnamed-geo-order-is-new-intelsat-satellite/); stated before launch"
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, Intelsat 40e: \"Lifetime: +15 years\" (https://space.skyrocket.de/doc_sdat/intelsat-40e.htm)"
 default_configuration: slot
 configurations:
   slot:

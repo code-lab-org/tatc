@@ -8,7 +8,7 @@ so that the page cannot differ from them. `docs/conf.py` runs it on each build.
 
 import pathlib
 
-from catalog_page import REPOSITORY, escape, heading, list_table
+from catalog_page import REPOSITORY, escape, heading, list_table, render_sourced
 
 from tatc.catalog import (
     SYSTEM_STANDARD_VERSION,
@@ -168,6 +168,22 @@ def render_entry(entry) -> str:
                 [40, 20, 40],
             )
         )
+        groups = []  # spacecraft of the same resources, in order
+        for spacecraft in entry.spacecraft:
+            if spacecraft.resources is None:
+                continue
+            for resources, names in groups:
+                if resources == spacecraft.resources:
+                    names.append(spacecraft.name)
+                    break
+            else:
+                groups.append((spacecraft.resources, [spacecraft.name]))
+        for resources, names in groups:
+            parts.append(
+                f"Resources of {escape(', '.join(names))} (nominal, and not "
+                "validated):\n"
+            )
+            parts.append(render_sourced([resources]))
     else:
         table = entry.stations
         path = f"src/tatc/resources/systems/tables/{table.file}"

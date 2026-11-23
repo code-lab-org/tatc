@@ -10,6 +10,38 @@ data_products:
     url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
     access: registration
 default_configuration: nadir
+performance:
+  reference_altitude: 393140
+  ground_sample_distance: 750
+  ground_sample_distance_exponent: 1
+  signal_to_noise_exponent: 2
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"an altitude of 393.14 km\" (https://www.eoportal.org/satellite-missions/earthcare)"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"Beam footprint size ~750 m (IFOV= 0.095\u00ba)\" (https://www.eoportal.org/satellite-missions/earthcare)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A real-aperture radar's footprint is set by its beam width, so it grows in proportion to altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a radar from a target that fills its beam (precipitation or cloud) falls as the square of range"
+resources:
+  mass: 240
+  power: 300
+  data_rate: 270000
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"mass of 240 kg\" (https://www.eoportal.org/satellite-missions/earthcare); OSCAR gives 230 kg"
+    power:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"power consumption of 300 W\" (https://www.eoportal.org/satellite-missions/earthcare)"
+    data_rate:
+      kind: nominal
+      source: "eoPortal, EarthCARE: \"data rate of 270 kbit/s\" (https://www.eoportal.org/satellite-missions/earthcare)"
 configurations:
   nadir:
     grade: timing

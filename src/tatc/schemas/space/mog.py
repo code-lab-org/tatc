@@ -159,6 +159,7 @@ class MOGConstellation(BaseConstellation):
                 orbit=orbit,
                 instruments=copy.deepcopy(self.instruments),
                 attitude=copy.deepcopy(self.attitude),
+                resources=copy.deepcopy(self.resources),
             )
             for i, orbit in enumerate(orbits)
         ]

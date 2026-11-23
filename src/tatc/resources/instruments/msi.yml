@@ -10,6 +10,34 @@ data_products:
     url: https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a
     access: open
 default_configuration: swath
+performance:
+  reference_altitude: 786000
+  ground_sample_distance: 10
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "SentiWiki, S2 Mission: \"at a mean altitude of 786 km\" (https://sentiwiki.copernicus.eu/web/s2-mission)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, MSI (Sentinel-2A): \"10 m\" (https://space.oscar.wmo.int/instruments/view/msi_sentinel_2a); of the 490, 560, 665, and 842 nm bands"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 275
+  power: 266
+  data_rate: 490000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, MSI (Sentinel-2A): \"275 kg\" (https://space.oscar.wmo.int/instruments/view/msi_sentinel_2a)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, MSI (Sentinel-2A): \"266 W\" (https://space.oscar.wmo.int/instruments/view/msi_sentinel_2a)"
+    data_rate:
+      kind: nominal
+      source: "SentiWiki, S2 Mission: \"forward the MSI real-time 490 Mbps data stream\" (https://sentiwiki.copernicus.eu/web/s2-mission)"
 configurations:
   swath:
     grade: coverage

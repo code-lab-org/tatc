@@ -10,6 +10,34 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1CMETOPCMHS_08/summary
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 830000
+  ground_sample_distance: 16000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Metop-B: \"830 km\" (https://space.oscar.wmo.int/satellites/view/metop_b)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, MHS: \"90 steps of 16 km s.s.p.\" (https://space.oscar.wmo.int/instruments/view/mhs)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 63
+  power: 93
+  data_rate: 3900
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, MHS: \"63 kg\" (https://space.oscar.wmo.int/instruments/view/mhs)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, MHS: \"93 W\" (https://space.oscar.wmo.int/instruments/view/mhs)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, MHS: \"3.9 kbps\" (https://space.oscar.wmo.int/instruments/view/mhs)"
 configurations:
   swath:
     grade: coverage
