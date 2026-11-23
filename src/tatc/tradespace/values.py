@@ -7,8 +7,9 @@ spaces, and the paths of values (see `Values`).
 
 from __future__ import annotations
 
+import difflib
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 import numpy as np
@@ -92,6 +93,55 @@ def generic_path(path: str) -> str:
     return _ITEM_INDEX.sub("[*]", path)
 
 
+def suggestion(name: Any, names: Iterable[Any]) -> str:
+    """
+    Gets a suggestion of the name that a misspelled name may be: the closest
+    of the names, as `": did you mean 'fov'?"`, or `""` if none is close.
+
+    Args:
+        name (Any): The misspelled name.
+        names (Iterable[Any]): The names.
+
+    Returns:
+        str: the suggestion, or `""`
+    """
+    close = difflib.get_close_matches(str(name), [str(n) for n in names], n=1)
+    return f": did you mean {close[0]!r}?" if close else ""
+
+
+def named(name: Any, names: Iterable[Any]) -> str:
+    """
+    Gets a name with a suggestion of the name it may be a misspelling of (see
+    `suggestion`), such as `"'fvo' (did you mean 'fov'?)"`.
+
+    Args:
+        name (Any): The name.
+        names (Iterable[Any]): The names it may be a misspelling of.
+
+    Returns:
+        str: the name (quoted), and the suggestion, if any
+    """
+    hint = suggestion(name, names)
+    return f"{name!r} ({hint[2:]})" if hint else repr(name)
+
+
+def missing_value(name: Any, names: Iterable[Any]) -> str:
+    """
+    Gets the message of a value of a name that is not among the names of
+    values, such as `"no value 'fvo' (it has ['fov', 'n']: did you mean
+    'fov'?)"`.
+
+    Args:
+        name (Any): The name.
+        names (Iterable[Any]): The names of the values.
+
+    Returns:
+        str: the message
+    """
+    names = list(names)
+    return f"no value {name!r} (it has {names}{suggestion(name, names)})"
+
+
 def is_number(value: Any) -> bool:
     """
     Whether a value is a number: an integer or a float (also of numpy), but
@@ -131,13 +181,19 @@ def _step(value: Any, segment: str | int, path: str) -> Any:
         except KeyError:
             raise KeyError(
                 f"{where} chose {value.choice!r}, which has no value {segment!r}"
+                + suggestion(segment, _names_of(value.value))
             ) from None
     if isinstance(value, Values) and isinstance(segment, str):
         names = list(value)
         if segment in names:
             return value[segment]
-        raise KeyError(f"{where} has no value {segment!r} (it has {names})")
+        raise KeyError(f"{where} has {missing_value(segment, names)}")
     raise KeyError(f"{where} is a value ({value!r}), which has no {segment!r}")
+
+
+def _names_of(value: Any) -> list[str]:
+    """Gets the names of the values of a value (of a group), if any."""
+    return list(value) if isinstance(value, Values) else []
 
 
 def _resolve_path(value: Any, path: str) -> Any:
@@ -171,7 +227,20 @@ class Values(Mapping):
             return _view(self._values[name])
         if isinstance(name, str) and ("." in name or "[" in name):
             return _resolve_path(self, name)
-        raise KeyError(name)
+        if not isinstance(name, str):
+            raise KeyError(name)
+        raise KeyError(missing_value(name, self._values))
+
+    def __contains__(self, name: object) -> bool:
+        if name in self._values:
+            return True
+        if not isinstance(name, str) or not ("." in name or "[" in name):
+            return False
+        try:
+            _resolve_path(self, name)
+        except KeyError:
+            return False
+        return True
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
@@ -182,7 +251,7 @@ class Values(Mapping):
             return self[name]
         except KeyError:
             raise AttributeError(
-                f"no value {name!r} (it has {list(self._values)})", name=name, obj=self
+                missing_value(name, self._values), name=name, obj=self
             ) from None
 
     def __dir__(self) -> list[str]:
@@ -244,7 +313,8 @@ class ChoiceValues:
         if name == self._value.choice:
             return value
         raise AttributeError(
-            f"the choice chose {self.choice!r}, which has no value {name!r}",
+            f"the choice chose {self.choice!r}, which has no value {name!r}"
+            + suggestion(name, _names_of(value)),
             name=name,
             obj=self,
         )

@@ -40,14 +40,14 @@ refine the designs it evaluated (see `refine`) and confirm its front (see
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, Requirement, _as_criteria, _signs
+from .criteria import Criteria, Objectives, Requirement, _as_criteria, _signs
 from .space import Design, Infeasible
 from .study import Study
 from .summary import _summarize
@@ -99,12 +99,12 @@ class Evaluations:
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+        criteria (Criteria | Objectives): The criteria, without `by`
             (see `Criteria`), or the objectives (metrics whose means they
             are) and their directions (`"min"` or `"max"`).
     """
 
-    def __init__(self, study: Study, criteria: Criteria | Mapping[str, str]):
+    def __init__(self, study: Study, criteria: Criteria | Objectives):
         self.study, self.criteria = study, _as_criteria(criteria)
         if self.criteria.by:
             raise ValueError(
@@ -247,7 +247,7 @@ class Evaluations:
 
 def optimize_optuna(
     study: Study,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     *,
     n_trials: int = 100,
     seed: int | None = 0,
@@ -300,7 +300,7 @@ def optimize_optuna(
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+        criteria (Criteria | Objectives): The criteria, without `by`
             (see `Criteria`), or the objectives (metrics whose means they
             are) and their directions (`"min"` or `"max"`).
         n_trials (int): The number of trials.
@@ -416,7 +416,7 @@ def _constraint_names(requirements: Sequence[Requirement]) -> list[str]:
     ]
 
 
-def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> Any:
+def make_pymoo_problem(study: Study, criteria: Criteria | Objectives) -> Any:
     """
     Makes a pymoo problem of a study's design space: its variables are the
     unit hypercube that encodes the design space (a dimension per decision,
@@ -444,7 +444,7 @@ def make_pymoo_problem(study: Study, criteria: Criteria | Mapping[str, str]) -> 
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+        criteria (Criteria | Objectives): The criteria, without `by`
             (see `Criteria`), or the objectives (metrics whose means they
             are) and their directions (`"min"` or `"max"`).
 
@@ -595,7 +595,7 @@ def _designs_termination(
 
 def optimize_pymoo(
     study: Study,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     *,
     algorithm: Any = None,
     termination: Any = ("n_gen", 10),
@@ -623,7 +623,7 @@ def optimize_pymoo(
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria, without `by`
+        criteria (Criteria | Objectives): The criteria, without `by`
             (see `Criteria`), or the objectives (metrics whose means they
             are) and their directions (`"min"` or `"max"`).
         algorithm (pymoo.core.algorithm.Algorithm | None): The algorithm, or

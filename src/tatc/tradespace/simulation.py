@@ -17,7 +17,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 import numpy as np
 
@@ -139,12 +139,19 @@ class _Sampler:
         )
 
 
-_SAMPLINGS = ("random", "stratified")
+Sampling = Literal["random", "stratified"]
+"""The sampling of the histories of a deployment (see
+`Deployment.simulate_many`)."""
+
+_SAMPLINGS = get_args(Sampling)
 """The samplings of the failures of histories (see `Deployment.simulate_many`)."""
 
 
 def _check_sampling(
-    histories: int, sampling: str, stress: float, launch_stress: float | None = None
+    histories: int,
+    sampling: Sampling,
+    stress: float,
+    launch_stress: float | None = None,
 ) -> None:
     """
     Checks the sampling of histories (see `Deployment.simulate_many`),

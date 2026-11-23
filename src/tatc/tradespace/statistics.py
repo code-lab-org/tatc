@@ -14,9 +14,13 @@ from __future__ import annotations
 
 import operator as op
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+
+Operator = Literal[">=", ">", "<=", "<"]
+"""A comparison of a value with a threshold (as of a `Probability`, or a
+`Requirement`)."""
 
 _OPERATORS = {">=": op.ge, ">": op.gt, "<=": op.le, "<": op.lt}
 
@@ -318,7 +322,7 @@ class Probability(Statistic):
         threshold (float): The threshold.
     """
 
-    def __init__(self, column: str, operator: str, threshold: float):
+    def __init__(self, column: str, operator: Operator, threshold: float):
         super().__init__(column)
         if operator not in _OPERATORS:
             raise ValueError(f"operator must be one of {list(_OPERATORS)}")

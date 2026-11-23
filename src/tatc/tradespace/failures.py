@@ -4,10 +4,10 @@ not restore) the satellites that fail, for simulations of missions (see
 `Deployment.simulate`).
 
 The life of a satellite (from its launch) follows a distribution whose
-failure rate may vary over its lifecycle: constant (`Exponential`),
-decreasing in infancy or increasing with wear (`Weibull`), both (`Bathtub`,
+failure rate may vary over its lifecycle: constant (`ExponentialLifetime`),
+decreasing in infancy or increasing with wear (`WeibullLifetime`), both (`BathtubLifetime`,
 the earliest of competing causes), or given by intervals of age
-(`Piecewise`). A `FailureModel` gives the life of each type of satellite and
+(`PiecewiseLifetime`). A `FailureModel` gives the life of each type of satellite and
 the probability that a launch fails, and a `RestorationPolicy` whether and
 how failed satellites are restored: by spares in orbit, by spares on the
 ground, or by satellites built when needed. A policy is a decision of a
@@ -21,6 +21,7 @@ configure it (see `configure`), as the policy of each design of a
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from typing import Any
@@ -31,6 +32,35 @@ from .events import _per_type, _per_type_values
 from .nodes import Categorical
 from .space import DesignSpace
 from .values import Scope
+
+_RENAMED = {
+    "Exponential": "ExponentialLifetime",
+    "Weibull": "WeibullLifetime",
+    "Bathtub": "BathtubLifetime",
+    "Piecewise": "PiecewiseLifetime",
+}
+"""The former names of the distributions of lives, which are deprecated."""
+
+
+def _renamed(name: str, module: str) -> Any:
+    """
+    Gets the distribution of lives of a former name (see `_RENAMED`), with a
+    `DeprecationWarning`, raising an `AttributeError` for other names (of a
+    module that has no attribute of the name).
+    """
+    if name not in _RENAMED:
+        raise AttributeError(f"module {module!r} has no attribute {name!r}")
+    warnings.warn(
+        f"{name} is deprecated and will be removed in a future release: use "
+        + _RENAMED[name],
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return globals()[_RENAMED[name]]
+
+
+def __getattr__(name: str) -> Any:
+    return _renamed(name, __name__)
 
 
 class Lifetime:
@@ -152,7 +182,7 @@ class Lifetime:
 
 
 @dataclass(frozen=True)
-class Exponential(Lifetime):
+class ExponentialLifetime(Lifetime):
     """
     A life of constant failure rate (random failures).
 
@@ -179,7 +209,7 @@ class Exponential(Lifetime):
 
 
 @dataclass(frozen=True)
-class Weibull(Lifetime):
+class WeibullLifetime(Lifetime):
     """
     A life of a Weibull distribution: a failure rate that decreases with age
     (infant mortality) if its shape is less than 1, is constant if 1, and
@@ -211,7 +241,7 @@ class Weibull(Lifetime):
 
 
 @dataclass(frozen=True)
-class Bathtub(Lifetime):
+class BathtubLifetime(Lifetime):
     """
     A life of competing causes of failure (the earliest of their lives), such
     as the bathtub curve of infant mortality, random failures, and wear-out:
@@ -263,7 +293,7 @@ class Bathtub(Lifetime):
 
 
 @dataclass(frozen=True)
-class Piecewise(Lifetime):
+class PiecewiseLifetime(Lifetime):
     """
     A life of failure rates given by intervals of age: `rates[i]` from
     `breaks[i]` to `breaks[i + 1]` (the last beyond the last break), as from

@@ -7,13 +7,13 @@ which removes the optimism of selection (the winner's curse).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria
+from .criteria import Criteria, Objectives, _as_criteria
 from .space import Design, _designs
 from .study import Study
 from .summary import _summarize
@@ -78,7 +78,7 @@ def _mean(values: pd.Series) -> float:
 
 def confirm(
     study: Study,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     results: pd.DataFrame,
     designs: Sequence[Design | str] | pd.DataFrame | None = None,
     *,
@@ -103,7 +103,7 @@ def confirm(
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria (see
+        criteria (Criteria | Objectives): The criteria (see
             `Criteria`), or the objectives (metrics whose means they are)
             and their directions (`"min"` or `"max"`).
         results (pandas.DataFrame): Every result that informed the selection

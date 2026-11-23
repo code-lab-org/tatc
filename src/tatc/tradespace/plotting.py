@@ -17,7 +17,7 @@ layouts.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -543,7 +543,7 @@ def plot_shares(
     table: pd.DataFrame,
     metrics: Sequence[str] | None = None,
     *,
-    groups: str = "factors",
+    groups: Literal["factors", "metrics"] = "factors",
     names: Mapping[Any, str] | Callable[[Any], str] | None = None,
     labels: Mapping[Any, str] | Callable[[Any], str] | None = None,
     horizontal: bool = False,

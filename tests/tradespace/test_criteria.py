@@ -15,6 +15,7 @@ from tatc.tradespace import (
     Across,
     Criteria,
     Mean,
+    Probability,
     Quantile,
     Requirement,
     pareto_front,
@@ -107,14 +108,51 @@ class TestCriteria(unittest.TestCase):
         )
         self.assertEqual(criteria.names, ["value p25", "cost"])
 
+    def test_statistics_given(self):
+        """Objectives, requirements, tolerances, and the rules across groups
+        may be statistics, which are named by convention."""
+        cost = Quantile("cost", 0.7)
+        reliable = Probability("coverage", ">=", 80)
+        criteria = Criteria(
+            {cost: "min", Mean("coverage"): "max"},
+            requirements=[Requirement(reliable, ">=", 0.9)],
+            tolerances={cost: 1.0},
+            across=Across(rules={cost: "mean"}),
+        )
+        self.assertEqual(list(criteria.objectives), ["cost p70", "coverage"])
+        self.assertEqual(criteria.names, ["cost p70", "coverage", "P(coverage >= 80)"])
+        self.assertEqual(_statistic(criteria, "cost p70"), cost)
+        self.assertEqual(_statistic(criteria, "P(coverage >= 80)"), reliable)
+        self.assertEqual(criteria.tolerances, {"cost p70": 1.0})
+        self.assertEqual(criteria.across.rules, {"cost p70": "mean"})
+        self.assertEqual(criteria.requirements[0].name, "P(coverage >= 80)")
+        self.assertIs(criteria.requirements[0].statistic, reliable)
+        self.assertNotIn("coverage", criteria.statistics)  # a mean of its name
+        # the same as the statistics named
+        named = Criteria(
+            {"cost p70": "min", "coverage": "max"},
+            statistics=[cost, reliable],
+            requirements=[Requirement("P(coverage >= 80)", ">=", 0.9)],
+            tolerances={"cost p70": 1.0},
+        )
+        self.assertEqual(_resolved(named), _resolved(criteria))
+        with self.assertRaisesRegex(ValueError, "same name 'cost p70'"):
+            Criteria({cost: "min"}, statistics={"cost p70": Mean("cost")})
+        with self.assertRaisesRegex(ValueError, "several objectives"):
+            Criteria({cost: "min", "cost p70": "max"})
+        with self.assertRaises(TypeError):
+            Criteria({1: "min"})
+        with self.assertRaises(TypeError):
+            Requirement(1, ">=", 0)
+
     def test_invalid(self):
         """Objectives, statistics, requirements, and tolerances are checked."""
         with self.assertRaises(ValueError):
             Criteria({})
         with self.assertRaises(ValueError):
             Criteria({"a": "lowest"})
-        with self.assertRaises(ValueError):
-            Criteria({"a": "min"}, tolerances={"b": 1})
+        with self.assertRaisesRegex(ValueError, "did you mean 'cost'"):
+            Criteria({"cost": "min"}, tolerances={"cots": 1})
         with self.assertRaises(ValueError):
             Criteria({"a": "min"}, tolerances={"a": "5"})
         with self.assertRaises(ValueError):

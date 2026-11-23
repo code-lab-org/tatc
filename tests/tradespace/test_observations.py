@@ -37,12 +37,13 @@ from tatc.tradespace import (
     CostModel,
     DeploymentSchedule,
     DesignSpace,
-    Exponential,
+    ExponentialLifetime,
     FailureModel,
     Failures,
     Fixed,
     Integer,
     LaunchCost,
+    Mean,
     MissionPlan,
     Observations,
     ObservationStudy,
@@ -90,7 +91,7 @@ TARGETS = Targets(
 SCHEDULE = DeploymentSchedule(years=3, production_rate=4, launch_interval=0.5)
 COSTS = CostModel(SatelliteCost(development=10, first_unit=2))
 PLAN = MissionPlan(SCHEDULE, COSTS, growth={"development": "growth"})
-FAILURES = FailureModel(life=Exponential(0.2))
+FAILURES = FailureModel(life=ExponentialLifetime(0.2))
 DEGRADE = dataclasses.replace(PLAN, policy=RestorationPolicy(restore=False))
 
 
@@ -881,6 +882,79 @@ class TestObservationStudy(unittest.TestCase):
                 _metrics,
                 failures=Failures(FAILURES, seed="failure_seed"),
             )
+
+    def test_misspelled_references(self):
+        """References of the parts of a study that name no value of the
+        designs (such as misspelled names) raise when the study is defined,
+        each with the names there are; functions are not checked."""
+        misspelled = Targets(
+            generate_points_fibonacci_lattice, count=N_POINTS, rotate=True, seed="seed"
+        )
+        cases = {
+            "Targets seed 'seed'": (Observations(misspelled, START, HOURS), {}),
+            "Observations start 'start'": (Observations(TARGETS, "start", HOURS), {}),
+            "MissionPlan kind 'kinds'": (
+                _observations(),
+                {"plan": dataclasses.replace(PLAN, kind="kinds")},
+            ),
+            r"MissionPlan growth\['development'\] 'grwth'.*did you mean 'growth'": (
+                _observations(),
+                {"plan": MissionPlan(SCHEDULE, COSTS, growth={"development": "grwth"})},
+            ),
+            r"MissionPlan masses\['imager'\] 'mass'": (
+                _observations(),
+                {"plan": dataclasses.replace(PLAN, masses={"imager": "mass"})},
+            ),
+            "Failures seed 'failures_seed'.*did you mean 'failure_seed'": (
+                _observations(),
+                {"plan": PLAN, "failures": Failures(FAILURES, seed="failures_seed")},
+            ),
+            "ObservationStudy layout 'layout.plane'": (
+                _observations(),
+                {"layout": "layout.plane"},
+            ),
+        }
+        for message, (observations, options) in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(ValueError, message):
+                ObservationStudy(SPACE, _build, observations, _metrics, **options)
+        # paths, numbers, and functions
+        ObservationStudy(
+            SPACE,
+            _build,
+            Observations(TARGETS, lambda d: START, HOURS),
+            _metrics,
+            plan=dataclasses.replace(
+                PLAN,
+                kind=lambda d: "imager",
+                growth={"development": "growth", "launch": 1.2},
+                masses={"imager": 100},
+            ),
+            layout="layout",
+        )
+        # of a design space that the study's is replaced by
+        study = ObservationStudy(SPACE, _build, _observations(), _metrics)
+        with self.assertRaisesRegex(ValueError, "Targets seed 'points_seed'"):
+            study.replace(space=DesignSpace(layout=SPACE.children["layout"]))
+
+    def test_requirements_on_phases_of_metrics(self):
+        """Requirements on phases are on metrics, not statistics."""
+        with self.assertRaisesRegex(ValueError, "not on statistics"):
+            ObservationStudy(
+                SPACE,
+                _build,
+                _observations(),
+                _metrics,
+                plan=PLAN,
+                phases=[Requirement(Quantile("observed", 0.1), ">=", 50)],
+            )
+        ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            plan=PLAN,
+            phases=[Requirement(Mean("observed"), ">=", 50)],
+        )
 
     @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel(self):

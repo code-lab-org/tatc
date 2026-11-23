@@ -30,7 +30,7 @@ from .failures import FailureModel, RestorationPolicy
 from .histories import _history_statistics, evaluate_histories, summarize_histories
 from .mission import Capability, Mission
 from .references import Reference, _number, configure, value_of
-from .simulation import _check_sampling
+from .simulation import Sampling, _check_sampling
 from .space import Design
 from .statistics import Statistic
 from .values import ChoiceValues, Values
@@ -170,6 +170,30 @@ class MissionPlan:
     stages: Sequence[Stage] | Reference = ()
     masses: float | Mapping[Any, float] | Reference | None = None
     scores: Reference | None = None
+
+    def _references(self) -> list[tuple[str, Any]]:
+        """
+        Gets the references of the plan to values of the design (see
+        `_check_references`): of each part, and of the numbers of its
+        growth and masses (by element, and by type of satellite).
+        """
+        references: list[tuple[str, Any]] = [
+            ("MissionPlan schedule", self.schedule),
+            ("MissionPlan cost_model", self.cost_model),
+            ("MissionPlan kind", self.kind),
+            ("MissionPlan policy", self.policy),
+            ("MissionPlan stages", self.stages),
+            ("MissionPlan scores", self.scores),
+        ]
+        for name, value in (("growth", self.growth), ("masses", self.masses)):
+            references.append((f"MissionPlan {name}", value))
+            for key, item in value.items() if isinstance(value, Mapping) else ():
+                references.append((f"MissionPlan {name}[{key!r}]", item))
+                for kind, number in item.items() if isinstance(item, Mapping) else ():
+                    references.append(
+                        (f"MissionPlan {name}[{key!r}][{kind!r}]", number)
+                    )
+        return references
 
     def _policy_of(self, design: Design) -> RestorationPolicy:
         """
@@ -333,7 +357,7 @@ class Failures:
     _: dataclasses.KW_ONLY
     seed: Reference
     histories: int = 1
-    sampling: str = "stratified"
+    sampling: Sampling = "stratified"
     statistics: Sequence[Statistic] = ()
     stress: float = 1.0
     controls: Sequence[str] = ()
@@ -349,6 +373,11 @@ class Failures:
         if self.control_histories < 1:
             raise ValueError("control_histories must be at least 1")
         _check_sampling(self.histories, self.sampling, self.stress)
+
+    def _references(self) -> list[tuple[str, Any]]:
+        """Gets the references of the failures to values of the design (see
+        `_check_references`)."""
+        return [("Failures seed", self.seed)]
 
     def _seed_of(self, design: Design) -> Any:
         """
