@@ -48,6 +48,7 @@ from tatc.schemas import (
     CircularOrbit,
     InSituInstrument,
     GeosynchronousOrbit,
+    Relay,
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
@@ -485,6 +486,23 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "tdrs": (
+        "nominal",
+        {
+            "slot": (
+                "nominal",
+                None,
+                [
+                    "slot_longitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "timed": (
         "validated",
         {
@@ -592,7 +610,7 @@ class TestLoading(unittest.TestCase):
         """
         self.assertEqual(
             [s.id for s in list_systems(system_class="geostationary")],
-            ["goes", "himawari", "intelsat_40e", "mtg"],
+            ["goes", "himawari", "intelsat_40e", "mtg", "tdrs"],
         )
         self.assertEqual(
             [s.id for s in list_systems(tier="validated")],
@@ -1031,6 +1049,38 @@ class TestBuild(unittest.TestCase):
         ]
         offsets = [abs((n - nodes[0] + 60) % 120 - 60) for n in nodes]
         self.assertLess(max(offsets), 10)
+
+    def test_relay_systems(self):
+        """
+        Test that data relay satellites are built without cataloged instruments,
+        that a relay is built of those neither retired nor in storage, and that
+        other systems build no relays.
+        """
+        tdrs = get_system("tdrs")
+        self.assertEqual(tdrs.role, "relaying")
+        statuses = {s.id: s.status for s in tdrs.spacecraft}
+        self.assertEqual(
+            tdrs.get_default_members(),
+            [k for k, v in statuses.items() if v not in ("retired", "storage")],
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            relay = tdrs.build_relay(min_grazing_altitude=100e3)
+        self.assertFalse([w for w in caught if "instrument" in str(w.message)])
+        self.assertIsInstance(relay, Relay)
+        self.assertEqual(relay.name, "tdrs")
+        self.assertEqual(relay.min_grazing_altitude, 100e3)
+        self.assertEqual(
+            [s.name for s in relay.satellites],
+            [tdrs.get_spacecraft(m).name for m in tdrs.get_default_members()],
+        )
+        self.assertEqual(relay.ground_stations, [])
+        spares = tdrs.build_relay(members=["tdrs-6", "tdrs-7"], name="spares")
+        self.assertEqual([s.name for s in spares.satellites], ["TDRS 6", "TDRS 7"])
+        with self.assertRaisesRegex(ValueError, "relays"):
+            tdrs.build(payload=True)
+        with self.assertRaisesRegex(ValueError, "not relays"):
+            get_system("goes").build_relay()
 
     def test_occultation_transmitters(self):
         """

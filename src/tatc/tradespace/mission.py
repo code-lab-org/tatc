@@ -513,10 +513,25 @@ def _evaluate_phases(
     return pd.DataFrame(rows)
 
 
-def _subset(observations: pd.DataFrame, names: frozenset) -> pd.DataFrame:
-    """The observations of the satellites of names (none if not by satellite)."""
+def _subset(
+    observations: pd.DataFrame,
+    names: frozenset,
+    planned: frozenset | None = None,
+) -> pd.DataFrame:
+    """
+    The observations of the satellites of names (none if not by satellite)
+    and, if the `planned` satellites are given, those of every platform that
+    is not planned (such as of a baseline, see `Capability`), which operate
+    throughout.
+    """
     if "satellite" in observations.columns:
-        return observations[observations["satellite"].isin(names)]
+        satellites = observations["satellite"]
+        kept = satellites.isin(names)
+        if planned is not None:
+            kept |= ~satellites.isin(planned)
+        return observations[kept]
+    if planned is not None:
+        return observations
     return observations.iloc[0:0]
 
 
@@ -566,14 +581,16 @@ class PhaseCache(Forgetful):
         *,
         context: Any = None,
         design: Any = None,
+        planned: frozenset | None = None,
     ) -> dict[str, float]:
         """
         Gets the metrics of satellites that operate together, by their keys
         in the cache (by their names in the observations), from the cache if
         they are in it (keyed by the context and the keys, with those of
         satellites of the same content counted, as each observes), or else
-        of their observations (and kept), given the design if the metric
-        takes one.
+        of their observations (and kept, with those of the platforms that are
+        not `planned`, if given, see `_subset`, which the context must
+        identify), given the design if the metric takes one.
         """
         key = (context, tuple(sorted(keys.values())))
         if key in self._memory:
@@ -581,7 +598,8 @@ class PhaseCache(Forgetful):
         else:
             self.misses += 1
             metric = _given_design(self.metric, design)
-            self._memory[key] = dict(metric(_subset(observations, frozenset(keys))))
+            subset = _subset(observations, frozenset(keys), planned)
+            self._memory[key] = dict(metric(subset))
         return dict(self._memory[key])
 
     def clear(self) -> None:
@@ -618,13 +636,15 @@ class Capability:
         satellites (Sequence[Satellite | str]): The satellites (or their
             names), in the order of the planes (see `MissionHistory.phases`).
         observations (pandas.DataFrame): The observations of every
-            satellite, with their names (`satellite`).
+            satellite, with their names (`satellite`), and of other
+            platforms (such as those of a baseline, see `ObservationStudy`),
+            which operate together with the satellites at every time.
         metric (Callable | PhaseCache): A function of the observations of
             satellites (which may be empty) that gives their metrics, or a
             cache of one (which keys satellites by their content, or by the
             names given for them).
         context (Any): A hashable identifier of the observations, for a
-            cache (see `PhaseCache`).
+            cache (see `PhaseCache`), including those of the other platforms.
         design (Design | None): The (realized) design of the mission, for a
             metric with a parameter named `design`.
     """
@@ -699,6 +719,7 @@ class Capability:
             self.observations,
             context=self.context,
             design=self.design,
+            planned=frozenset(self.names),
         )
 
     def _at(

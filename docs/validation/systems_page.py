@@ -133,12 +133,12 @@ def render_entry(entry) -> str:
         f'**System:** ``get_system("{entry.id}")``. **Class:** '
         f"``{entry.system_class.value}``. **Tier:** `{validation.tier.value}`. "
         f"**Operator:** {escape(entry.operator)}."
-        + (
-            " **Role:** transmitting (navigation satellites, the transmitters of "
-            "radio occultations).\n"
-            if getattr(entry, "role", "observing") == "transmitting"
-            else "\n"
-        ),
+        + {
+            "transmitting": " **Role:** transmitting (navigation satellites, the "
+            "transmitters of radio occultations).\n",
+            "relaying": " **Role:** relaying (data relay satellites, built as a "
+            "relay with ``build_relay``).\n",
+        }.get(getattr(entry, "role", "observing"), "\n"),
     ]
     if entry.aliases:
         parts.append("**Also known as:** " + escape(", ".join(entry.aliases)) + ".\n")

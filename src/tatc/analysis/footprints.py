@@ -40,16 +40,16 @@ from .check import (
     RADAR_STATION,
     SATELLITE,
     SURFACE_PLATFORM,
+    _check_platform_lookup,
     _dissolve_footprints,
     _get_empty_observation_frame,
     _get_instruments,
     _get_platform_columns,
+    _get_platform_lookup,
     _get_platforms,
     _group_platforms,
     _is_single,
     _PlatformKind,
-    _check_platform_lookup,
-    _get_platform_lookup,
 )
 from .ground_track import _collect_satellite
 from .radar_track import _collect_radar_station, _get_empty_radar_track
@@ -328,7 +328,11 @@ def collect_footprint_observations(
     # the track of each platform's instrument, and the position of each
     # footprint in it (in time order)
     track, _ = pd.factorize(
-        pd.Series(keys) + "\x00" + pd.Series(instruments).astype(str).to_numpy()
+        # (as objects, so that a missing instrument is the string "None"
+        # rather than missing, as a string dtype would keep it)
+        pd.Series(keys)
+        + "\x00"
+        + pd.Series(instruments, dtype=object).map(str).to_numpy()
     )
     order = np.lexsort((times.asi8, track))
     position = np.empty(len(frame), dtype=int)

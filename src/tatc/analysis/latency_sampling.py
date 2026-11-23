@@ -7,14 +7,16 @@ Methods to perform latency analysis.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely import geometry as geo
 
 from ..schemas import GroundStation, Satellite
+from ..schemas.architecture import Relay
 from ..utils.computation import _run_together
 from .check import (
     _check_satellites,
@@ -24,6 +26,7 @@ from .check import (
 )
 from .coverage_metrics import _grid_means, _reduce_by_target
 from .point_sampling import _compute_access_periods
+from .space_sampling import collect_space_observations
 
 
 def _get_empty_downlinks_frame() -> gpd.GeoDataFrame:
@@ -104,6 +107,131 @@ def collect_downlinks(
     else:
         gdf = _get_empty_downlinks_frame()
     return gdf
+
+
+_RELAY_SEARCH = timedelta(seconds=60)
+"""The shortest contact with a relay that the search guarantees to detect,
+if the relay's `min_access_time` is shorter (see `collect_relay_contacts`)."""
+
+
+def _get_empty_relay_contacts_frame() -> gpd.GeoDataFrame:
+    """
+    Gets an empty data frame for relay contacts (see `collect_relay_contacts`).
+
+    Returns:
+        geopandas.GeoDataFrame: Empty data frame.
+    """
+    columns = {
+        "ground_station": pd.Series([], dtype="str"),
+        "relay": pd.Series([], dtype="str"),
+        "relay_satellite": pd.Series([], dtype="str"),
+        "geometry": pd.Series([], dtype="object"),
+        "satellite": pd.Series([], dtype="str"),
+        "start": pd.Series([], dtype="datetime64[ns, utc]"),
+        "epoch": pd.Series([], dtype="datetime64[ns, utc]"),
+        "end": pd.Series([], dtype="datetime64[ns, utc]"),
+    }
+    return gpd.GeoDataFrame(columns, crs="EPSG:4326")
+
+
+def collect_relay_contacts(
+    relays: Relay | list[Relay],
+    satellites: Satellite | list[Satellite],
+    start: datetime,
+    end: datetime,
+) -> gpd.GeoDataFrame:
+    """
+    Collect the contacts of satellites with data relays (see
+    `tatc.schemas.Relay`), which act as downlinks (see `compute_latencies`):
+    the periods when a satellite has a line of sight to a relay satellite
+    that grazes the Earth no lower than the relay's `min_grazing_altitude`
+    (and within its `max_range`, see
+    `tatc.analysis.collect_space_observations`), and, if the relay has
+    ground stations, when the relay satellite is also in view of one of
+    them (its access periods, see `collect_downlinks`), lasting at least the
+    relay's `min_access_time`. The search guarantees to detect a line of
+    sight that lasts at least the relay's `min_access_time`, or 60 seconds
+    if that is shorter.
+
+    Args:
+        relays (Relay | list[Relay]): The relays.
+        satellites (Satellite | list[Satellite]): The satellites.
+        start (datetime.datetime): Start of analysis period.
+        end (datetime.datetime): End of analysis period.
+
+    Returns:
+        geopandas.GeoDataFrame: The contacts, each naming its `relay`, the
+            `relay_satellite`, and the `ground_station` that receives its
+            data (missing for a relay without ground stations), with the
+            geometry of the lines of sight at the start and end of the line
+            of sight (see `collect_space_observations`), sorted by start time.
+    """
+    satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
+    relays = [relays] if isinstance(relays, Relay) else list(relays)
+    frames = []
+    for relay in relays:
+        sight = collect_space_observations(
+            satellites,
+            start,
+            end,
+            to_satellites=relay.satellites,
+            min_range=None,
+            max_range=relay.max_range,
+            min_grazing_altitude=relay.min_grazing_altitude,
+            min_duration=max(relay.min_access_time, _RELAY_SEARCH),
+        )
+        if sight.empty:
+            continue
+        sight = pd.DataFrame(
+            {
+                "relay_satellite": sight["to_satellite"].to_numpy(),
+                "geometry": sight.geometry.to_numpy(),
+                "satellite": sight["from_satellite"].to_numpy(),
+                "start": sight["start"].dt.as_unit("ns"),
+                "end": sight["end"].dt.as_unit("ns"),
+            }
+        )
+        if relay.ground_stations:
+            # the parts of each line of sight when the relay satellite is in
+            # view of a ground station
+            access = collect_downlinks(
+                relay.ground_stations, relay.satellites, start, end
+            )
+            access = pd.DataFrame(
+                {
+                    "relay_satellite": access["satellite"].to_numpy(),
+                    "ground_station": access["ground_station"].to_numpy(),
+                    "access_start": access["start"].dt.as_unit("ns"),
+                    "access_end": access["end"].dt.as_unit("ns"),
+                }
+            )
+            sight = sight.merge(access, on="relay_satellite")
+            sight["start"] = sight[["start", "access_start"]].max(axis=1)
+            sight["end"] = sight[["end", "access_end"]].min(axis=1)
+            sight = sight.drop(columns=["access_start", "access_end"])
+        else:
+            sight["ground_station"] = None
+        sight = sight[
+            sight["end"] - sight["start"] >= max(relay.min_access_time, timedelta(0))
+        ]
+        sight = sight[sight["end"] > sight["start"]]
+        if sight.empty:
+            continue
+        sight["relay"] = relay.name
+        frames.append(sight)
+    if not frames:
+        return _get_empty_relay_contacts_frame()
+    contacts = pd.concat(frames, ignore_index=True)
+    contacts["epoch"] = contacts["start"] + (contacts["end"] - contacts["start"]) / 2
+    contacts = gpd.GeoDataFrame(
+        contacts[list(_get_empty_relay_contacts_frame().columns)],
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+    for column in ["start", "epoch", "end"]:
+        contacts[column] = contacts[column].dt.as_unit("ns")
+    return contacts.sort_values("start", kind="stable").reset_index(drop=True)
 
 
 def _get_empty_latency_frame(
@@ -220,24 +348,93 @@ def compute_latencies(
     )
     if observations.empty:
         return empty
-    if downlinks.empty:
-        # every observation is kept without a downlink
-        downlinks = _get_empty_downlinks_frame()
-
     obs = observations.copy()
-    # the satellite of each observation (missing for other platforms), as
-    # objects, so that it is compared with the downlinks' whatever the dtypes
-    obs["_satellite"] = (
-        obs["satellite"].astype(object) if "satellite" in obs.columns else None
-    )
     # the time of each observation, and its end (or its time, if none)
     obs["epoch"] = _get_observation_times(observations).dt.as_unit("ns").to_numpy()
     if "end" not in obs.columns:
         obs["end"] = obs["epoch"]
+    found = _find_downlinks(obs, downlinks, during_contact)
+    obs = obs.assign(**{column: found[column] for column in found.columns})
     obs = obs.sort_values(by="end").reset_index(drop=True)
-    contacts = downlinks[
-        ["satellite", "ground_station", "start", "epoch", "end"]
-    ].rename(
+
+    # compute latency
+    obs["latency"] = obs["downlinked"] - obs["epoch"]
+    obs = obs.rename(columns={"epoch": "observed"})
+
+    # select relevant columns, of those the observations have (and the relay
+    # of each downlink, if the downlinks name relays)
+    columns = list(empty.columns)
+    if "relay" in obs.columns:
+        columns.insert(columns.index("ground_station") + 1, "relay")
+    obs = obs[[column for column in columns if column in obs]]
+
+    # ensure the result is a GeoDataFrame with the observations' CRS
+    obs = gpd.GeoDataFrame(
+        obs,
+        geometry="geometry",
+        crs=(
+            observations.crs
+            if isinstance(observations, gpd.GeoDataFrame) and observations.crs
+            else "EPSG:4326"
+        ),
+    )
+
+    # sort observations by observed time
+    obs = obs.sort_values(by="observed").reset_index(drop=True)
+    return obs
+
+
+def _find_downlinks(
+    observations: pd.DataFrame,
+    downlinks: pd.DataFrame,
+    during_contact: Literal["next", "end", "immediate"] = "end",
+) -> pd.DataFrame:
+    """
+    Finds the downlink of each observation of satellites (see
+    `compute_latencies`): its `ground_station` (and `relay`, if the downlinks
+    name relays, see `collect_relay_contacts`) and the time it is
+    `downlinked` (missing without one, as for the observations of other
+    platforms).
+
+    Args:
+        observations (pandas.DataFrame): The observations, each with its
+            time (`epoch`) and `end`.
+        downlinks (pandas.DataFrame): The downlink opportunities.
+        during_contact (str): Downlink of observations that end during a
+            downlink opportunity (see `compute_latencies`).
+
+    Returns:
+        pandas.DataFrame: the downlink of each observation, with the
+            observations' index
+    """
+    named = ["ground_station"] + (["relay"] if "relay" in downlinks.columns else [])
+    if downlinks.empty:
+        downlinks = _get_empty_downlinks_frame().assign(
+            **{column: pd.Series([], dtype="str") for column in named}
+        )
+    obs = pd.DataFrame(
+        {
+            # the satellite of each observation (missing for other platforms),
+            # as objects, so that it is compared with the downlinks' whatever
+            # the dtypes
+            "_satellite": pd.Series(
+                (
+                    observations["satellite"].to_numpy()
+                    if "satellite" in observations.columns
+                    else None
+                ),
+                index=range(len(observations)),
+                dtype=object,
+            ),
+            "epoch": observations["epoch"].array,
+            # merge keys must share a unit (frames may come from other
+            # sources, such as files)
+            "end": observations["end"].dt.as_unit("ns").array,
+            "_row": np.arange(len(observations)),
+        }
+    )
+    obs = obs.sort_values(by="end").reset_index(drop=True)
+    contacts = downlinks[["satellite", *named, "start", "epoch", "end"]].rename(
         columns={
             "satellite": "_satellite",
             "start": "downlink_start",
@@ -245,10 +442,8 @@ def compute_latencies(
             "end": "downlink_end",
         }
     )
-    # merge keys must share a unit (frames may come from other sources, such as files)
-    obs["end"] = obs["end"].dt.as_unit("ns")
-    contacts["_satellite"] = contacts["_satellite"].astype(object)
-    contacts["ground_station"] = contacts["ground_station"].astype(object)
+    for column in ["_satellite", *named]:
+        contacts[column] = contacts[column].astype(object)
     for column in ["downlink_start", "downlinked", "downlink_end"]:
         contacts[column] = contacts[column].dt.as_unit("ns")
     # pair each observation with the first downlink that starts after it ends
@@ -281,30 +476,14 @@ def compute_latencies(
         earlier = in_progress & (
             obs["downlinked"].isna() | (downlinked < obs["downlinked"])
         )
-        obs.loc[earlier, "ground_station"] = current.loc[earlier, "ground_station"]
+        for column in named:
+            obs.loc[earlier, column] = current.loc[earlier, column]
         obs.loc[earlier, "downlinked"] = downlinked[earlier]
-
-    # compute latency
-    obs["latency"] = obs["downlinked"] - obs["epoch"]
-    obs = obs.rename(columns={"epoch": "observed"})
-
-    # select relevant columns, of those the observations have
-    obs = obs[[column for column in empty.columns if column in obs]]
-
-    # ensure the result is a GeoDataFrame with the observations' CRS
-    obs = gpd.GeoDataFrame(
-        obs,
-        geometry="geometry",
-        crs=(
-            observations.crs
-            if isinstance(observations, gpd.GeoDataFrame) and observations.crs
-            else "EPSG:4326"
-        ),
+    obs = obs.sort_values(by="_row")
+    return pd.DataFrame(
+        {column: obs[column].array for column in [*named, "downlinked"]},
+        index=observations.index,
     )
-
-    # sort observations by observed time
-    obs = obs.sort_values(by="observed").reset_index(drop=True)
-    return obs
 
 
 def reduce_latencies(

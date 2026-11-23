@@ -6,6 +6,11 @@ from .airborne_track import (
     collect_airborne_ground_track,
     compute_airborne_ground_track,
 )
+from .architecture import (
+    ArchitectureEvaluation,
+    collect_platform_observations,
+    evaluate_architecture,
+)
 from .coincidence import (
     find_coincident_ground_track,
     find_coincident_observations,
@@ -30,6 +35,7 @@ from .ground_track import (
 )
 from .latency_sampling import (
     collect_downlinks,
+    collect_relay_contacts,
     compute_latencies,
     grid_latencies,
     reduce_latencies,
@@ -80,6 +86,7 @@ from .surface_track import (
 )
 
 __all__ = [
+    "ArchitectureEvaluation",
     "DopMethod",
     "OrbitCoordinate",
     "OrbitOutput",
@@ -97,9 +104,11 @@ __all__ = [
     "collect_multi_region_observations",
     "collect_observations",
     "collect_orbit_track",
+    "collect_platform_observations",
     "collect_platform_track",
     "collect_radar_track",
     "collect_region_observations",
+    "collect_relay_contacts",
     "collect_ro_observations",
     "collect_space_observations",
     "collect_surface_track",
@@ -119,6 +128,7 @@ __all__ = [
     "count_observations",
     "dissolve_footprints",
     "estimate_sampling_error",
+    "evaluate_architecture",
     "find_coincident_ground_track",
     "find_coincident_observations",
     "grid_latencies",

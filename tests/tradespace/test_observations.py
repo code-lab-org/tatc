@@ -21,9 +21,16 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-from tatc.analysis import collect_observations
+from tatc.analysis import collect_observations, evaluate_architecture
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import Instrument
+from tatc.schemas import (
+    ActiveWindow,
+    Architecture,
+    GroundStation,
+    Instrument,
+    Satellite,
+    SunSynchronousOrbit,
+)
 from tatc.tradespace import (
     Categorical,
     Component,
@@ -37,8 +44,8 @@ from tatc.tradespace import (
     Integer,
     LaunchCost,
     MissionPlan,
-    ObservationStudy,
     Observations,
+    ObservationStudy,
     Probability,
     Quantile,
     Real,
@@ -53,6 +60,7 @@ from tatc.tradespace import (
     Triangular,
     Uncertain,
     build_constellation,
+    configure,
     count_planes,
     count_satellites,
     policy_space,
@@ -63,7 +71,6 @@ from tatc.tradespace.expectations import exact_expectations
 from tatc.tradespace.fingerprint import get_fingerprint
 from tatc.tradespace.histories import summarize_histories
 from tatc.tradespace.mission import summarize_phases
-from tatc.tradespace import configure
 
 HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
@@ -1082,3 +1089,147 @@ class TestFailureStudies(unittest.TestCase):
             fallback = study.run([design]).iloc[0]
         for column in ("observed mission", "availability"):
             self.assertAlmostEqual(fallback[column], sampled[column].mean())
+
+
+BASELINE = Architecture(
+    satellites=[
+        Satellite(
+            name="baseline",
+            orbit=SunSynchronousOrbit(altitude=700e3, equator_crossing_time="13:30"),
+            instruments=[Instrument(name="imager", field_of_regard=60)],
+        )
+    ],
+    ground_stations=[GroundStation(name="svalbard", latitude=78.2, longitude=15.4)],
+)
+
+
+def _latency_metrics(observations):
+    """The share of the points observed and the mean latency (minutes)."""
+    latency = observations["latency"].mean() if len(observations) > 0 else None
+    return {
+        **_metrics(observations),
+        "latency": None if pd.isna(latency) else latency / timedelta(minutes=1),
+    }
+
+
+class TestArchitectureStudy(unittest.TestCase):
+    """
+    Unit tests for studies of the observations of architectures.
+    """
+
+    def setUp(self):
+        self.designs = SPACE.enumerate()[:3]
+
+    def _expected(self, study, design, replicate=0):
+        realized = study.realize(design, replicate)
+        return evaluate_architecture(
+            study.architecture_of(design, replicate),
+            TARGETS._of(realized),
+            START,
+            START + HOURS,
+            _latency_metrics,
+        )
+
+    def test_baseline(self):
+        """A study evaluates the architecture of each design with the baseline."""
+        study = ObservationStudy(
+            SPACE, _build, _observations(), _latency_metrics, baseline=BASELINE
+        )
+        results = study.run(self.designs)
+        for (_, row), design in zip(results.iterrows(), self.designs):
+            architecture = study.architecture_of(design)
+            self.assertEqual(architecture.satellites[-1].name, "baseline")
+            self.assertEqual(architecture.ground_stations, BASELINE.ground_stations)
+            self.assertEqual(row["satellites"], count_satellites(design.layout))
+            self.assertEqual(len(study.satellites_of(design)), row["satellites"])
+            expected = self._expected(study, design).metrics
+            self.assertAlmostEqual(row["observed"], expected["observed"])
+            self.assertAlmostEqual(row["latency"], expected["latency"])
+        # the same as an architecture that each design builds
+        built = ObservationStudy(
+            SPACE,
+            lambda d: Architecture(satellites=_build(d)).merge(BASELINE),
+            _observations(),
+            _latency_metrics,
+        ).run(self.designs)
+        columns = ["observed", "latency"]
+        pd.testing.assert_frame_equal(results[columns], built[columns])
+        with self.assertRaises(TypeError):
+            ObservationStudy(SPACE, _build, _observations(), _metrics, baseline=[])
+
+    def test_phases_keep_baseline(self):
+        """The phases of a mission keep the observations of the baseline."""
+        study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            baseline=BASELINE,
+            layout="layout",
+            plan=PLAN,
+            phases=True,
+        )
+        design = self.designs[2]
+        capability = study.mission_of(design).capability
+        alone = evaluate_architecture(
+            BASELINE,
+            TARGETS._of(study.realize(design, 0)),
+            START,
+            START + HOURS,
+            _metrics,
+        )
+        self.assertGreater(capability([])["observed"], 0)
+        self.assertAlmostEqual(capability([])["observed"], alone.metrics["observed"])
+        # phases of other baselines are cached apart
+        plain = study.replace(baseline=None)
+        self.assertEqual(plain.mission_of(design).capability([])["observed"], 0.0)
+        with_baseline = study.run([design]).iloc[0]
+        without = plain.run([design]).iloc[0]
+        self.assertGreaterEqual(
+            with_baseline["observed mission"], without["observed mission"]
+        )
+
+    def test_evaluation_of(self):
+        """The value of each member of a design's architecture."""
+        study = ObservationStudy(
+            SPACE, _build, _observations(), _latency_metrics, baseline=BASELINE
+        )
+        design = self.designs[2]
+        evaluation = study.evaluation_of(design)
+        expected = self._expected(study, design)
+        self.assertEqual(evaluation.metrics, expected.metrics)
+        values = evaluation.leave_one_out()
+        pd.testing.assert_frame_equal(values, expected.leave_one_out())
+        self.assertIn("svalbard", values.index)
+
+    def test_windows_and_contacts_cached(self):
+        """Members are observed in their windows, and contacts are cached on
+        disk, and pruned."""
+        baseline = BASELINE.model_copy(
+            update={"windows": {"baseline": ActiveWindow(end=START + HOURS / 3)}}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            observations = Observations(TARGETS, START, HOURS, directory=directory)
+            study = ObservationStudy(
+                SPACE, _build, observations, _latency_metrics, baseline=baseline
+            )
+            design = self.designs[0]
+            result = study.run([design]).iloc[0]
+            self.assertAlmostEqual(
+                result["observed"], self._expected(study, design).metrics["observed"]
+            )
+            seed = study.realize(design, 0).points_seed
+            self.assertIn(
+                ("observations", seed, START, START + HOURS / 3), observations._caches
+            )
+            self.assertIn(("contacts", START, START + HOURS), observations._caches)
+            contexts = SatelliteCache._contexts(directory)
+            self.assertIn(("contacts", START, START + HOURS), contexts.values())
+            self.assertIn((seed, START, START + HOURS / 3), contexts.values())
+            folder = observations._contacts(START, START + HOURS).folder
+            self.assertGreater(len(list(folder.glob("*.pkl"))), 0)
+            # a fresh session reads them from disk
+            again = Observations(TARGETS, START, HOURS, directory=directory)
+            again.evaluate(study.architecture_of(design), study.realize(design, 0))
+            self.assertEqual(again._contacts(START, START + HOURS).misses, 0)
+            self.assertEqual(observations.prune(), 0)

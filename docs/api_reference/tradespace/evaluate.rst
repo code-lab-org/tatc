@@ -15,10 +15,10 @@ Observation Studies
    :no-members:
 
 .. autoclass:: tatc.tradespace.ObservationStudy
-   :members: satellites_of, targets_of, observations_of, mission_of, prune
+   :members: architecture_of, satellites_of, targets_of, observations_of, evaluation_of, mission_of, prune
 
 .. autoclass:: tatc.tradespace.Observations
-   :members: start_of, end_of, prune, __call__
+   :members: start_of, end_of, evaluate, prune, __call__
 
 .. autoclass:: tatc.tradespace.Targets
 
