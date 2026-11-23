@@ -16,13 +16,13 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from tatc.analysis import collect_observations, compute_sample_sizes
+from tatc.analysis import compute_sample_sizes
 from tatc.catalog import get_entry
 from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
-from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit
 
-from .common import use_fixture_earth_orientation
+from .common import find_pass_differences, use_fixture_earth_orientation
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "tmi.npz"
 MAX_FIXTURE_BYTES = 200e3
@@ -102,25 +102,7 @@ class TestTmiFixture(_TmiFixture, unittest.TestCase):
         satellite = self.build(
             GeneralPerturbationsOrbit.from_tle(self.data["tle"].tolist())
         )
-        differences = []
-        for latitude, longitude, seconds in self.data["passes"]:
-            time = self.day + timedelta(seconds=float(seconds))
-            found = collect_observations(
-                Point(latitude=float(latitude), longitude=float(longitude)),
-                satellite,
-                time - timedelta(minutes=10),
-                time + timedelta(minutes=10),
-                0,
-            )
-            differences.append(
-                min(
-                    ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch),
-                    key=abs,
-                )
-                if not found.empty
-                else np.nan
-            )
-        differences = np.array(differences, dtype=float)
+        differences = find_pass_differences(satellite, 0, self.day, self.data["passes"])
         p95 = float(summarize(differences)["p95"])
         self.assertEqual(
             100 * float(np.isfinite(differences).mean()), self.recorded["passes_found"]

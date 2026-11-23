@@ -16,14 +16,12 @@ import unittest
 from datetime import datetime, timedelta
 
 import numpy as np
-import pandas as pd
 
-from tatc.analysis import collect_observations
 from tatc.catalog import get_entry
 from tatc.catalog.metrics import summarize
-from tatc.schemas import GeneralPerturbationsOrbit, Point
+from tatc.schemas import GeneralPerturbationsOrbit
 
-from .common import use_fixture_earth_orientation
+from .common import find_pass_differences, use_fixture_earth_orientation
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
@@ -76,25 +74,9 @@ class _PushbroomFixture:
         """
         Test that the recorded passes are predicted, and that this does not move.
         """
-        differences = []
-        for latitude, longitude, seconds in self.data[self.passes_key]:
-            time = self.day + timedelta(seconds=float(seconds))
-            found = collect_observations(
-                Point(latitude=float(latitude), longitude=float(longitude)),
-                self.satellite,
-                time - timedelta(minutes=10),
-                time + timedelta(minutes=10),
-                self.instrument_index,
-            )
-            differences.append(
-                min(
-                    ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch),
-                    key=abs,
-                )
-                if not found.empty
-                else np.nan
-            )
-        differences = np.array(differences, dtype=float)
+        differences = find_pass_differences(
+            self.satellite, self.instrument_index, self.day, self.data[self.passes_key]
+        )
         self.assertEqual(
             100 * float(np.isfinite(differences).mean()), self.recorded["passes_found"]
         )

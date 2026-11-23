@@ -434,18 +434,27 @@ class CostEstimate:
             pandas.DataFrame: a row per year, a column per element, and the
                 `total`
         """
-        frame = pd.DataFrame(self.flows, columns=["time", "element", "amount"])
-        if len(frame) == 0:
+        if len(self.flows) == 0:
             return pd.DataFrame(columns=[*ELEMENTS, "total"])
-        frame["year"] = np.floor(frame["time"]).astype(int)
-        table = frame.pivot_table(
-            index="year", columns="element", values="amount", aggfunc="sum"
+        # summed with numpy, as a pivot table is slow for the metrics of
+        # each evaluation of a study
+        times, elements, amounts = zip(*self.flows)
+        years = np.floor(np.asarray(times, dtype=float)).astype(int)
+        first = int(years.min())
+        columns = {element: k for k, element in enumerate(ELEMENTS)}
+        rows = [k for k, element in enumerate(elements) if element in columns]
+        table = np.zeros((int(years.max()) - first + 1, len(ELEMENTS) + 1))
+        np.add.at(
+            table,
+            (years[rows] - first, [columns[elements[k]] for k in rows]),
+            np.nan_to_num(np.asarray(amounts, dtype=float)[rows]),
         )
-        table = table.reindex(columns=list(ELEMENTS)).fillna(0.0)
-        table = table.reindex(range(table.index.min(), table.index.max() + 1))
-        table = table.fillna(0.0)
-        table["total"] = table.sum(axis=1)
-        return table
+        table[:, -1] = table[:, :-1].sum(axis=1)
+        return pd.DataFrame(
+            table,
+            index=pd.RangeIndex(first, first + len(table), name="year"),
+            columns=pd.Index([*ELEMENTS, "total"], name="element"),
+        )
 
     def metrics(self) -> dict[str, float]:
         """

@@ -16,13 +16,13 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from tatc.analysis import collect_observations, compute_sample_sizes
+from tatc.analysis import compute_sample_sizes
 from tatc.catalog import get_entry
 from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
-from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit
 
-from .common import use_fixture_earth_orientation
+from .common import find_pass_differences, use_fixture_earth_orientation
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "gmi.npz"
 MAX_FIXTURE_BYTES = 200e3
@@ -45,27 +45,9 @@ class TestGmiFixture(unittest.TestCase):
         satellite = cls.entry.to_satellite(
             cls.orbit, time_step=SCAN_PERIOD, platform="gpm"
         )
-        differences = []
-        for (latitude, longitude, seconds), index in zip(
-            cls.data["passes"], cls.data["feeds"]
-        ):
-            time = cls.day + timedelta(seconds=float(seconds))
-            found = collect_observations(
-                Point(latitude=float(latitude), longitude=float(longitude)),
-                satellite,
-                time - timedelta(minutes=10),
-                time + timedelta(minutes=10),
-                int(index),
-            )
-            differences.append(
-                min(
-                    ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch),
-                    key=abs,
-                )
-                if not found.empty
-                else np.nan
-            )
-        cls.differences = np.array(differences, dtype=float)
+        cls.differences = find_pass_differences(
+            satellite, cls.data["feeds"], cls.day, cls.data["passes"]
+        )
         cls.recorded = cls.entry.record.configurations["feeds"].fixture_metrics
 
     def test_fixture_size(self):
