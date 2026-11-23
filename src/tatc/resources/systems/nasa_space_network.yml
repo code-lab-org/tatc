@@ -1,0 +1,33 @@
+id: nasa_space_network
+name: NASA Space Network Ground Terminals
+aliases: [Space Network, SN ground terminals, White Sands Complex, WSC]
+system_class: ground_network
+selection: The ground terminals of NASA's Space Network, which receive the data that the Tracking and Data Relay Satellites (see the system tdrs) relay from the satellites they serve, for the latency of relayed data.
+operator: NASA Space Communications and Navigation (SCaN)
+stations:
+  file: nasa_space_network.csv
+  as_of: 2026-11-22
+  provenance:
+    kind: nominal
+    source: "The position of the White Sands Complex's 18.3 m antenna (WS1) from NASA's Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), the one published position of an antenna of the complex, which hosts the White Sands Ground Terminal (WSGT) and the Second TDRSS Ground Terminal (STGT)"
+default_configuration: tdrs
+configurations:
+  tdrs:
+    grade: siting
+    description: The terminals that receive the data the Tracking and Data Relay Satellites relay, for a relay built with them (get_system("tdrs").build_relay(ground_stations=...)).
+    members: [WSC]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: "The ground terminals of the Space Network at White Sands, New Mexico (WSGT and STGT, the latter about 3 km to the north), per eoPortal's description of the TDRS ground segment"
+      min_elevation_angle:
+        kind: placeholder
+        source: An assumption of the elevation above which a terminal contacts a relay satellite, not a published mask of the terminals; give the angle of a study when building stations (build(min_elevation_angle=...))
+    limitations:
+      - TDRS 13 (near 11.5 deg W) and the satellites in storage over the Indian Ocean are not in view of White Sands, so a relay built with these terminals relays only through TDRS 11 and TDRS 12; the remote terminals that serve the others (Guam and Blossom Point) are not cataloged.
+limitations:
+  - The White Sands Complex is one station at the position of its WS1 antenna; its terminals (WSGT and STGT) are within a few kilometers of it.
+  - The Guam Remote Ground Terminal and the terminal at Blossom Point, Maryland, are not included, as no position of their antennas is published with the sources.
+  - The ground elevation of the complex is not published with its position and is taken as sea level (its antennas are higher, which changes the view of a geostationary relay satellite negligibly).
+  - The minimum elevation angle is an assumption, not a terminal's horizon mask.

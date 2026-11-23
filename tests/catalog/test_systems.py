@@ -54,6 +54,7 @@ from tatc.schemas import (
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
+from tatc.analysis import collect_relay_contacts
 from tatc.constants import timescale
 from tatc.utils import compute_geoid_height
 
@@ -340,6 +341,21 @@ EXPECTED_SYSTEM_STATUS = {
                     "inclination_error_p95",
                     "test_sets",
                     "test_span_days",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
+    "nasa_space_network": (
+        "nominal",
+        {
+            "tdrs": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
                     "no comparison with reference data",
                 ],
             ),
@@ -1301,6 +1317,27 @@ class TestBuild(unittest.TestCase):
         data["configurations"]["jpss"]["members"] = ["FCDAS", "Kiruna"]
         with self.assertRaisesRegex(ValidationError, "unknown stations"):
             parse_system(data)
+
+    def test_relay_ground_terminals(self):
+        """
+        Test that the Space Network's terminals build ground stations for a
+        relay, through which it relays only from the relay satellites in view
+        of them.
+        """
+        terminals = get_system("nasa_space_network").build()
+        self.assertEqual([t.name for t in terminals], ["WSC"])
+        relay = get_system("tdrs").build_relay(ground_stations=terminals)
+        self.assertEqual(relay.ground_stations, terminals)
+        satellite = get_system("jpss").build(
+            members="noaa-21", epoch=EPOCH, payload=False
+        )
+        contacts = collect_relay_contacts(
+            relay, satellite, EPOCH, EPOCH + timedelta(hours=6)
+        )
+        self.assertGreater(len(contacts), 0)
+        self.assertEqual(set(contacts.ground_station), {"WSC"})
+        # (TDRS 13, near 11.5 deg W, is not in view of White Sands)
+        self.assertNotIn("TDRS 13", set(contacts.relay_satellite))
 
     def test_build_errors(self):
         """

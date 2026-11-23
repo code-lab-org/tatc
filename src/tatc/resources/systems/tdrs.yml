@@ -122,4 +122,4 @@ configurations:
       - The older satellites (TDRS 3 to 8) are inclined 12 to 14 degrees, so that their subpoints trace a figure eight of that latitude each day, whose phase (the node of the orbit) is not modeled.
       - The retired satellites (TDRS 3 and 5) and those in storage (TDRS 6, 7, and 8) are kept at their longitudes of the day fitted, although they may drift or be moved.
       - The statuses are those of eoPortal's table of the TDRS fleet (updated 2026-05-22), whose listed longitudes are older than the element sets.
-      - The ground terminals (White Sands, New Mexico, and Guam) are not cataloged; a relay built from the system is always in contact with the ground.
+      - A relay built from the system is always in contact with the ground, unless it is given ground stations, such as the terminals at White Sands (see the system nasa_space_network, which does not include those at Guam and Blossom Point).
