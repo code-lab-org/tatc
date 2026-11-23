@@ -121,14 +121,29 @@ class _Sampler:
     stratum of a permutation of the `K` strata of [0, 1). Each draw is keyed
     by its key, so that the same draw of the same history of a replicate
     takes the same number in every design (common random numbers).
+
+    The permutations of a draw are the same for every history of the
+    replicate, so the samplers of its histories share them in `orders` (by
+    the key and dimensions of the draw), computing each once rather than once
+    for each history.
     """
 
-    def __init__(self, seed: int, index: int, histories: int):
+    def __init__(
+        self,
+        seed: int,
+        index: int,
+        histories: int,
+        orders: dict[tuple, list[np.ndarray]] | None = None,
+    ):
         self.seed, self.index, self.histories = seed, index, histories
+        self.orders = {} if orders is None else orders
 
     def __call__(self, key: tuple, dimensions: int) -> np.ndarray:
-        strata = np.random.default_rng([self.seed, 1, self.histories, *key])
-        orders = [strata.permutation(self.histories) for _ in range(dimensions)]
+        orders = self.orders.get((key, dimensions))
+        if orders is None:
+            strata = np.random.default_rng([self.seed, 1, self.histories, *key])
+            orders = [strata.permutation(self.histories) for _ in range(dimensions)]
+            self.orders[key, dimensions] = orders
         jitter = np.random.default_rng([self.seed, 2, self.index, *key])
         offsets = jitter.random(dimensions)
         return np.array(

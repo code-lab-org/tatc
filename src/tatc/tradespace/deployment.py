@@ -342,12 +342,18 @@ class Deployment:
             return [self.simulate(model, None)]
         model = model or FailureModel()
         launch_stress = stress if launch_stress is None else launch_stress
+        # the permutations of the strata, shared by the histories of the replicate
+        orders: dict = {}
         return [
             _Simulation(
                 self,
                 model,
                 (seed, k),
-                _Sampler(seed, k, histories) if sampling == "stratified" else None,
+                (
+                    _Sampler(seed, k, histories, orders)
+                    if sampling == "stratified"
+                    else None
+                ),
                 stress,
                 launch_stress,
             ).run()
