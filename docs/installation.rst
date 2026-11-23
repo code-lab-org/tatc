@@ -55,7 +55,9 @@ For faster installation, consider installing the mamba package :console:`conda i
 Unit Tests
 ----------
 
-Run unit tests from the project root directory with :console:`python -m unittest` or :console:`coverage run -m unittest`.
+Run unit tests from the project root directory with :console:`python -m pytest -n auto`, which runs them in parallel on every available core with pytest-xdist (both installed by the :console:`dev` optional dependencies), as continuous integration does.
+The tests are written with :console:`unittest`, so :console:`python -m unittest` also runs them (one at a time) without pytest.
+For a test coverage report, run :console:`coverage run -m pytest`.
 
 Documentation
 -------------
