@@ -16,8 +16,14 @@ outcomes of their steps (such as `Refinement`), for type hints. The parts
 from which they are made (such as the layouts of constellations, the
 simulation of missions, and fingerprints) are in its modules.
 
+The distributions of lives `Exponential`, `Weibull`, `Bathtub`, and
+`Piecewise` are renamed `ExponentialLifetime`, `WeibullLifetime`,
+`BathtubLifetime`, and `PiecewiseLifetime`; the former names are deprecated.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
+
+from typing import Any
 
 from .attribution import Attribution, attribute_variance
 from .cache import SatelliteCache
@@ -46,12 +52,13 @@ from .cost import (
 from .criteria import Across, Criteria, Requirement
 from .deployment import DeploymentSchedule, Stage
 from .failures import (
-    Bathtub,
-    Exponential,
+    BathtubLifetime,
+    ExponentialLifetime,
     FailureModel,
-    Piecewise,
+    PiecewiseLifetime,
     RestorationPolicy,
-    Weibull,
+    WeibullLifetime,
+    _renamed,
     policy_space,
 )
 from .nodes import (
@@ -127,11 +134,11 @@ __all__ = [
     "value_of",
     "walker_space",
     # studies
-    "Bathtub",
+    "BathtubLifetime",
     "Component",
     "CostModel",
     "DeploymentSchedule",
-    "Exponential",
+    "ExponentialLifetime",
     "FailureModel",
     "Failures",
     "LaunchCost",
@@ -139,7 +146,7 @@ __all__ = [
     "ObservationStudy",
     "Observations",
     "OperationsCost",
-    "Piecewise",
+    "PiecewiseLifetime",
     "RestorationPolicy",
     "ResultStore",
     "SatelliteCache",
@@ -148,7 +155,7 @@ __all__ = [
     "Study",
     "Targets",
     "Triangular",
-    "Weibull",
+    "WeibullLifetime",
     "risk_space",
     # criteria and summaries
     "Across",
@@ -199,3 +206,8 @@ __all__ = [
     "style_axes",
     "use_style",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    # the former names of the distributions of lives (deprecated)
+    return _renamed(name, __name__)

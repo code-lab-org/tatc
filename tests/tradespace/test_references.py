@@ -13,13 +13,19 @@ import unittest
 from tatc.tradespace import (
     Choice,
     DesignSpace,
+    Fixed,
     Integer,
     Real,
+    Repeat,
     Uncertain,
     configure,
     value_of,
 )
-from tatc.tradespace.references import _given_design, _takes_design
+from tatc.tradespace.references import (
+    _check_references,
+    _given_design,
+    _takes_design,
+)
 
 SPACE = DesignSpace(
     altitude=Real(600e3, 700e3, step=100e3),
@@ -52,6 +58,63 @@ class TestReferences(unittest.TestCase):
             value_of(d, "layout.other")
         with self.assertRaises(TypeError):
             value_of(d, 3)
+
+    def test_misspelled_names(self):
+        """The error of a misspelled name lists the names, and suggests one."""
+        d = SPACE.enumerate()[0]
+        with self.assertRaisesRegex(KeyError, "the design has no value 'altitud'"):
+            value_of(d, "altitud")
+        with self.assertRaisesRegex(KeyError, "did you mean 'altitude'"):
+            value_of(d, "altitud")
+        with self.assertRaisesRegex(KeyError, "did you mean 'planes'"):
+            value_of(d, "layout.plane")
+        with self.assertRaisesRegex(AttributeError, "did you mean 'growth'"):
+            _ = d.grwth
+        self.assertNotIn("altitud", d)
+        self.assertIn("layout.planes", d)
+        self.assertNotIn("layout.plane", d)
+
+    def test_check_references(self):
+        """References that are names or paths must name values of the designs
+        (in any branch of a choice); functions are not checked."""
+        space = DesignSpace(
+            seed=Uncertain.seed(),
+            layout=Choice(
+                walker=DesignSpace(planes=Integer(1, 2)),
+                sso=DesignSpace(crossing=Real(6, 18, step=6)),
+            ),
+            parts=Repeat(DesignSpace(size=Integer(1, 2)), 2),
+            fixed=Fixed({"a": 1}),
+        )
+        valid = [
+            "seed",
+            "layout",
+            "layout.walker",
+            "layout.walker.planes",
+            "layout.planes",  # of the branch chosen
+            "layout.crossing",
+            "parts.count",
+            "parts[1].size",
+            "fixed.a",  # within a value
+        ]
+        _check_references(space, [(f"reference {r}", r) for r in valid])
+        _check_references(space, [("a function", lambda d: d.other), ("none", None)])
+        with self.assertRaisesRegex(
+            ValueError, r"Targets seed 'sed': the designs have no value 'sed'"
+        ):
+            _check_references(space, [("Targets seed", "sed")])
+        with self.assertRaisesRegex(ValueError, "did you mean 'planes'"):
+            _check_references(space, [("kind", "layout.walker.plane")])
+        with self.assertRaisesRegex(ValueError, "did you mean 'crossing'"):
+            _check_references(space, [("kind", "layout.crosing")])
+        with self.assertRaisesRegex(ValueError, "parts has no value 'size'"):
+            _check_references(space, [("kind", "parts.size")])
+        with self.assertRaisesRegex(ValueError, "parts.0. has no value 'sise'"):
+            _check_references(space, [("kind", "parts[0].sise")])
+        with self.assertRaisesRegex(ValueError, "not a name or path"):
+            _check_references(space, [("kind", "a..b")])
+        with self.assertRaisesRegex(ValueError, "'x'.*'y'"):  # every one
+            _check_references(space, [("one", "x"), ("another", "y")])
 
 
 class TestConfigure(unittest.TestCase):
@@ -113,6 +176,10 @@ class TestGivenDesign(unittest.TestCase):
         self.assertTrue(_takes_design(positional))
         self.assertTrue(_takes_design(keyword))
         self.assertFalse(_takes_design(only_position))
+        # the first parameter is given what the function is of
+        self.assertFalse(_takes_design(lambda design: design))
+        self.assertFalse(_takes_design(lambda design, other=None: design))
+        self.assertTrue(_takes_design(lambda x, design=None: x))
         self.assertFalse(_takes_design(lambda x: x))
         self.assertFalse(_takes_design(lambda x, **kwargs: x))
         self.assertFalse(_takes_design(len))

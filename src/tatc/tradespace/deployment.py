@@ -57,7 +57,7 @@ from .events import (
 )
 from .failures import FailureModel, RestorationPolicy
 from .mission import Capability, Decision, MissionHistory, Phase
-from .simulation import _check_sampling, _Sampler, _Simulation
+from .simulation import Sampling, _check_sampling, _Sampler, _Simulation
 from .values import Values
 
 
@@ -276,7 +276,7 @@ class Deployment:
         seed: int | None = None,
         *,
         histories: int = 1,
-        sampling: str = "stratified",
+        sampling: Sampling = "stratified",
         stress: float = 1.0,
         launch_stress: float | None = None,
     ) -> list[MissionHistory]:
@@ -360,7 +360,7 @@ class Deployment:
         seed: int = 0,
         *,
         histories: int = 1000,
-        sampling: str = "stratified",
+        sampling: Sampling = "stratified",
     ) -> dict[str, float]:
         """
         Estimates the expected measures of the mission (see

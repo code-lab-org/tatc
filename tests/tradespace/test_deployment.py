@@ -16,7 +16,7 @@ from tatc.tradespace import (
     CostModel,
     DeploymentSchedule,
     DesignSpace,
-    Exponential,
+    ExponentialLifetime,
     FailureModel,
     Real,
     Requirement,
@@ -71,7 +71,7 @@ class TestPlan(unittest.TestCase):
         batching = schedule.plan(
             _walker(2, 4), masses=50.0, policy=RestorationPolicy(batch_years=1.0)
         )
-        history = batching.simulate(FailureModel(life=Exponential(2.0)), seed=0)
+        history = batching.simulate(FailureModel(life=ExponentialLifetime(2.0)), seed=0)
         restorations = [l for l in history.launches if l.purpose == "restoration"]
         self.assertTrue(any(l.plane == 1 and l.satellites > 2 for l in restorations))
         self.assertTrue(
@@ -216,7 +216,7 @@ class TestPlan(unittest.TestCase):
         spared = DeploymentSchedule(years=5).plan(
             _walker(1, 2), policy=RestorationPolicy(orbit_spares=1)
         )
-        history = spared.simulate(FailureModel(life=Exponential(0.5)), seed=1)
+        history = spared.simulate(FailureModel(life=ExponentialLifetime(0.5)), seed=1)
         self.assertEqual(history.restorations[0].source, "orbit")
 
     def test_types_and_order(self):
