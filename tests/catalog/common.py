@@ -16,11 +16,20 @@ published footprint dimensions use such a time (a circular orbit on 1 October
 too little to change.
 """
 
+from datetime import timedelta
 from unittest import mock
 
 import numpy as np
+import pandas as pd
+import shapely.geometry as geo
 
+from tatc.analysis import collect_observations
 from tatc.constants import timescale
+from tatc.schemas import Point
+from tatc.utils.geometry import hash_geometry
+
+# the window around each recorded pass in which its observations are found
+PASS_WINDOW = timedelta(minutes=10)
 
 # samples further apart than this (days) belong to different days of a fixture
 _MAX_SAMPLE_GAP = 0.25
@@ -66,3 +75,54 @@ def use_fixture_earth_orientation(test_class, fixture) -> None:
     )
     patcher.start()
     test_class.addClassCleanup(patcher.stop)
+
+
+def find_pass_differences(satellite, instrument_index, day, passes) -> np.ndarray:
+    """
+    Gets the difference (seconds) of the nearest epoch from each recorded pass,
+    given as rows of latitude, longitude, and seconds from the start of `day`, or
+    NaN if the pass is not observed, as `validation_io.recompute_passes` gets them
+    for the window of 10 minutes around each pass. The observations of all passes
+    are collected together (observations of a point do not depend on the other
+    points), which is much faster than one window at a time.
+
+    Args:
+        satellite: The observing satellite.
+        instrument_index: The index of the observing instrument, `None` for every
+            instrument, or a sequence of one index for each pass.
+        day: The start of the day of the passes.
+        passes: The rows of latitude, longitude, and seconds of each pass.
+    """
+    passes = np.asarray(passes, dtype=float)
+    times = pd.Timestamp(day) + pd.to_timedelta(passes[:, 2], unit="s")
+    targets = np.array(
+        [hash_geometry(geo.Point(lon, lat)) for lat, lon, _ in passes], dtype=object
+    )
+    if instrument_index is None or np.ndim(instrument_index) == 0:
+        groups = {instrument_index: np.arange(len(passes))}
+    else:
+        indices = np.asarray(instrument_index, dtype=int)
+        groups = {int(i): np.flatnonzero(indices == i) for i in np.unique(indices)}
+    differences = np.full(len(passes), np.nan)
+    for index, rows in groups.items():
+        found = collect_observations(
+            [Point(latitude=passes[r, 0], longitude=passes[r, 1]) for r in rows],
+            satellite,
+            times[rows].min() - PASS_WINDOW,
+            times[rows].max() + PASS_WINDOW,
+            index,
+        )
+        by_target = {key: group for key, group in found.groupby("target_hash")}
+        for r in rows:
+            observed = by_target.get(targets[r])
+            if observed is None:
+                continue
+            # the observations overlapping the window of this pass
+            observed = observed[
+                (observed.start <= times[r] + PASS_WINDOW)
+                & (observed.end >= times[r] - PASS_WINDOW)
+            ]
+            if not observed.empty:
+                seconds = (observed.epoch - times[r]).dt.total_seconds().to_numpy()
+                differences[r] = seconds[np.argmin(np.abs(seconds))]
+    return differences

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria
+from .criteria import Criteria, Objectives, _as_criteria
 from .pareto import pareto_ranks
 from .space import Design, _designs
 from .study import Study
@@ -89,7 +89,7 @@ def _check_keep(value) -> None:
 
 def screen(
     studies: Sequence[Study],
-    criteria: Criteria | Mapping[str, str] | Sequence[Criteria | Mapping[str, str]],
+    criteria: Criteria | Objectives | Sequence[Criteria | Objectives],
     designs: Sequence[Design] | pd.DataFrame,
     *,
     keep: float | int | Sequence[float | int] = 0.25,
@@ -132,7 +132,7 @@ def screen(
     Args:
         studies (Sequence[Study]): The studies of each stage, in order of
             increasing fidelity.
-        criteria (Criteria | Mapping[str, str] | Sequence): The criteria,
+        criteria (Criteria | Objectives | Sequence): The criteria,
             without `by` (see `Criteria`), or the objectives (metrics whose
             means they are) and their directions (`"min"` or `"max"`): the
             same for every stage, or those of each stage.

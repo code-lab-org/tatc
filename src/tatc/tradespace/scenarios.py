@@ -14,7 +14,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 
-from .criteria import Criteria, _as_criteria, _resolved, _signs, _tolerances
+from .criteria import Criteria, Objectives, _as_criteria, _resolved, _signs, _tolerances
 from .summary import _summarize
 from .tables import design_values, value_columns
 
@@ -43,7 +43,7 @@ def _scales(criteria: Criteria, scale: Mapping[str, float] | None) -> np.ndarray
 
 def robustness(
     results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     *,
     scale: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
@@ -84,7 +84,7 @@ def robustness(
     Args:
         results (pandas.DataFrame): The results of a study with scenarios
             (see `Study.run`).
-        criteria (Criteria | Mapping[str, str]): The criteria, by which
+        criteria (Criteria | Objectives): The criteria, by which
             designs are judged in each scenario (`by` none, for the column
             `"scenario"`, or the column of the scenarios), or the objectives
             (metrics whose means they are) and their directions (`"min"` or

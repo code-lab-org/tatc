@@ -43,6 +43,8 @@ Systems
 
 .. autopydantic_model:: tatc.catalog.SurfaceNetwork
 
+.. autopydantic_model:: tatc.catalog.GroundNetwork
+
 .. autofunction:: tatc.catalog.system_schemas.parse_system
 
 .. autofunction:: tatc.catalog.system_orbits.describe_orbit

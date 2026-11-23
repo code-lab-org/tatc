@@ -29,14 +29,14 @@ import numpy as np
 import pandas as pd
 from pyproj import Transformer
 
-from tatc.analysis import collect_observations, compute_sample_sizes
+from tatc.analysis import compute_sample_sizes
 from tatc.catalog import get_entry
 from tatc.catalog.standard import get_gates
 from tatc.catalog.metrics import summarize
-from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit, Point
+from tatc.schemas import CircularOrbit, GeneralPerturbationsOrbit
 from tatc.utils import VelocityFrame, compute_projected_ray_position
 
-from .common import use_fixture_earth_orientation
+from .common import find_pass_differences, use_fixture_earth_orientation
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 MAX_FIXTURE_BYTES = 200e3
@@ -106,25 +106,9 @@ class _SwathFixture:
             time_step=self.time_step(),
             platform=self.platform,
         )
-        differences = []
-        for latitude, longitude, seconds in self.data["passes"]:
-            time = self.day + timedelta(seconds=float(seconds))
-            found = collect_observations(
-                Point(latitude=float(latitude), longitude=float(longitude)),
-                satellite,
-                time - timedelta(minutes=10),
-                time + timedelta(minutes=10),
-                self.instrument_index,
-            )
-            differences.append(
-                min(
-                    ((e - pd.Timestamp(time)).total_seconds() for e in found.epoch),
-                    key=abs,
-                )
-                if not found.empty
-                else np.nan
-            )
-        differences = np.array(differences, dtype=float)
+        differences = find_pass_differences(
+            satellite, self.instrument_index, self.day, self.data["passes"]
+        )
         recorded = self.entry.record.configurations[self.swath_key].fixture_metrics
         self.assertEqual(
             100 * float(np.isfinite(differences).mean()), recorded["passes_found"]

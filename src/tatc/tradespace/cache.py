@@ -25,7 +25,8 @@ from typing import Any
 
 import pandas as pd
 
-from ..schemas import Satellite
+from ..analysis.check import _get_platform_kind
+from ..schemas import AllPlatforms, Satellite
 from .fingerprint import _find_stale, _fingerprint_of, get_definition, warn_stale
 from .hashing import canonical, digest
 from .memory import Forgetful
@@ -61,14 +62,24 @@ def _read_definition(folder: Path) -> dict | None:
         return None
 
 
-def get_satellite_key(satellite: Satellite) -> str:
+def _platform_column(platform: Any) -> str:
     """
-    Gets a key of a satellite's content: its orbit, instruments, and
-    attitude, but not its name, so that satellites that differ only in their
-    names share a key.
+    Gets the column that names a platform in the results of analyses (such
+    as `satellite`, see `tatc.analysis.check._PLATFORM_KINDS`).
+    """
+    kind = _get_platform_kind(platform)
+    return "satellite" if kind is None else kind.column
+
+
+def get_satellite_key(satellite: AllPlatforms) -> str:
+    """
+    Gets a key of a satellite's content (or of another platform's, such as
+    an aircraft's): its type and every field but its name (such as a
+    satellite's orbit, instruments, and attitude), so that platforms that
+    differ only in their names share a key.
 
     Args:
-        satellite (Satellite): The satellite.
+        satellite (AllPlatforms): The satellite (or other platform).
 
     Returns:
         str: the key
@@ -79,14 +90,16 @@ def get_satellite_key(satellite: Satellite) -> str:
 
 class SatelliteCache(Forgetful):
     """
-    A cache of an analysis of single satellites, keyed by their content (see
-    `get_satellite_key`), in memory and optionally on disk.
+    A cache of an analysis of single satellites (or other platforms, such as
+    aircraft, fixed surface platforms, and radar stations), keyed by their
+    content (see `get_satellite_key`), in memory and optionally on disk.
 
     The function computes the result of one satellite, with every other
     argument fixed (for example, by a closure over the targets and the
     analysis period): the cache assumes that its result depends on nothing
-    else. A result that is a data frame with a `satellite` column is
-    relabeled with the name of the satellite it is retrieved for.
+    else. A result that is a data frame with the column that names a
+    platform of its kind (such as `satellite`) is relabeled with the name of
+    the platform it is retrieved for.
 
     A cache on disk (`directory`) persists between sessions and is shared by
     the parallel workers of a trade study (see `Study`), each of which
@@ -320,10 +333,11 @@ class SatelliteCache(Forgetful):
             result = self.function(satellite)
             self.misses += 1
             self._store(key, result)
-        if isinstance(result, pd.DataFrame) and "satellite" in result.columns:
-            if len(result) > 0 and (result["satellite"] != satellite.name).any():
+        column = _platform_column(satellite)
+        if isinstance(result, pd.DataFrame) and column in result.columns:
+            if len(result) > 0 and (result[column] != satellite.name).any():
                 result = result.copy()
-                result["satellite"] = satellite.name
+                result[column] = satellite.name
         return result
 
     def __call__(self, satellites: Satellite | Iterable[Satellite]) -> Any:
@@ -334,12 +348,13 @@ class SatelliteCache(Forgetful):
         satellites.
 
         Args:
-            satellites (Satellite | Iterable[Satellite]): The satellites.
+            satellites (Satellite | Iterable[Satellite]): The satellites (or
+                other platforms).
 
         Returns:
             Any: the concatenated data frame, or the list of results
         """
-        if isinstance(satellites, Satellite):
+        if _get_platform_kind(satellites) is not None:
             satellites = [satellites]
         results = [self._get(satellite) for satellite in satellites]
         if not results:

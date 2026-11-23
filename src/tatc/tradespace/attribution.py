@@ -12,6 +12,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
+from typing import Literal, get_args
 
 import numpy as np
 import pandas as pd
@@ -21,8 +22,10 @@ from .study import Study
 from .tables import FEASIBLE, check_records, draw_resamples, feasible_records, names
 from .values import generic_path
 
-_SHARES = ("first", "total")
-"""The shares of variance of a parameter (see `attribute_variance`)."""
+Share = Literal["first", "total"]
+"""A share of variance of a parameter (see `attribute_variance`)."""
+
+_SHARES = get_args(Share)
 
 
 @dataclass
@@ -76,7 +79,7 @@ class Attribution:
         (see `summary_of`)."""
         return self.summary_of("total")
 
-    def summary_of(self, share: str = "total") -> pd.DataFrame:
+    def summary_of(self, share: Share = "total") -> pd.DataFrame:
         """
         Gets the shares of the variance of each metric that each parameter
         explains over every design (and for each group of `by`): the

@@ -12,7 +12,7 @@ import os
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Executor, as_completed
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import pandas as pd
 from pydantic import ValidationError
@@ -99,10 +99,10 @@ class Study:
     metrics). Designs given of another design space (such as of a design
     space that the study's extends) are evaluated as the designs of the
     study's design space of their decisions, which must be decisions of a
-    design of it. An `evaluate` function that takes a keyword named `design`
-    is also given the realized design (with the uncertain parameters of the
-    replicate, see `tatc.tradespace.references`), as for an evaluation that
-    depends on values of the design other than those it builds::
+    design of it. An `evaluate` that takes a keyword `design` (after what a
+    design builds) is also given the realized design (with the uncertain
+    parameters of the replicate, see `tatc.tradespace.references`), as for an
+    evaluation that depends on values of the design other than those it builds::
 
         def build(d):
             return build_constellation(d.layout, payload, epoch=START)
@@ -232,7 +232,7 @@ class Study:
         executor: Executor | None = None,
         chunks_per_job: int = 2,
         store: ResultStore | None = None,
-        errors: str = "raise",
+        errors: Literal["raise", "record"] = "raise",
         scenarios: Mapping[str, Mapping[str, Any]] | None = None,
         describe: Callable[[Design], Any] | None = None,
     ):

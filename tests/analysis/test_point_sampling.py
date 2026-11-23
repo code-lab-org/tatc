@@ -1701,13 +1701,29 @@ class TestBatchObservations(unittest.TestCase):
                 np.sin(np.radians(latitude)),
             ]
         )
+        # screens the samples at which a point may be inside, by its Earth
+        # central angle from the satellite: at most the reach of the cone (or
+        # the horizon) on a sphere of the polar radius, with the cone and the
+        # reach widened by half a degree for the geodetic nadir and horizon
+        radius = np.linalg.norm(position, axis=0)
+        ratio = radius / 6356752.0
+        half = np.radians(instrument.field_of_regard / 2 + 0.5)
+        horizon = np.arccos(1 / ratio)
+        reach = np.arcsin(np.minimum(ratio * np.sin(half), 1)) - half
+        reach = np.where(ratio * np.sin(half) < 1, np.minimum(reach, horizon), horizon)
+        cos_reach = np.cos(reach + np.radians(0.5))
+        central = (xyz / np.linalg.norm(xyz, axis=0)).T @ (position / radius)
         periods = {}
         for i, point in enumerate(points):
-            los = xyz[:, i : i + 1] - position
+            near = np.flatnonzero(central[i] >= cos_reach)
+            los = xyz[:, i : i + 1] - position[:, near]
             distance = np.linalg.norm(los, axis=0)
-            cone = np.degrees(np.arccos(np.sum(los * nadir, axis=0) / distance))
+            cone = np.degrees(
+                np.arccos(np.sum(los * nadir[:, near], axis=0) / distance)
+            )
             elevation = -np.sum(los * up[:, i : i + 1], axis=0) / distance
-            inside = (cone <= instrument.field_of_regard / 2) & (elevation >= 0)
+            inside = np.zeros(len(seconds), dtype=bool)
+            inside[near] = (cone <= instrument.field_of_regard / 2) & (elevation >= 0)
             edges = np.flatnonzero(np.diff(inside.astype(int)))
             starts = list(edges[inside[edges + 1]] + 1)
             ends = list(edges[~inside[edges + 1]])

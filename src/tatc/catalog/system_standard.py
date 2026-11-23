@@ -57,6 +57,8 @@ class SystemClass(str, Enum):
     """A network of weather radars."""
     SURFACE_NETWORK = "surface_network"
     """A network of in-situ surface stations."""
+    GROUND_NETWORK = "ground_network"
+    """A network of ground stations that receive the data of satellites."""
 
     def is_satellite(self) -> bool:
         """
@@ -195,6 +197,9 @@ _SITING = {
         _MEMBERSHIP_RECALL,
         _MEMBERSHIP_PRECISION,
     ),
+    # ground stations: positions compared with an independent source (their
+    # membership is that of the programs they serve, not of stations reporting)
+    SystemClass.GROUND_NETWORK: (_SURFACE_HORIZONTAL, _MATCHED),
 }
 _SAMPLES = (_TEST_SETS, _TEST_SPAN)
 
@@ -251,6 +256,9 @@ _GRADES: dict[tuple[SystemClass, SystemGrade], _Grade] = {
     (SystemClass.SURFACE_NETWORK, SystemGrade.SITING): _Grade(
         _SITING[SystemClass.SURFACE_NETWORK]
     ),
+    (SystemClass.GROUND_NETWORK, SystemGrade.SITING): _Grade(
+        _SITING[SystemClass.GROUND_NETWORK]
+    ),
 }
 
 # the grades each class needs to be validated
@@ -260,6 +268,7 @@ _REQUIRED_GRADES: dict[SystemClass, tuple[SystemGrade, ...]] = {
     SystemClass.GEOSTATIONARY: (SystemGrade.GROUND_TRACK,),
     SystemClass.RADAR_NETWORK: (SystemGrade.COVERAGE,),
     SystemClass.SURFACE_NETWORK: (SystemGrade.SITING,),
+    SystemClass.GROUND_NETWORK: (SystemGrade.SITING,),
 }
 
 # the grade that each grade also tests
@@ -351,7 +360,7 @@ def get_required_system_grades(
     satellites in low Earth orbits (whose ground tracks are validated only for
     orbits maintained on one), the ground track grade for geostationary
     satellites, the coverage grade for radar networks, and the siting grade for
-    surface networks.
+    surface networks and networks of ground stations.
 
     Args:
         system_class (SystemClass | str): The class of the system.

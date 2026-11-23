@@ -503,16 +503,22 @@ class TestFingerprint(unittest.TestCase):
 
     def test_stable_between_sessions(self):
         """Fingerprints do not change between sessions (with other hash seeds)."""
-        prints = set()
-        for seed in ("1", "2"):
-            output = subprocess.run(
+        # the sessions run at once, as each spends seconds importing tatc
+        sessions = [
+            subprocess.Popen(
                 [sys.executable, "-c", _SCRIPT],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=True,
                 env={**os.environ, "PYTHONHASHSEED": seed},
             )
-            prints.add(output.stdout.strip())
+            for seed in ("1", "2")
+        ]
+        prints = set()
+        for session in sessions:
+            output, errors = session.communicate()
+            self.assertEqual(session.returncode, 0, errors)
+            prints.add(output.strip())
         self.assertEqual(len(prints), 1)
 
 

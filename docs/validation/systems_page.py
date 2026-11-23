@@ -18,7 +18,11 @@ from tatc.catalog import (
 )
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 from tatc.catalog.system_orbits import describe_orbit
-from tatc.catalog.system_schemas import OrbitConfiguration, RadarConfiguration
+from tatc.catalog.system_schemas import (
+    GroundConfiguration,
+    OrbitConfiguration,
+    RadarConfiguration,
+)
 
 
 def render_configuration(entry, key: str) -> str:
@@ -60,6 +64,12 @@ def render_configuration(entry, key: str) -> str:
             f"{configuration.min_elevation_angle:g} to "
             f"{configuration.max_elevation_angle:g} deg, beam width "
             f"{configuration.beam_width:g} deg.\n"
+        )
+    elif isinstance(configuration, GroundConfiguration):
+        members = ", ".join(configuration.members) or "every station"
+        parts.append(
+            f"Stations: {escape(members)}; minimum elevation angle "
+            f"{configuration.min_elevation_angle:g} deg.\n"
         )
     else:
         parts.append(
@@ -133,12 +143,12 @@ def render_entry(entry) -> str:
         f'**System:** ``get_system("{entry.id}")``. **Class:** '
         f"``{entry.system_class.value}``. **Tier:** `{validation.tier.value}`. "
         f"**Operator:** {escape(entry.operator)}."
-        + (
-            " **Role:** transmitting (navigation satellites, the transmitters of "
-            "radio occultations).\n"
-            if getattr(entry, "role", "observing") == "transmitting"
-            else "\n"
-        ),
+        + {
+            "transmitting": " **Role:** transmitting (navigation satellites, the "
+            "transmitters of radio occultations).\n",
+            "relaying": " **Role:** relaying (data relay satellites, built as a "
+            "relay with ``build_relay``).\n",
+        }.get(getattr(entry, "role", "observing"), "\n"),
     ]
     if entry.aliases:
         parts.append("**Also known as:** " + escape(", ".join(entry.aliases)) + ".\n")

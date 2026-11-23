@@ -643,3 +643,58 @@ def _node_at(node: Node, path: Any) -> Node | None:
         if node is None:
             return None
     return node
+
+
+def _missing_segment(node: Node, segments: list) -> tuple[int, list[str]] | None:
+    """
+    Finds the first segment of a path of values (see `Values`) that no value
+    of a node's designs can have, if any: its position in the path, and the
+    names that the values there have. A choice is stepped through by the
+    name of a branch, or to a value of any of its branches (as of the branch
+    it chooses), and a repetition by the index of an item or `count`. A leaf
+    (such as a variable or a derived value) may have values of its own (such
+    as a fixed group), so that a path within it is not missing.
+
+    Args:
+        node (Node): The node (such as a design space).
+        segments (list): The segments of the path (see `_segments`).
+
+    Returns:
+        tuple[int, list[str]] | None: the position of the missing segment and
+            the names there, or `None` if no segment is missing
+    """
+    # pylint: disable=too-many-return-statements
+    if not segments:
+        return None
+    segment, rest = segments[0], segments[1:]
+
+    def within(child: Node) -> tuple[int, list[str]] | None:
+        missing = _missing_segment(child, rest)
+        return None if missing is None else (missing[0] + 1, missing[1])
+
+    if isinstance(node, Group):
+        child = node.children.get(segment) if isinstance(segment, str) else None
+        return (0, list(node.children)) if child is None else within(child)
+    if isinstance(node, Choice):
+        if segment in node.branches:
+            return within(node.branches[segment])
+        misses = []
+        for branch in node.branches.values():
+            missing = _missing_segment(branch, segments)
+            if missing is None:
+                return None  # a value of this branch
+            misses.append(missing)
+        deepest = max(misses, key=lambda missing: missing[0])
+        if deepest[0] > 0:
+            return deepest  # within a branch that has the first segments
+        names = list(node.branches)
+        for _, there in misses:
+            names.extend(name for name in there if name not in names)
+        return 0, names
+    if isinstance(node, Repeat):
+        if segment == "count":
+            return None
+        if isinstance(segment, int):
+            return within(node.item)
+        return 0, ["count"]
+    return None

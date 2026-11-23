@@ -31,10 +31,10 @@ jobs:
 
     - name: Install project in editable mode
       run: |
-        pip install -e ".[preprocess,tradespace,airborne]"
+        pip install -e ".[preprocess,tradespace,airborne]" pytest pytest-xdist
 
     - name: Run unit tests
-      run: python -m unittest
+      run: python -m pytest -n auto
 
   minimum-versions:
     runs-on: ubuntu-latest
@@ -54,13 +54,13 @@ jobs:
 
     - name: Install project with the minimum versions of its dependencies
       run: |
-        pip install --prefer-binary -c tests/minimum_versions.txt -e ".[preprocess]"
+        pip install --prefer-binary -c tests/minimum_versions.txt -e ".[preprocess]" pytest pytest-xdist
 
     - name: Check the minimum versions were installed
       run: python tests/check_minimum_versions.py
 
     - name: Run unit tests
-      run: python -m unittest
+      run: python -m pytest -n auto
 
   wheel-contents:
     runs-on: ubuntu-latest

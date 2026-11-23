@@ -15,17 +15,17 @@ import numpy as np
 import pandas as pd
 
 from tatc.tradespace import (
-    Bathtub,
+    BathtubLifetime,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
-    Exponential,
+    ExponentialLifetime,
     FailureModel,
     Integer,
     LaunchCost,
     Mean,
     OperationsCost,
-    Piecewise,
+    PiecewiseLifetime,
     Probability,
     Quantile,
     RestorationPolicy,
@@ -34,7 +34,7 @@ from tatc.tradespace import (
     StandardDeviation,
     Study,
     Uncertain,
-    Weibull,
+    WeibullLifetime,
     build_constellation,
     pareto_front,
     policy_space,
@@ -109,21 +109,43 @@ class TestLifetimes(unittest.TestCase):
 
     ages = np.array([0.5, 2.0, 5.0, 9.0])
 
+    def test_former_names(self):
+        """The former names of the distributions are deprecated aliases."""
+        # pylint: disable=import-outside-toplevel
+        import tatc.tradespace
+        from tatc.tradespace import failures
+
+        for former, name in [
+            ("Exponential", ExponentialLifetime),
+            ("Weibull", WeibullLifetime),
+            ("Bathtub", BathtubLifetime),
+            ("Piecewise", PiecewiseLifetime),
+        ]:
+            for module in (tatc.tradespace, failures):
+                with self.subTest(former, module=module.__name__):
+                    with self.assertWarnsRegex(DeprecationWarning, name.__name__):
+                        self.assertIs(getattr(module, former), name)
+        self.assertNotIn("Weibull", tatc.tradespace.__all__)
+        with self.assertRaises(AttributeError):
+            _ = tatc.tradespace.Gamma
+
     def test_exponential(self):
         """A constant failure rate."""
-        life = Exponential(0.2)
+        life = ExponentialLifetime(0.2)
         np.testing.assert_allclose(life.survival(self.ages), np.exp(-0.2 * self.ages))
         np.testing.assert_allclose(life.hazard(self.ages), 0.2)
         np.testing.assert_allclose(
             _empirical(life, self.ages), life.survival(self.ages), atol=0.01
         )
-        self.assertEqual(Exponential(0).sample(np.random.default_rng(0)), math.inf)
+        self.assertEqual(
+            ExponentialLifetime(0).sample(np.random.default_rng(0)), math.inf
+        )
         with self.assertRaises(ValueError):
-            Exponential(-1)
+            ExponentialLifetime(-1)
 
     def test_weibull(self):
         """Decreasing and increasing failure rates."""
-        infant, wear = Weibull(0.5, 20), Weibull(4, 6)
+        infant, wear = WeibullLifetime(0.5, 20), WeibullLifetime(4, 6)
         for life in (infant, wear):
             np.testing.assert_allclose(
                 _empirical(life, self.ages), life.survival(self.ages), atol=0.01
@@ -131,12 +153,16 @@ class TestLifetimes(unittest.TestCase):
         self.assertGreater(infant.hazard(0.5), infant.hazard(5))
         self.assertLess(wear.hazard(0.5), wear.hazard(5))
         with self.assertRaises(ValueError):
-            Weibull(0, 1)
+            WeibullLifetime(0, 1)
 
     def test_bathtub(self):
         """Competing causes: hazards add, the earliest fails."""
-        parts = (Weibull(0.5, 30), Exponential(0.05), Weibull(5, 7))
-        life = Bathtub(*parts)
+        parts = (
+            WeibullLifetime(0.5, 30),
+            ExponentialLifetime(0.05),
+            WeibullLifetime(5, 7),
+        )
+        life = BathtubLifetime(*parts)
         np.testing.assert_allclose(
             life.hazard(self.ages), sum(p.hazard(self.ages) for p in parts)
         )
@@ -150,11 +176,11 @@ class TestLifetimes(unittest.TestCase):
         # high early, low in the middle, high late
         hazard = life.hazard(np.array([0.05, 3.0, 9.0]))
         self.assertTrue(hazard[0] > hazard[1] < hazard[2])
-        self.assertEqual(Bathtub().sample(np.random.default_rng(0)), math.inf)
+        self.assertEqual(BathtubLifetime().sample(np.random.default_rng(0)), math.inf)
 
     def test_piecewise(self):
         """Failure rates by intervals of age."""
-        life = Piecewise([0, 1, 4], [0.3, 0.05, 0.2])
+        life = PiecewiseLifetime([0, 1, 4], [0.3, 0.05, 0.2])
         np.testing.assert_allclose(life.hazard(np.array([0.5, 2, 6])), [0.3, 0.05, 0.2])
         expected = np.exp(
             -np.array([0.15, 0.3 + 0.05, 0.3 + 0.15 + 0.2, 0.3 + 0.15 + 1.0])
@@ -163,7 +189,7 @@ class TestLifetimes(unittest.TestCase):
         np.testing.assert_allclose(
             _empirical(life, self.ages), life.survival(self.ages), atol=0.01
         )
-        never = Piecewise([0, 1], [0.5, 0.0])
+        never = PiecewiseLifetime([0, 1], [0.5, 0.0])
         self.assertGreater(
             np.mean(
                 [never.sample(np.random.default_rng(s)) == math.inf for s in range(400)]
@@ -176,12 +202,14 @@ class TestLifetimes(unittest.TestCase):
             ([0, 2, 1], [1, 1, 1]),
         ):
             with self.assertRaises(ValueError):
-                Piecewise(breaks, rates)
+                PiecewiseLifetime(breaks, rates)
 
     def test_models(self):
         """Lives of each type of satellite, and failures of launches."""
-        model = FailureModel(life={"a": Exponential(0.1), "b": None}, launch=0.05)
-        self.assertEqual(model.life_of("a"), Exponential(0.1))
+        model = FailureModel(
+            life={"a": ExponentialLifetime(0.1), "b": None}, launch=0.05
+        )
+        self.assertEqual(model.life_of("a"), ExponentialLifetime(0.1))
         self.assertIsNone(model.life_of("b"))
         with self.assertRaises(ValueError):
             model.life_of("c")
@@ -365,7 +393,7 @@ class TestSimulation(unittest.TestCase):
 
     def test_common_random_numbers(self):
         """The satellite at the same position fails at the same age."""
-        failures = FailureModel(life=Exponential(0.3), launch=0.1)
+        failures = FailureModel(life=ExponentialLifetime(0.3), launch=0.1)
         first = self._simulate(
             RestorationPolicy(restore=False), failures=failures, seed=4
         )
@@ -381,7 +409,7 @@ class TestSimulation(unittest.TestCase):
             launch=LaunchCost(per_launch=3),
             operations=OperationsCost(per_satellite_year=1),
         )
-        failures = FailureModel(life=Exponential(0.3))
+        failures = FailureModel(life=ExponentialLifetime(0.3))
         totals = {}
         for name, policy in (
             ("degrade", RestorationPolicy(restore=False)),
@@ -466,7 +494,7 @@ class TestPolicySpace(unittest.TestCase):
         schedule = DeploymentSchedule(
             years=5, development_years=1, production_rate=4, launch_capacity=3
         )
-        failures = FailureModel(life=Exponential(0.3), launch=0.05)
+        failures = FailureModel(life=ExponentialLifetime(0.3), launch=0.05)
         model = CostModel(
             SatelliteCost(development=10, first_unit=5),
             launch=LaunchCost(per_launch=3),
@@ -538,7 +566,7 @@ class TestManyMissions(unittest.TestCase):
         )
         names = [s.name for s in self.satellites]
         self.observations = pd.DataFrame({"satellite": names * 5, "target": range(20)})
-        self.failures = FailureModel(life=Exponential(0.3), launch=0.05)
+        self.failures = FailureModel(life=ExponentialLifetime(0.3), launch=0.05)
         self.calls = []
 
     def _metric(self, observations):
@@ -685,27 +713,31 @@ class TestVarianceReduction(unittest.TestCase):
     def setUp(self):
         self.schedule = DeploymentSchedule(years=5, development_years=1)
         self.layout = _walker(2, 2)
-        self.failures = FailureModel(life=Exponential(0.3))
+        self.failures = FailureModel(life=ExponentialLifetime(0.3))
 
     def test_lifetimes_from_uniform(self):
         """Lives drawn from uniform numbers follow their distributions."""
         uniform = np.array([0.05, 0.5, 0.95])
         for life in (
-            Exponential(0.2),
-            Weibull(0.5, 30),
-            Weibull(4, 7),
-            Piecewise([0, 1, 4], [0.3, 0.05, 0.2]),
+            ExponentialLifetime(0.2),
+            WeibullLifetime(0.5, 30),
+            WeibullLifetime(4, 7),
+            PiecewiseLifetime([0, 1, 4], [0.3, 0.05, 0.2]),
         ):
             lives = np.array([life.from_uniform([u]) for u in uniform])
             np.testing.assert_allclose(1 - life.survival(lives), uniform)
-        parts = (Weibull(0.5, 30), Exponential(0.05), Weibull(5, 7))
-        bathtub = Bathtub(*parts)
+        parts = (
+            WeibullLifetime(0.5, 30),
+            ExponentialLifetime(0.05),
+            WeibullLifetime(5, 7),
+        )
+        bathtub = BathtubLifetime(*parts)
         self.assertEqual(bathtub.dimensions, 3)
         self.assertEqual(
             bathtub.from_uniform([0.1, 0.2, 0.3]),
             min(part.from_uniform([u]) for part, u in zip(parts, (0.1, 0.2, 0.3))),
         )
-        self.assertEqual(Exponential(0).from_uniform([0.5]), math.inf)
+        self.assertEqual(ExponentialLifetime(0).from_uniform([0.5]), math.inf)
 
     def test_strata(self):
         """Each draw of the histories of a replicate takes each stratum once."""
@@ -958,7 +990,7 @@ class TestExpectedMissions(unittest.TestCase):
 
     def test_matches_simulation(self):
         """Expectations are the means of many simulated histories."""
-        failures = FailureModel(life=Exponential(0.2), launch=0.1)
+        failures = FailureModel(life=ExponentialLifetime(0.2), launch=0.1)
         self._compare(
             DeploymentSchedule(years=5, development_years=1, production_rate=2),
             failures,
@@ -968,7 +1000,11 @@ class TestExpectedMissions(unittest.TestCase):
             DeploymentSchedule(years=6, design_life=2, development_years=1), failures
         )
         bathtub = FailureModel(
-            life=Bathtub(Weibull(0.5, 40), Exponential(0.05), Weibull(4, 5)),
+            life=BathtubLifetime(
+                WeibullLifetime(0.5, 40),
+                ExponentialLifetime(0.05),
+                WeibullLifetime(4, 5),
+            ),
             launch=0.05,
         )
         self._compare(DeploymentSchedule(years=5, launch_interval=0.5), bathtub)
@@ -999,7 +1035,7 @@ class TestExpectedMissions(unittest.TestCase):
         failures of a study fall back to histories, see Failures)."""
         schedule = DeploymentSchedule(years=4, launch_interval=0.5)
         deployment = schedule.plan(self.layout, policy=DEGRADE)
-        failures = FailureModel(life=Exponential(0.3), launch=0.05)
+        failures = FailureModel(life=ExponentialLifetime(0.3), launch=0.05)
         capability = Capability(self.satellites, self.observations, self._metric)
         weigh = mock.Mock(wraps=expectations_module._set_weight)
         with mock.patch.object(expectations_module, "_set_weight", weigh):
@@ -1007,11 +1043,11 @@ class TestExpectedMissions(unittest.TestCase):
         self.assertEqual(weigh.call_count, _exact_sets(deployment, failures))
         self.assertGreaterEqual(exact["coverage"], 0.999)
         # reliable satellites: the sets of fewer missing cover the mission
-        reliable = FailureModel(life=Exponential(0.001))
+        reliable = FailureModel(life=ExponentialLifetime(0.001))
         self.assertLess(_exact_sets(deployment, reliable), 2**4)
         # 20 satellites (of 4 planes of 5) of a few years: too many, at once
         large = DeploymentSchedule(years=5).plan(_walker(4, 5), policy=DEGRADE)
-        failures = FailureModel(life=Exponential(0.3))
+        failures = FailureModel(life=ExponentialLifetime(0.3))
         self.assertGreater(_exact_sets(large, failures), MAX_SETS)
         names = _names(20)
         weigh = mock.Mock(wraps=expectations_module._set_weight)
@@ -1029,7 +1065,7 @@ class TestExpectedMissions(unittest.TestCase):
         that are not staged."""
         schedule = DeploymentSchedule(years=4)
         deployment = schedule.plan(self.layout, policy=DEGRADE)
-        failures = FailureModel(life=Exponential(0.5))
+        failures = FailureModel(life=ExponentialLifetime(0.5))
         capability = Capability(self.satellites, self.observations, self._metric)
         with self.assertRaises(ExactExpectationsError):
             exact_expectations(deployment, failures, capability, max_sets=3)
@@ -1057,9 +1093,9 @@ class TestImportanceSampling(unittest.TestCase):
         """Stressed lives are weighted to their distribution, up to a horizon."""
         rng = np.random.default_rng(0)
         for life in (
-            Exponential(0.1),
-            Weibull(2, 8),
-            Bathtub(Weibull(0.5, 40), Exponential(0.05)),
+            ExponentialLifetime(0.1),
+            WeibullLifetime(2, 8),
+            BathtubLifetime(WeibullLifetime(0.5, 40), ExponentialLifetime(0.05)),
         ):
             draws = [
                 life.stressed(rng.random(life.dimensions), 4.0, 5.0)
@@ -1081,7 +1117,7 @@ class TestImportanceSampling(unittest.TestCase):
     def test_rare_losses(self):
         """Stress estimates the probability of a rare loss with less variance."""
         deployment = DeploymentSchedule(years=5).plan(_walker(1, 3), policy=DEGRADE)
-        failures = FailureModel(life=Exponential(0.01))
+        failures = FailureModel(life=ExponentialLifetime(0.01))
         p = 1 - math.exp(-0.05)
         exact = 3 * p**2 * (1 - p) + p**3
         estimates = {}

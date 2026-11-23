@@ -5,6 +5,10 @@ Collect Downlinks
 -----------------
 .. autofunction:: tatc.analysis.collect_downlinks
 
+Collect Relay Contacts
+----------------------
+.. autofunction:: tatc.analysis.collect_relay_contacts
+
 Compute Latencies
 -----------------
 .. autofunction:: tatc.analysis.compute_latencies

@@ -17,7 +17,7 @@ import json
 import pathlib
 import warnings
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any, ClassVar, Literal
 
 import numpy as np
@@ -28,12 +28,14 @@ from shapely.geometry.base import BaseGeometry
 
 from ..schemas import (
     AttitudeSchedule,
+    GroundStation,
     InSituInstrument,
     RadarStation,
     RepeatGroundTrackOrbit,
     Satellite,
     SurfacePlatform,
 )
+from ..schemas.architecture import Relay
 from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
 from ..schemas.surface.radar import RadarBand
@@ -75,11 +77,12 @@ class Spacecraft(_CatalogModel):
         + "elements, which are not cataloged because they age (the catalog's "
         + "orbits are idealized).",
     )
-    status: Literal["operational", "extended", "retired"] = Field(
+    status: Literal["operational", "extended", "storage", "retired"] = Field(
         ...,
-        description="The status on the date `as_of`, which selects the satellites "
-        + "built by default (those not retired) but is not a value of a "
-        + "configuration (its tests include retired spacecraft).",
+        description="The status on the date `as_of` (`storage` for a spare kept "
+        + "in orbit, out of service), which selects the satellites built by "
+        + "default (those neither retired nor in storage) but is not a value of "
+        + "a configuration (its tests include every spacecraft).",
     )
     as_of: date = Field(..., description="The date of the status.")
 
@@ -424,6 +427,48 @@ class SurfaceConfiguration(_SystemConfiguration):
         }
 
 
+class GroundConfiguration(_SystemConfiguration):
+    """
+    The ground stations of a network that receive the data of a program's
+    satellites, as validated for a use.
+    """
+
+    members: tuple[str, ...] = Field(
+        default=(),
+        description="The identifiers of the stations that serve the use (such "
+        + "as a program), in order, or none for every station.",
+    )
+    min_elevation_angle: float = Field(
+        ...,
+        ge=0,
+        le=90,
+        description="The minimum elevation angle (degrees) of a contact.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ...,
+        description="The origin of the members (`members`, if given) and the "
+        + "minimum elevation angle (`min_elevation_angle`).",
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> GroundConfiguration:
+        _check_provenance(
+            {"min_elevation_angle"} | ({"members"} if self.members else set()),
+            self.provenance,
+        )
+        return self
+
+    def get_fitted(self, platform: str | None = None) -> list[Provenance]:
+        del platform
+        return [p for p in self.provenance.values() if p.kind == "measured"]
+
+    def get_content(self) -> dict[str, Any]:
+        return {
+            "members": list(self.members),
+            "min_elevation_angle": self.min_elevation_angle,
+        }
+
+
 @functools.lru_cache(maxsize=None)
 def _read_table(file: str) -> tuple[pd.DataFrame, str]:
     """
@@ -492,8 +537,9 @@ class SystemEntry(_CatalogModel):
     """
     A system of a past or present program, in configurations validated against
     reference data, from which to build the platforms of baseline systems in
-    pre-phase A studies: a `SatelliteSystem`, a `RadarNetwork`, or a
-    `SurfaceNetwork`, parsed by its `system_class` with `parse_system`.
+    pre-phase A studies: a `SatelliteSystem`, a `RadarNetwork`, a
+    `SurfaceNetwork`, or a `GroundNetwork`, parsed by its `system_class` with
+    `parse_system`.
     """
 
     id: str = Field(..., description="Entry identifier.")
@@ -520,8 +566,8 @@ class SystemEntry(_CatalogModel):
     def _check_class(cls, data: Any) -> Any:
         if cls is SystemEntry:
             raise TypeError(
-                "a SystemEntry is a SatelliteSystem, RadarNetwork, or "
-                "SurfaceNetwork: parse one with parse_system"
+                "a SystemEntry is a SatelliteSystem, RadarNetwork, "
+                "SurfaceNetwork, or GroundNetwork: parse one with parse_system"
             )
         return data
 
@@ -715,8 +761,9 @@ class SystemEntry(_CatalogModel):
             dict[str, Any]: Its `system` (identifier), `name`, `class`,
             validation `tier`, `configurations` (comma-separated), number of
             `members` (spacecraft or stations), number of those built by
-            default (`active`: spacecraft not retired, or every station), and
-            `role` (`observing`, or `transmitting` for navigation satellites).
+            default (`active`: spacecraft neither retired nor in storage, or
+            every station), and `role` (`observing`, `transmitting` for
+            navigation satellites, or `relaying` for data relay satellites).
         """
         return {
             "system": self.id,
@@ -726,7 +773,15 @@ class SystemEntry(_CatalogModel):
             "configurations": ", ".join(self.configurations),
             "members": len(self.get_members()),
             "active": len(self.get_default_members()),
-            "role": getattr(self, "role", "observing"),
+            "role": getattr(
+                self,
+                "role",
+                (
+                    "receiving"
+                    if self.system_class == SystemClass.GROUND_NETWORK
+                    else "observing"
+                ),
+            ),
         }
 
     def select_configuration(
@@ -788,12 +843,14 @@ class SatelliteSystem(SystemEntry):
     spacecraft: tuple[Spacecraft, ...] = Field(
         ..., min_length=1, description="The satellites of the system."
     )
-    role: Literal["observing", "transmitting"] = Field(
+    role: Literal["observing", "transmitting", "relaying"] = Field(
         default="observing",
         description="What the satellites do: `observing`, carrying the instruments "
-        + "of the instrument catalog that list them, or `transmitting`, as the "
+        + "of the instrument catalog that list them; `transmitting`, as the "
         + "navigation satellites whose signals radio occultation receivers sound "
-        + "(see `tatc.analysis.collect_ro_observations`), which carry none.",
+        + "(see `tatc.analysis.collect_ro_observations`), which carry none; or "
+        + "`relaying`, as data relay satellites, which carry none and relay the "
+        + "data of other satellites to the ground (see `build_relay`).",
     )
     configurations: dict[str, OrbitConfiguration] = Field(
         ..., min_length=1, description="The ways of modeling it, by identifier."
@@ -833,7 +890,7 @@ class SatelliteSystem(SystemEntry):
         return {s.id: s.name for s in self.spacecraft}
 
     def get_default_members(self) -> list[str]:
-        return [s.id for s in self.spacecraft if s.status != "retired"]
+        return [s.id for s in self.spacecraft if s.status not in ("retired", "storage")]
 
     def get_spacecraft(self, spacecraft: str) -> Spacecraft:
         """
@@ -938,8 +995,8 @@ class SatelliteSystem(SystemEntry):
         analyzed with their own methods) has TAT-C's default instrument, which
         observes within a field of regard of 180 degrees, with a warning, as
         do the satellites of a system whose `role` is `transmitting` (such as
-        those of a navigation system, for `tatc.analysis.collect_ro_observations`),
-        without one.
+        those of a navigation system, for `tatc.analysis.collect_ro_observations`)
+        or `relaying` (see `build_relay`), without one.
 
         Args:
             configuration (str | None): The configuration, if not selected by
@@ -947,8 +1004,8 @@ class SatelliteSystem(SystemEntry):
             grade (SystemGrade | str | None): The grade of the use, if any.
             members (str | Sequence[str] | None): The identifiers (or names) of
                 the spacecraft to build, in the order of the satellites. By
-                default, the spacecraft of the configuration that are not
-                retired.
+                default, the spacecraft of the configuration that are neither
+                retired nor in storage.
             epoch (datetime | None): The epoch of orbits at the plane grade (or
                 of geostationary orbits).
             start (datetime | None): The start of the analysis, for instruments
@@ -976,16 +1033,18 @@ class SatelliteSystem(SystemEntry):
         Raises:
             ValueError: If a member has no orbit in the configuration, an orbit
                 needs an epoch, every spacecraft of the configuration is retired
-                (and no members are given), a given reference is carried by no
+                or in storage (and no members are given), a given reference is
+                carried by no
                 satellite built, or an instrument needs a time step.
             KeyError: If a member is not a spacecraft of the system.
         """
         key = self._select(configuration, grade)
         selected = self.configurations[key]
-        if self.role == "transmitting":
+        if self.role in ("transmitting", "relaying"):
             if payload not in (None, False):
+                kind = "transmitters" if self.role == "transmitting" else "relays"
                 raise ValueError(
-                    f"{self.id}'s satellites are transmitters, which carry no "
+                    f"{self.id}'s satellites are {kind}, which carry no "
                     "cataloged instruments"
                 )
             payload = False
@@ -1001,7 +1060,8 @@ class SatelliteSystem(SystemEntry):
             members = [m for m in self.get_default_members() if m in selected.orbits]
             if not members:
                 raise ValueError(
-                    f"every spacecraft of {self.id}:{key} is retired; give members"
+                    f"every spacecraft of {self.id}:{key} is retired or in "
+                    "storage; give members"
                 )
         spacecraft = [self.get_spacecraft(member) for member in _as_list(members)]
         ids = [s.id for s in spacecraft]
@@ -1043,6 +1103,67 @@ class SatelliteSystem(SystemEntry):
                 raise
             satellites.append(built.to_satellite(orbit, name=member.name))
         return satellites
+
+    def build_relay(
+        self,
+        configuration: str | None = None,
+        *,
+        grade: SystemGrade | str | None = None,
+        members: str | Sequence[str] | None = None,
+        epoch: datetime | None = None,
+        name: str | None = None,
+        ground_stations: Sequence[GroundStation] = (),
+        min_grazing_altitude: float = 0,
+        max_range: float | None = None,
+        min_access_time: timedelta = timedelta(0),
+    ) -> Relay:
+        """
+        Builds the relay of a system whose `role` is `relaying` (see
+        `tatc.schemas.Relay`): its satellites (see `build`), which satellites of
+        an architecture contact by line of sight (see
+        `tatc.analysis.collect_relay_contacts`). Without `ground_stations`, each
+        relay satellite is assumed to be always in contact with the ground (as
+        those of a geostationary relay are with the terminals that serve them).
+
+        Args:
+            configuration (str | None): The configuration, if not selected by
+                grade.
+            grade (SystemGrade | str | None): The grade of the use, if any.
+            members (str | Sequence[str] | None): The identifiers (or names) of
+                the spacecraft to build, by default those neither retired nor
+                in storage.
+            epoch (datetime | None): The epoch of the orbits, if needed.
+            name (str | None): The name of the relay, by default the system's
+                identifier.
+            ground_stations (Sequence[GroundStation]): The ground stations that
+                receive the relay's data, if any.
+            min_grazing_altitude (float): The minimum altitude (meters) of the
+                line of sight between a satellite and a relay satellite.
+            max_range (float | None): The maximum range (meters), if any.
+            min_access_time (timedelta): The minimum duration of a contact.
+
+        Returns:
+            Relay: The relay.
+
+        Raises:
+            ValueError: If the system's role is not `relaying`.
+        """
+        # pylint: disable=too-many-arguments
+        if self.role != "relaying":
+            raise ValueError(
+                f"{self.id}'s satellites are not relays (its role is {self.role})"
+            )
+        satellites = self.build(
+            configuration, grade=grade, members=members, epoch=epoch, payload=False
+        )
+        return Relay(
+            name=self.id if name is None else name,
+            satellites=satellites,
+            ground_stations=list(ground_stations),
+            min_grazing_altitude=min_grazing_altitude,
+            max_range=max_range,
+            min_access_time=min_access_time,
+        )
 
 
 class _NetworkSystem(SystemEntry):
@@ -1269,21 +1390,102 @@ class SurfaceNetwork(_NetworkSystem):
         ]
 
 
+class GroundNetwork(_NetworkSystem):
+    """
+    A network of ground stations that receive the data of satellites (see
+    `tatc.schemas.GroundStation` and `tatc.analysis.collect_downlinks`): its
+    stations, and those that serve each use (such as a program) in each
+    configuration.
+    """
+
+    system_class: Literal[SystemClass.GROUND_NETWORK] = Field(
+        ..., description="System class."
+    )
+    configurations: dict[str, GroundConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
+
+    @model_validator(mode="after")
+    def _check_members(self) -> GroundNetwork:
+        stations = set(self.get_member_names())
+        for key, configuration in self.configurations.items():
+            unknown = set(configuration.members) - stations
+            if unknown:
+                raise ValueError(f"{key}: unknown stations {sorted(unknown)}")
+        return self
+
+    def build(
+        self,
+        configuration: str | None = None,
+        *,
+        grade: SystemGrade | str | None = None,
+        members: str | Sequence[str] | None = None,
+        region: BaseGeometry | None = None,
+        min_elevation_angle: float | None = None,
+    ) -> list[GroundStation]:
+        """
+        Builds the ground stations of a configuration (see
+        `select_configuration`): those that serve its use (or `members`),
+        named by their identifiers (see `get_member_names`), at the elevations
+        of their ground above the WGS 84 ellipsoid (the table's height above
+        mean sea level plus the EGM2008 geoid height), with its minimum
+        elevation angle.
+
+        Args:
+            configuration (str | None): The configuration, if not selected by
+                grade.
+            grade (SystemGrade | str | None): The grade of the use, if any.
+            members (str | Sequence[str] | None): The identifiers (or names)
+                of the stations to build, in the order of the stations. By
+                default, those of the configuration (or every station, in the
+                order of the table).
+            region (shapely.geometry.base.BaseGeometry | None): A region
+                (longitude and latitude) within which to build stations.
+            min_elevation_angle (float | None): The minimum elevation angle
+                (degrees) of a contact, instead of the configuration's.
+
+        Returns:
+            list[GroundStation]: The stations.
+
+        Raises:
+            ValueError: If a member is unknown.
+        """
+        selected = self.configurations[self._select(configuration, grade)]
+        if members is None and selected.members:
+            members = list(selected.members)
+        table, ground = self._select_stations(members, region)
+        angle = (
+            selected.min_elevation_angle
+            if min_elevation_angle is None
+            else min_elevation_angle
+        )
+        return [
+            GroundStation(
+                name=row.id,
+                latitude=row.latitude,
+                longitude=row.longitude,
+                elevation=float(elevation),
+                min_elevation_angle=angle,
+            )
+            for row, elevation in zip(table.itertuples(), ground)
+        ]
+
+
 AnySystem = Annotated[
-    SatelliteSystem | RadarNetwork | SurfaceNetwork,
+    SatelliteSystem | RadarNetwork | SurfaceNetwork | GroundNetwork,
     Field(discriminator="system_class"),
 ]
 """A catalog system, by its `system_class`."""
 
-_SYSTEM_ADAPTER: TypeAdapter[SatelliteSystem | RadarNetwork | SurfaceNetwork] = (
-    TypeAdapter(AnySystem)
-)
+_SYSTEM_ADAPTER: TypeAdapter[
+    SatelliteSystem | RadarNetwork | SurfaceNetwork | GroundNetwork
+] = TypeAdapter(AnySystem)
 
 
 def parse_system(data: Mapping[str, Any]) -> SystemEntry:
     """
     Parses a system as the schema of its class: a `SatelliteSystem`, a
-    `RadarNetwork`, or a `SurfaceNetwork`.
+    `RadarNetwork`, a `SurfaceNetwork`, or a `GroundNetwork`.
 
     Args:
         data (Mapping[str, Any]): The system's fields.

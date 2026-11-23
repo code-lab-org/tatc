@@ -20,24 +20,49 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
+from pydantic import BaseModel
 
-from ..analysis import collect_observations
-from ..schemas import Satellite
+from ..analysis.architecture import (
+    ArchitectureEvaluation,
+    _collect_contacts,
+    _evaluate,
+    _Parts,
+    collect_platform_observations,
+)
+from ..analysis.latency_sampling import _get_empty_relay_contacts_frame
+from ..schemas import AllPlatforms, Architecture, GroundStation, Relay, Satellite
 from .cache import SatelliteCache
 from .constellations import count_planes
 from .criteria import Requirement
+from .hashing import canonical, digest
 from .memory import Forgetful
 from .mission import Capability, Mission, PhaseCache
 from .plans import Failures, MissionPlan
-from .references import Reference, _given_design, _number, _takes_design, value_of
+from .references import (
+    Reference,
+    _check_references,
+    _given_design,
+    _number,
+    _takes_design,
+    value_of,
+)
 from .space import Design, DesignSpace
+from .statistics import Mean
 from .study import Study, _Case
 
 _MAX_TARGETS = 32
 """The most sets of targets (of seeds) kept in memory."""
+
+_EMPTY = digest(
+    canonical(
+        {"others": Architecture().model_dump_json(exclude={"name"}), "windows": []}
+    )
+)
+"""The key of an architecture of only planned satellites without windows (see
+`_Evaluation.context_of`), whose phases are keyed as without one."""
 
 
 @dataclasses.dataclass(frozen=True, eq=False, init=False)
@@ -107,6 +132,11 @@ class Targets(Forgetful):
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "_memory", {})
 
+    def _references(self) -> list[tuple[str, Any]]:
+        """Gets the references of the targets to values of the design (see
+        `_check_references`)."""
+        return [("Targets seed", self.seed)]
+
     def _seed_of(self, design: Design | None) -> Any:
         """
         Gets the seed of the targets of a (realized) design: a value of the
@@ -150,33 +180,114 @@ def _observe(
     seed: Any,
     start: datetime,
     end: datetime,
-    satellite: Satellite,
+    platform: AllPlatforms,
 ) -> pd.DataFrame:
     """
-    The observations of the targets of a seed by a satellite (see
+    The observations of the targets of a seed by a platform (see
     `Observations`), generating them only if needed (and keeping them).
     """
     # pylint: disable=too-many-arguments,too-many-positional-arguments
     # pylint: disable-next=protected-access
-    return analysis(targets._of_seed(seed), satellite, start, end)
+    return analysis(targets._of_seed(seed), platform, start, end)
+
+
+class _Link(BaseModel):
+    """
+    The link between a satellite and a ground station or a relay, whose
+    contacts are cached (see `Observations`): keyed by the satellite's
+    content, without its name (which is the link's, see
+    `get_satellite_key`), and by the ground station or relay, with its name
+    (which its contacts record).
+    """
+
+    name: str
+    satellite: Satellite
+    endpoint: GroundStation | Relay
+
+
+def _contact(start: datetime, end: datetime, link: _Link) -> pd.DataFrame:
+    """
+    The contacts of a link over a period (see `Observations`), with the
+    columns of relay contacts (see `tatc.analysis.collect_relay_contacts`).
+    """
+    satellite = link.satellite.model_copy(update={"name": link.name})
+    endpoint = link.endpoint
+    stations = [endpoint] if isinstance(endpoint, GroundStation) else []
+    relays = [endpoint] if isinstance(endpoint, Relay) else []
+    return _collect_contacts(satellite, stations, relays, start, end)
+
+
+def _as_architecture(built: Architecture | Sequence[Satellite]) -> Architecture:
+    """
+    Gets the architecture that a study builds: as built, or of the
+    satellites built.
+    """
+    if isinstance(built, Architecture):
+        return built
+    return Architecture(satellites=list(built))
+
+
+@dataclasses.dataclass(frozen=True)
+class _Cached:
+    """
+    The analyses of the members of an architecture by observations (of the
+    targets of a seed), cached (see `Observations` and
+    `tatc.analysis.architecture._Parts`).
+    """
+
+    observations: Observations
+    seed: Any
+
+    def observe(
+        self, platform: AllPlatforms, start: datetime, end: datetime
+    ) -> pd.DataFrame:
+        """Gets the observations of the targets by a platform over a period."""
+        # pylint: disable-next=protected-access
+        return self.observations._cache(self.seed, start, end)([platform])
+
+    def contact(
+        self,
+        satellite: Satellite,
+        ground_stations: list[GroundStation],
+        relays: list[Relay],
+        start: datetime,
+        end: datetime,
+    ) -> pd.DataFrame:
+        """Gets the contacts of a satellite with ground stations and relays."""
+        # pylint: disable=too-many-arguments,too-many-positional-arguments
+        unnamed = satellite.model_copy(update={"name": ""})
+        links = [
+            _Link(name=satellite.name, satellite=unnamed, endpoint=endpoint)
+            for endpoint in [*ground_stations, *relays]
+        ]
+        # pylint: disable-next=protected-access
+        contacts = self.observations._contacts(start, end)(links)
+        if len(contacts) == 0:
+            return _get_empty_relay_contacts_frame()
+        return contacts.sort_values("start", kind="stable").reset_index(drop=True)
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class Observations(Forgetful):
     """
-    The observations of targets by satellites over a period, by an analysis
-    of one satellite (such as `tatc.analysis.collect_observations`, called
-    as `analysis(targets, satellite, start, end)`), cached for each satellite
-    (see `SatelliteCache`) and each set of targets (of a seed, see
-    `Targets`), in memory, or on disk in a `directory` (shared by the
-    parallel workers of a study, and between sessions). The results on disk
-    are keyed by the fingerprint of the analysis, which describes fixed
-    targets by their content and generated targets by their recipe (see
-    `Targets`: their function, its arguments, and the seed's reference),
-    and in a namespace of the seed and the period, so that opening a cache
-    generates no targets: the `namespace` need only identify data that the
-    analysis (or the function of the targets) reads, such as from files, and
-    the code of other modules it calls (other than TAT-C's).
+    The observations of targets by the platforms of architectures (see
+    `tatc.schemas.Architecture`) over a period, by an analysis of one
+    platform (by default, `tatc.analysis.collect_platform_observations`, for
+    platforms of any kind; called as `analysis(targets, platform, start,
+    end)`), cached for each platform (see `SatelliteCache`) and each set of
+    targets (of a seed, see `Targets`), in memory, or on disk in a
+    `directory` (shared by the parallel workers of a study, and between
+    sessions), with the contacts of satellites with the architecture's
+    ground stations and relays, cached for each pair, and the downlink of
+    each observation (as `tatc.analysis.evaluate_architecture` gives them,
+    see `evaluate`). The results on disk are keyed by the fingerprint of the
+    analysis, which describes fixed targets by their content and generated
+    targets by their recipe (see `Targets`: their function, its arguments,
+    and the seed's reference), and in a namespace of the seed and the
+    period, so that opening a cache generates no targets: the `namespace`
+    need only identify data that the analysis (or the function of the
+    targets) reads, such as from files, and the code of other modules it
+    calls (other than TAT-C's).
 
     The period is one window that represents the mission (see
     `evaluate_phases`): its start may be a value of the design (see
@@ -185,18 +296,27 @@ class Observations(Forgetful):
     of the mission (such as the drift of the relative nodes of shells of
     different inclinations or altitudes) and its seasons. With common random
     numbers, the designs of a replicate share its epoch. The observations of
-    each epoch (and set of targets) are cached apart.
+    each epoch (and set of targets) are cached apart. A member of an
+    architecture active in a window (see `Architecture.windows`) is analyzed
+    over the part of the period within it (cached apart), so that, with an
+    uncertain epoch, the replicates average over its window too.
 
     Args:
         targets (Targets | pandas.DataFrame): The targets.
         start (datetime | Reference): The start of the period, or a value of
             the design that gives it (see `value_of`).
         duration (timedelta): The duration of the period.
-        analysis (Callable): The analysis of one satellite.
+        analysis (Callable): The analysis of one platform, such as
+            `collect_platform_observations` with options (for example,
+            `partial(collect_platform_observations, time_step=STEP)`) or
+            `tatc.analysis.collect_observations` (for satellites only).
         directory (str | os.PathLike | None): A directory of the cache on
             disk, or `None` to cache in memory only.
         namespace (str): An identifier of what the fingerprint of the
             analysis cannot see.
+        during_contact (str): Downlink of observations that end during a
+            contact: `"end"` (default), `"next"`, or `"immediate"` (see
+            `tatc.analysis.compute_latencies`).
 
     Results of the analysis with other code (such as of an earlier version of
     TAT-C) are not reused, and a study warns of them (once, see
@@ -206,18 +326,30 @@ class Observations(Forgetful):
     targets: Targets | pd.DataFrame
     start: datetime | Reference
     duration: timedelta
-    analysis: Callable = collect_observations
+    analysis: Callable = collect_platform_observations
     _: dataclasses.KW_ONLY
     directory: str | os.PathLike | None = dataclasses.field(
         default=None, metadata={"fingerprint": False}
     )
     namespace: str = ""
+    during_contact: Literal["next", "end", "immediate"] = "end"
     _forgotten = ("_caches",)  # (copies sent to parallel workers)
 
     def __post_init__(self):
         if isinstance(self.targets, pd.DataFrame):
             object.__setattr__(self, "targets", Targets(self.targets))
+        if self.during_contact not in ("next", "end", "immediate"):
+            raise ValueError(
+                "during_contact must be 'next', 'end', or 'immediate', not "
+                + repr(self.during_contact)
+            )
         object.__setattr__(self, "_caches", {})
+
+    def _references(self) -> list[tuple[str, Any]]:
+        """Gets the references of the observations to values of the design
+        (see `_check_references`): its start, and the seed of its targets."""
+        # pylint: disable-next=protected-access
+        return [("Observations start", self.start), *self.targets._references()]
 
     def start_of(self, design: Design | None = None) -> datetime:
         """
@@ -271,46 +403,80 @@ class Observations(Forgetful):
         # pylint: disable-next=protected-access
         return self._cache(self.targets._seed_of(design), self.start_of(design))
 
-    def _namespace(self, seed: Any, start: datetime) -> str:
-        """Gets the namespace of the cache of the targets of a seed and a start."""
-        context = (
-            f"targets of seed {seed}, from {start.isoformat()} for {self.duration}"
-        )
+    def _namespace(
+        self, seed: Any, start: datetime, end: datetime | None = None
+    ) -> str:
+        """
+        Gets the namespace of the cache of the targets of a seed over a
+        period (by default, from a start for the duration).
+        """
+        duration = self.duration if end is None else end - start
+        context = f"targets of seed {seed}, from {start.isoformat()} for {duration}"
         return f"{self.namespace}: {context}" if self.namespace else context
 
-    def _cache(self, seed: Any, start: datetime) -> SatelliteCache:
-        """
-        Gets the cache of the observations of the targets of a seed from a
-        start (see `_cache_of`), with the seed and start as the context of its
-        namespace (see `SatelliteCache._contexts`), from which `prune` finds
-        it. Its function generates the targets only if it computes a result.
-        """
-        if (seed, start) not in self._caches:
+    def _remember(
+        self, key: tuple, make: Callable[[], SatelliteCache]
+    ) -> SatelliteCache:
+        """Gets a cache by key, made if needed (and the oldest forgotten)."""
+        if key not in self._caches:
             if len(self._caches) >= _MAX_TARGETS:
                 self._caches.pop(next(iter(self._caches)))
-            function = partial(
-                _observe,
-                self.analysis,
-                self.targets,
-                seed,
-                start,
-                start + self.duration,
-            )
-            self._caches[seed, start] = SatelliteCache(
-                function,
+            self._caches[key] = make()
+        return self._caches[key]
+
+    def _cache(
+        self, seed: Any, start: datetime, end: datetime | None = None
+    ) -> SatelliteCache:
+        """
+        Gets the cache of the observations of the targets of a seed over a
+        period (see `_cache_of`): by default, from a start for the duration,
+        or else a part of it in which a member is active. The context of its
+        namespace (see `SatelliteCache._contexts`), from which `prune` finds
+        it, is the seed and start of the whole period, or the seed, start,
+        and end of a part. Its function generates the targets only if it
+        computes a result.
+        """
+        whole = end is None or end == start + self.duration
+        end = start + self.duration if end is None else end
+        return self._remember(
+            ("observations", seed, start, end),
+            lambda: SatelliteCache(
+                partial(_observe, self.analysis, self.targets, seed, start, end),
                 directory=self.directory,
-                namespace=self._namespace(seed, start),
-                context=(seed, start),
-            )
-        return self._caches[seed, start]
+                namespace=self._namespace(seed, start, end),
+                context=(seed, start) if whole else (seed, start, end),
+            ),
+        )
+
+    def _contacts_namespace(self, start: datetime, end: datetime) -> str:
+        """Gets the namespace of the cache of the contacts over a period."""
+        context = f"contacts from {start.isoformat()} for {end - start}"
+        return f"{self.namespace}: {context}" if self.namespace else context
+
+    def _contacts(self, start: datetime, end: datetime) -> SatelliteCache:
+        """
+        Gets the cache of the contacts of links (of satellites with ground
+        stations and relays, see `_Link`) over a period, with the context
+        `("contacts", start, end)`, from which `prune` finds it.
+        """
+        return self._remember(
+            ("contacts", start, end),
+            lambda: SatelliteCache(
+                partial(_contact, start, end),
+                directory=self.directory,
+                namespace=self._contacts_namespace(start, end),
+                context=("contacts", start, end),
+            ),
+        )
 
     def prune(self) -> int:
         """
         Removes the results on disk of the analysis with other code (see
         `SatelliteCache.prune`) from the caches of every set of targets (of
-        each seed and start) of these observations in the directory, such as
-        after a study warns of them. The results of other observations that
-        share the directory (such as of other targets) are kept.
+        each seed and period) of these observations in the directory, and of
+        the contacts over each period, such as after a study warns of them.
+        The results of other observations that share the directory (such as
+        of other targets) are kept.
 
         Returns:
             int: the number of results removed (0 without a directory)
@@ -320,32 +486,79 @@ class Observations(Forgetful):
         removed = 0
         contexts = SatelliteCache._contexts  # pylint: disable=protected-access
         for namespace, context in contexts(self.directory).items():
-            if not isinstance(context, (tuple, list)) or len(context) != 2:
+            if not isinstance(context, (tuple, list)) or len(context) not in (2, 3):
                 continue  # of other caches
-            seed, start = context
-            if not isinstance(start, datetime):
-                continue
-            if namespace != self._namespace(seed, start):
-                continue  # of other observations
+            if len(context) == 3 and context[0] == "contacts":
+                _, start, end = context
+                if not isinstance(start, datetime) or not isinstance(end, datetime):
+                    continue
+                if namespace != self._contacts_namespace(start, end):
+                    continue  # of other observations
+                cache = self._contacts(start, end)
+            else:
+                seed, start, *rest = context
+                end = rest[0] if rest else None
+                if not isinstance(start, datetime):
+                    continue
+                if namespace != self._namespace(seed, start, end):
+                    continue  # of other observations
+                cache = self._cache(seed, start, end)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                removed += self._cache(seed, start).prune()
+                removed += cache.prune()
         return removed
 
-    def __call__(
-        self, satellites: Sequence[Satellite], design: Design | None = None
-    ) -> pd.DataFrame:
+    def evaluate(
+        self,
+        architecture: Architecture | Sequence[Satellite],
+        design: Design | None = None,
+        metrics: Callable[[pd.DataFrame], Mapping[str, Any]] | None = None,
+    ) -> ArchitectureEvaluation:
         """
-        Gets the observations of the targets of a design by satellites.
+        Evaluates an architecture (or satellites) over the period of a design
+        (as `tatc.analysis.evaluate_architecture` does), from the cached
+        analyses of its members, such as to measure the value of each by
+        leaving it out (see `ArchitectureEvaluation.leave_one_out`).
 
         Args:
-            satellites (Sequence[Satellite]): The satellites.
+            architecture (Architecture | Sequence[Satellite]): The
+                architecture, or its satellites.
+            design (Design | None): The (realized) design.
+            metrics (Callable | None): A function of the observations that
+                gives their metrics, if any.
+
+        Returns:
+            ArchitectureEvaluation: the evaluation
+        """
+        start = self.start_of(design)
+        # pylint: disable-next=protected-access
+        analyses = _Cached(self, self.targets._seed_of(design))
+        return _evaluate(
+            _as_architecture(architecture),
+            _Parts(analyses, start, start + self.duration),
+            metrics,
+            self.during_contact,
+        )
+
+    def __call__(
+        self,
+        architecture: Architecture | Sequence[Satellite],
+        design: Design | None = None,
+    ) -> pd.DataFrame:
+        """
+        Gets the observations of the targets of a design by an architecture
+        (or satellites), with the downlink of each if it has ground stations
+        or relays (see `evaluate`).
+
+        Args:
+            architecture (Architecture | Sequence[Satellite]): The
+                architecture, or its satellites.
             design (Design | None): The (realized) design.
 
         Returns:
-            pandas.DataFrame: the observations (empty without satellites)
+            pandas.DataFrame: the observations
         """
-        return self._cache_of(design)(satellites)
+        return self.evaluate(architecture, design).observations
 
 
 def _hashable(value: Any) -> Any:
@@ -370,11 +583,12 @@ def _uncertain_values(design: Design) -> tuple:
 @dataclasses.dataclass(frozen=True, eq=False)
 class _Evaluation:
     """
-    The evaluation of the satellites of a design (see `ObservationStudy`):
-    the metrics of the observations of every satellite and, with a plan, of
-    the mission (see `Mission`): its deployment and costs, and the phases of
-    its deployment or the histories of its failures (with the requirements
-    on their phases).
+    The evaluation of the architecture of a design (see `ObservationStudy`),
+    with a baseline, if any: the metrics of the observations of every
+    platform and, with a plan, of the mission (see `Mission`) of the
+    design's satellites: its deployment and costs, and the phases of its
+    deployment or the histories of its failures (with the requirements on
+    their phases), in which the other platforms operate throughout.
     """
 
     observations: Observations
@@ -383,6 +597,7 @@ class _Evaluation:
     plan: MissionPlan | None = None
     failures: Failures | None = None
     phases: tuple[Requirement, ...] | None = None
+    baseline: Architecture | None = None
     _phase_cache: PhaseCache = dataclasses.field(
         init=False, repr=False, metadata={"fingerprint": False}
     )
@@ -390,8 +605,25 @@ class _Evaluation:
     def __post_init__(self):
         object.__setattr__(self, "_phase_cache", PhaseCache(self.metrics))
 
-    def __call__(self, satellites: Sequence[Satellite], design: Design) -> dict:
-        observations = self.observations(satellites, design)
+    def architecture_of(
+        self, built: Architecture | Sequence[Satellite]
+    ) -> Architecture:
+        """
+        Gets the architecture of what a design builds (an architecture, or
+        satellites), with the baseline, if any.
+        """
+        architecture = _as_architecture(built)
+        if self.baseline is not None:
+            architecture = architecture.merge(self.baseline)
+        return architecture
+
+    def __call__(
+        self, built: Architecture | Sequence[Satellite], design: Design
+    ) -> dict:
+        built = _as_architecture(built)
+        satellites = built.satellites
+        architecture = self.architecture_of(built)
+        observations = self.observations(architecture, design)
         record: dict[str, Any] = {"satellites": len(satellites)}
         layout = value_of(design, self.layout)
         if layout is not None:
@@ -399,7 +631,7 @@ class _Evaluation:
         if self.plan is None:
             record.update(_given_design(self.metrics, design)(observations))
             return record
-        mission = self.mission_from(satellites, observations, design)
+        mission = self.mission_from(satellites, observations, design, architecture)
         if "satellite" in observations.columns:
             # those of every satellite by the capability, whose cache the
             # phases of the mission (such as its last) share
@@ -411,17 +643,37 @@ class _Evaluation:
         record.update(mission._record())
         return record
 
-    def context_of(self, design: Design) -> tuple:
+    def context_of(
+        self,
+        design: Design,
+        architecture: Architecture | None = None,
+        satellites: Sequence[Satellite] = (),
+    ) -> tuple:
         """
         Gets the context of the metrics of the phases of a design in the
         cache (see `PhaseCache`): its observations (the seed of its targets
-        and its period) and, if the metrics are given the design,
-        its scenario and the values of its uncertain parameters, which such
-        metrics may read (designs of a replicate share them, with common
-        random numbers).
+        and its period), the members of its architecture other than the
+        planned `satellites` (which operate in every phase, such as a
+        baseline's) and the windows of the planned satellites, and, if the
+        metrics are given the design, its scenario and the values of its
+        uncertain parameters, which such metrics may read (designs of a
+        replicate share them, with common random numbers).
         """
         # pylint: disable-next=protected-access
         context = self.observations._context_of(design)
+        if architecture is not None:
+            names = {satellite.name for satellite in satellites}
+            others = architecture.without_members(names).model_dump_json(
+                exclude={"name"}
+            )
+            windows = sorted(
+                (name, window.model_dump_json())
+                for name, window in architecture.windows.items()
+                if name in names
+            )
+            fixed = digest(canonical({"others": others, "windows": windows}))
+            if fixed != _EMPTY:
+                context = (context, fixed)
         if _takes_design(self.metrics):
             context = (context, design.scenario, _uncertain_values(design))
         return context
@@ -431,17 +683,20 @@ class _Evaluation:
         satellites: Sequence[Satellite],
         observations: pd.DataFrame,
         design: Design,
+        architecture: Architecture | None = None,
     ) -> Mission:
         """
-        Plans the mission of a realized design from its satellites and their
-        observations (see `MissionPlan.plan_mission`), with the capability of
-        its satellites (and the cache of the metrics of their phases).
+        Plans the mission of a realized design from its satellites and the
+        observations of its architecture, if any (see
+        `MissionPlan.plan_mission`), with the capability of its satellites
+        (and the cache of the metrics of their phases), whose phases keep the
+        observations of the architecture's other platforms.
         """
         capability = Capability(
             satellites,
             observations,
             self._phase_cache,
-            context=self.context_of(design),
+            context=self.context_of(design, architecture, satellites),
             design=design,
         )
         return self.plan.plan_mission(
@@ -453,17 +708,60 @@ class _Evaluation:
         )
 
 
+def _phase_requirements(
+    phases: Sequence[Requirement] | bool | None,
+) -> tuple[Requirement, ...] | None:
+    """
+    Gets the requirements on the phases of a mission (see `ObservationStudy`)
+    if they are summarized (none, if `True`), or `None` if they are not.
+
+    Raises:
+        TypeError: if they are not Requirements.
+        ValueError: if they are on statistics (rather than metrics), or
+            several are on a metric.
+    """
+    if phases is None or phases is False:
+        return None
+    phases = () if phases is True else tuple(phases)
+    if not all(isinstance(requirement, Requirement) for requirement in phases):
+        raise TypeError("the requirements on phases are Requirements")
+    statistics = [
+        requirement.statistic
+        for requirement in phases
+        if requirement.statistic not in (None, Mean(requirement.name))
+    ]
+    if statistics:
+        raise ValueError(
+            "requirements on phases are on the metrics of the phases (by "
+            + f"name), not on statistics: {statistics}"
+        )
+    named = [requirement.name for requirement in phases]
+    repeated = sorted({name for name in named if named.count(name) > 1})
+    if repeated:
+        raise ValueError(
+            f"several requirements on the phases of metrics {repeated}: give "
+            + "one requirement per metric, whose time until the phases meet it "
+            + "is the column `<metric> time`"
+        )
+    return phases
+
+
 class ObservationStudy(Study):
     """
-    A trade study of the observations of constellations: each replicate of a
-    design builds its satellites, observes the targets of the replicate (see
-    `Observations`), and records the metrics of the observations and, with a
-    mission `plan`, of its mission (see `Mission`): its deployment and costs,
-    the `phases` of its deployment, and the histories of its `failures`::
+    A trade study of the observations of architectures: each replicate of a
+    design builds its architecture (see `tatc.schemas.Architecture`: its
+    satellites and other platforms, ground stations, relays, and their
+    windows; or only its satellites), with a `baseline` of other members, if
+    any (such as satellites, radar networks, and ground stations that every
+    design shares), observes the targets of the replicate (see
+    `Observations`), and records the metrics of the observations and, with
+    a mission `plan`, of the mission of its satellites (see `Mission`): its
+    deployment and costs, the `phases` of its deployment, and the histories
+    of its `failures`::
 
         study = ObservationStudy(
             space,
-            build,  # the satellites of a design
+            build,  # the architecture (or satellites) of a design
             Observations(Targets(generate_points_fibonacci_lattice, count=100, rotate=True, seed="seed"), START, DAY),
             sample,  # the metrics of observations
             plan=MissionPlan(SCHEDULE, COST_MODEL),
@@ -477,18 +775,27 @@ class ObservationStudy(Study):
     `summarize_phases`), and that of the histories of its failures (see
     `summarize_histories`), whose means replace the costs without failures.
 
-    The metrics are a function of the observations of any set of satellites
-    (which may be empty), evaluated for those of each phase over the one
-    window of the observations (see `evaluate_phases`). One that takes the
-    realized `design` must depend on it only through the scenario and the
-    uncertain values of the replicate, by which phases are cached. The parts
-    of an evaluation are also given apart (`satellites_of`, `targets_of`,
-    `observations_of`, and `mission_of`).
+    The metrics are a function of the observations of any set of platforms
+    (which may be empty), with the downlink of each if the architecture has
+    ground stations or relays (see `tatc.analysis.evaluate_architecture`),
+    evaluated for those of each phase over the one window of the
+    observations (see `evaluate_phases`): the satellites that the plan
+    deploys and operate in the phase, and every other platform (of the
+    design's architecture and the baseline), which operates in every phase
+    (within its window). One that takes the realized `design` must depend
+    on it only through the scenario and the uncertain values of the
+    replicate, by which phases are cached. The parts of an evaluation are
+    also given apart (`architecture_of`, `satellites_of`, `targets_of`,
+    `observations_of`, and `mission_of`), and the value of each member of a
+    design's architecture is measured by `evaluation_of` (see
+    `ArchitectureEvaluation.leave_one_out` and
+    `ArchitectureEvaluation.add_one`).
 
     Args:
         space (DesignSpace): The design space.
         build (Callable): A function of a realized design that builds its
-            satellites (such as with `build_constellation`).
+            architecture, or its satellites (such as with
+            `build_constellation`): those that a `plan` deploys.
         observations (Observations): The observations of the targets.
         metrics (Callable): A function of observations (and of the realized
             design, if it has a parameter named `design`) that gives their
@@ -496,13 +803,17 @@ class ObservationStudy(Study):
         layout (Reference | None): The value of the design that is its
             layout (see `layout_of`), which a `plan` requires, or `None` for
             the value `layout` of a design space that has one.
+        baseline (Architecture | None): The members that every design's
+            architecture shares, if any, which operate throughout its
+            mission (within their windows).
         plan (MissionPlan | None): The deployment, policy, and costs, if any.
         failures (Failures | None): The failures, if any, which require a
             plan.
         phases (Sequence[Requirement] | bool | None): `True` (or requirements
-            on the metrics, at most one of each) to summarize the phases of
-            the mission, which require a plan: of the deployment, or of each
-            history of the failures (whose phases are always summarized).
+            on the metrics, by name, at most one of each) to summarize the
+            phases of the mission, which require a plan: of the deployment,
+            or of each history of the failures (whose phases are always
+            summarized).
         **options (Any): The settings of the study (see `Study`), such as
             `replicates`, `seed`, `n_jobs`, and `store`.
 
@@ -510,35 +821,28 @@ class ObservationStudy(Study):
         TypeError: if the requirements on phases are not Requirements.
         ValueError: if failures or phases are given without a plan, a plan
             without a layout, several requirements on phases of a metric, or
-            statistics of failures of costs without a cost model.
+            requirements on phases of statistics (rather than metrics),
+            statistics of failures of costs without a cost model, or
+            references (of the observations, the plan, or the failures, or
+            the layout) that are names or paths of values the designs do not
+            have.
     """
 
     def __init__(
         self,
         space: DesignSpace,
-        build: Callable[[Design], Sequence[Satellite]],
+        build: Callable[[Design], Architecture | Sequence[Satellite]],
         observations: Observations,
         metrics: Callable[[pd.DataFrame], Mapping[str, Any]],
         *,
+        baseline: Architecture | None = None,
         layout: Reference | None = None,
         plan: MissionPlan | None = None,
         failures: Failures | None = None,
         phases: Sequence[Requirement] | bool | None = None,
         **options: Any,
     ):
-        # the requirements on the phases, if they are summarized
-        phases = None if phases is None or phases is False else phases
-        phases = () if phases is True else None if phases is None else tuple(phases)
-        if phases is not None and not all(isinstance(r, Requirement) for r in phases):
-            raise TypeError("the requirements on phases are Requirements")
-        named = [requirement.name for requirement in phases or ()]
-        repeated = sorted({name for name in named if named.count(name) > 1})
-        if repeated:
-            raise ValueError(
-                f"several requirements on the phases of metrics {repeated}: give "
-                + "one requirement per metric, whose time until the phases meet it "
-                + "is the column `<metric> time`"
-            )
+        phases = _phase_requirements(phases)
         if layout is None and "layout" in space.children:
             layout = "layout"
         if plan is None and (failures is not None or phases is not None):
@@ -554,9 +858,25 @@ class ObservationStudy(Study):
                 raise ValueError(
                     f"statistics of failures of costs without a cost model: {costs}"
                 )
+        _check_references(
+            space,
+            [
+                ("ObservationStudy layout", layout),
+                *getattr(observations, "_references", list)(),
+                *(() if plan is None else plan._references()),
+                *(() if failures is None else failures._references()),
+            ],
+        )
         self.observations, self.metrics, self.layout = observations, metrics, layout
+        if baseline is not None and not isinstance(baseline, Architecture):
+            raise TypeError(
+                f"the baseline is an Architecture, not a {type(baseline).__name__}"
+            )
         self.plan, self.failures, self.phases = plan, failures, phases
-        evaluation = _Evaluation(observations, metrics, layout, plan, failures, phases)
+        self.baseline = baseline
+        evaluation = _Evaluation(
+            observations, metrics, layout, plan, failures, phases, baseline
+        )
         super().__init__(space, build, evaluation, **options)
 
     def _arguments(self) -> dict[str, Any]:
@@ -565,6 +885,7 @@ class ObservationStudy(Study):
             "build": self.build,
             "observations": self.observations,
             "metrics": self.metrics,
+            "baseline": self.baseline,
             "layout": self.layout,
             "plan": self.plan,
             "failures": self.failures,
@@ -585,11 +906,30 @@ class ObservationStudy(Study):
         realized = self._realized(design, replicate, shift, case)
         self.observations._cache_of(realized)  # pylint: disable=protected-access
 
+    def architecture_of(
+        self, design: Design, replicate: int = 0, scenario: str | None = None
+    ) -> Architecture:
+        """
+        Gets the architecture of a replicate of a design (see
+        `Study.realize`): that it builds, with the baseline, if any.
+
+        Args:
+            design (Design): The design.
+            replicate (int): The replicate.
+            scenario (str | None): A scenario of the study (by name), if any.
+
+        Returns:
+            Architecture: the architecture
+        """
+        realized = self.realize(design, replicate, scenario)
+        return self.evaluate.architecture_of(self.build(realized))
+
     def satellites_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
     ) -> list[Satellite]:
         """
-        Gets the satellites of a replicate of a design (see `Study.realize`).
+        Gets the satellites that a replicate of a design builds (see
+        `Study.realize`), which a plan deploys (not those of the baseline).
 
         Args:
             design (Design): The design.
@@ -599,7 +939,8 @@ class ObservationStudy(Study):
         Returns:
             list[Satellite]: the satellites
         """
-        return list(self.build(self.realize(design, replicate, scenario)))
+        built = self.build(self.realize(design, replicate, scenario))
+        return list(_as_architecture(built).satellites)
 
     def targets_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
@@ -635,7 +976,34 @@ class ObservationStudy(Study):
             pandas.DataFrame: the observations
         """
         realized = self.realize(design, replicate, scenario)
-        return self.observations(self.build(realized), realized)
+        return self.observations(
+            self.evaluate.architecture_of(self.build(realized)), realized
+        )
+
+    def evaluation_of(
+        self, design: Design, replicate: int = 0, scenario: str | None = None
+    ) -> ArchitectureEvaluation:
+        """
+        Gets the evaluation of the architecture of a replicate of a design
+        (see `architecture_of` and `Observations.evaluate`), with the study's
+        metrics, from the cached analyses of its members, such as to measure
+        the value of each member by leaving it out
+        (`ArchitectureEvaluation.leave_one_out`) or of candidates by adding
+        each (`ArchitectureEvaluation.add_one`), over the study's period (as
+        without a plan).
+
+        Args:
+            design (Design): The design.
+            replicate (int): The replicate.
+            scenario (str | None): A scenario of the study (by name), if any.
+
+        Returns:
+            ArchitectureEvaluation: the evaluation
+        """
+        realized = self.realize(design, replicate, scenario)
+        architecture = self.evaluate.architecture_of(self.build(realized))
+        metrics = _given_design(self.metrics, realized)
+        return self.observations.evaluate(architecture, realized, metrics)
 
     def mission_of(
         self, design: Design, replicate: int = 0, scenario: str | None = None
@@ -669,9 +1037,12 @@ class ObservationStudy(Study):
         if self.plan is None:
             raise ValueError("the study has no mission plan")
         realized = self.realize(design, replicate, scenario)
-        satellites = list(self.build(realized))
-        observations = self.observations(satellites, realized)
-        return self.evaluate.mission_from(satellites, observations, realized)
+        built = self.build(realized)
+        architecture = self.evaluate.architecture_of(built)
+        observations = self.observations(architecture, realized)
+        return self.evaluate.mission_from(
+            _as_architecture(built).satellites, observations, realized, architecture
+        )
 
     def prune(self) -> int:
         """

@@ -16,8 +16,16 @@ Criteria, Statistics, and Requirements
 
 .. autoclass:: tatc.tradespace.Across
 
+.. autodata:: tatc.tradespace.criteria.Objectives
+
+.. autodata:: tatc.tradespace.criteria.Direction
+
+.. autodata:: tatc.tradespace.criteria.Rule
+
 .. automodule:: tatc.tradespace.statistics
    :no-members:
+
+.. autodata:: tatc.tradespace.statistics.Operator
 
 .. autoclass:: tatc.tradespace.Mean
 

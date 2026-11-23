@@ -21,24 +21,32 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-from tatc.analysis import collect_observations
+from tatc.analysis import collect_observations, evaluate_architecture
 from tatc.generation import generate_points_fibonacci_lattice
-from tatc.schemas import Instrument
+from tatc.schemas import (
+    ActiveWindow,
+    Architecture,
+    GroundStation,
+    Instrument,
+    Satellite,
+    SunSynchronousOrbit,
+)
 from tatc.tradespace import (
     Categorical,
     Component,
     CostModel,
     DeploymentSchedule,
     DesignSpace,
-    Exponential,
+    ExponentialLifetime,
     FailureModel,
     Failures,
     Fixed,
     Integer,
     LaunchCost,
+    Mean,
     MissionPlan,
-    ObservationStudy,
     Observations,
+    ObservationStudy,
     Probability,
     Quantile,
     Real,
@@ -53,6 +61,7 @@ from tatc.tradespace import (
     Triangular,
     Uncertain,
     build_constellation,
+    configure,
     count_planes,
     count_satellites,
     policy_space,
@@ -63,7 +72,6 @@ from tatc.tradespace.expectations import exact_expectations
 from tatc.tradespace.fingerprint import get_fingerprint
 from tatc.tradespace.histories import summarize_histories
 from tatc.tradespace.mission import summarize_phases
-from tatc.tradespace import configure
 
 HAS_JOBLIB = importlib.util.find_spec("joblib") is not None
 
@@ -83,7 +91,7 @@ TARGETS = Targets(
 SCHEDULE = DeploymentSchedule(years=3, production_rate=4, launch_interval=0.5)
 COSTS = CostModel(SatelliteCost(development=10, first_unit=2))
 PLAN = MissionPlan(SCHEDULE, COSTS, growth={"development": "growth"})
-FAILURES = FailureModel(life=Exponential(0.2))
+FAILURES = FailureModel(life=ExponentialLifetime(0.2))
 DEGRADE = dataclasses.replace(PLAN, policy=RestorationPolicy(restore=False))
 
 
@@ -875,6 +883,79 @@ class TestObservationStudy(unittest.TestCase):
                 failures=Failures(FAILURES, seed="failure_seed"),
             )
 
+    def test_misspelled_references(self):
+        """References of the parts of a study that name no value of the
+        designs (such as misspelled names) raise when the study is defined,
+        each with the names there are; functions are not checked."""
+        misspelled = Targets(
+            generate_points_fibonacci_lattice, count=N_POINTS, rotate=True, seed="seed"
+        )
+        cases = {
+            "Targets seed 'seed'": (Observations(misspelled, START, HOURS), {}),
+            "Observations start 'start'": (Observations(TARGETS, "start", HOURS), {}),
+            "MissionPlan kind 'kinds'": (
+                _observations(),
+                {"plan": dataclasses.replace(PLAN, kind="kinds")},
+            ),
+            r"MissionPlan growth\['development'\] 'grwth'.*did you mean 'growth'": (
+                _observations(),
+                {"plan": MissionPlan(SCHEDULE, COSTS, growth={"development": "grwth"})},
+            ),
+            r"MissionPlan masses\['imager'\] 'mass'": (
+                _observations(),
+                {"plan": dataclasses.replace(PLAN, masses={"imager": "mass"})},
+            ),
+            "Failures seed 'failures_seed'.*did you mean 'failure_seed'": (
+                _observations(),
+                {"plan": PLAN, "failures": Failures(FAILURES, seed="failures_seed")},
+            ),
+            "ObservationStudy layout 'layout.plane'": (
+                _observations(),
+                {"layout": "layout.plane"},
+            ),
+        }
+        for message, (observations, options) in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(ValueError, message):
+                ObservationStudy(SPACE, _build, observations, _metrics, **options)
+        # paths, numbers, and functions
+        ObservationStudy(
+            SPACE,
+            _build,
+            Observations(TARGETS, lambda d: START, HOURS),
+            _metrics,
+            plan=dataclasses.replace(
+                PLAN,
+                kind=lambda d: "imager",
+                growth={"development": "growth", "launch": 1.2},
+                masses={"imager": 100},
+            ),
+            layout="layout",
+        )
+        # of a design space that the study's is replaced by
+        study = ObservationStudy(SPACE, _build, _observations(), _metrics)
+        with self.assertRaisesRegex(ValueError, "Targets seed 'points_seed'"):
+            study.replace(space=DesignSpace(layout=SPACE.children["layout"]))
+
+    def test_requirements_on_phases_of_metrics(self):
+        """Requirements on phases are on metrics, not statistics."""
+        with self.assertRaisesRegex(ValueError, "not on statistics"):
+            ObservationStudy(
+                SPACE,
+                _build,
+                _observations(),
+                _metrics,
+                plan=PLAN,
+                phases=[Requirement(Quantile("observed", 0.1), ">=", 50)],
+            )
+        ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            plan=PLAN,
+            phases=[Requirement(Mean("observed"), ">=", 50)],
+        )
+
     @unittest.skipUnless(HAS_JOBLIB, "requires joblib")
     def test_parallel(self):
         """Studies of observations run in parallel, with a cache on disk."""
@@ -1082,3 +1163,147 @@ class TestFailureStudies(unittest.TestCase):
             fallback = study.run([design]).iloc[0]
         for column in ("observed mission", "availability"):
             self.assertAlmostEqual(fallback[column], sampled[column].mean())
+
+
+BASELINE = Architecture(
+    satellites=[
+        Satellite(
+            name="baseline",
+            orbit=SunSynchronousOrbit(altitude=700e3, equator_crossing_time="13:30"),
+            instruments=[Instrument(name="imager", field_of_regard=60)],
+        )
+    ],
+    ground_stations=[GroundStation(name="svalbard", latitude=78.2, longitude=15.4)],
+)
+
+
+def _latency_metrics(observations):
+    """The share of the points observed and the mean latency (minutes)."""
+    latency = observations["latency"].mean() if len(observations) > 0 else None
+    return {
+        **_metrics(observations),
+        "latency": None if pd.isna(latency) else latency / timedelta(minutes=1),
+    }
+
+
+class TestArchitectureStudy(unittest.TestCase):
+    """
+    Unit tests for studies of the observations of architectures.
+    """
+
+    def setUp(self):
+        self.designs = SPACE.enumerate()[:3]
+
+    def _expected(self, study, design, replicate=0):
+        realized = study.realize(design, replicate)
+        return evaluate_architecture(
+            study.architecture_of(design, replicate),
+            TARGETS._of(realized),
+            START,
+            START + HOURS,
+            _latency_metrics,
+        )
+
+    def test_baseline(self):
+        """A study evaluates the architecture of each design with the baseline."""
+        study = ObservationStudy(
+            SPACE, _build, _observations(), _latency_metrics, baseline=BASELINE
+        )
+        results = study.run(self.designs)
+        for (_, row), design in zip(results.iterrows(), self.designs):
+            architecture = study.architecture_of(design)
+            self.assertEqual(architecture.satellites[-1].name, "baseline")
+            self.assertEqual(architecture.ground_stations, BASELINE.ground_stations)
+            self.assertEqual(row["satellites"], count_satellites(design.layout))
+            self.assertEqual(len(study.satellites_of(design)), row["satellites"])
+            expected = self._expected(study, design).metrics
+            self.assertAlmostEqual(row["observed"], expected["observed"])
+            self.assertAlmostEqual(row["latency"], expected["latency"])
+        # the same as an architecture that each design builds
+        built = ObservationStudy(
+            SPACE,
+            lambda d: Architecture(satellites=_build(d)).merge(BASELINE),
+            _observations(),
+            _latency_metrics,
+        ).run(self.designs)
+        columns = ["observed", "latency"]
+        pd.testing.assert_frame_equal(results[columns], built[columns])
+        with self.assertRaises(TypeError):
+            ObservationStudy(SPACE, _build, _observations(), _metrics, baseline=[])
+
+    def test_phases_keep_baseline(self):
+        """The phases of a mission keep the observations of the baseline."""
+        study = ObservationStudy(
+            SPACE,
+            _build,
+            _observations(),
+            _metrics,
+            baseline=BASELINE,
+            layout="layout",
+            plan=PLAN,
+            phases=True,
+        )
+        design = self.designs[2]
+        capability = study.mission_of(design).capability
+        alone = evaluate_architecture(
+            BASELINE,
+            TARGETS._of(study.realize(design, 0)),
+            START,
+            START + HOURS,
+            _metrics,
+        )
+        self.assertGreater(capability([])["observed"], 0)
+        self.assertAlmostEqual(capability([])["observed"], alone.metrics["observed"])
+        # phases of other baselines are cached apart
+        plain = study.replace(baseline=None)
+        self.assertEqual(plain.mission_of(design).capability([])["observed"], 0.0)
+        with_baseline = study.run([design]).iloc[0]
+        without = plain.run([design]).iloc[0]
+        self.assertGreaterEqual(
+            with_baseline["observed mission"], without["observed mission"]
+        )
+
+    def test_evaluation_of(self):
+        """The value of each member of a design's architecture."""
+        study = ObservationStudy(
+            SPACE, _build, _observations(), _latency_metrics, baseline=BASELINE
+        )
+        design = self.designs[2]
+        evaluation = study.evaluation_of(design)
+        expected = self._expected(study, design)
+        self.assertEqual(evaluation.metrics, expected.metrics)
+        values = evaluation.leave_one_out()
+        pd.testing.assert_frame_equal(values, expected.leave_one_out())
+        self.assertIn("svalbard", values.index)
+
+    def test_windows_and_contacts_cached(self):
+        """Members are observed in their windows, and contacts are cached on
+        disk, and pruned."""
+        baseline = BASELINE.model_copy(
+            update={"windows": {"baseline": ActiveWindow(end=START + HOURS / 3)}}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            observations = Observations(TARGETS, START, HOURS, directory=directory)
+            study = ObservationStudy(
+                SPACE, _build, observations, _latency_metrics, baseline=baseline
+            )
+            design = self.designs[0]
+            result = study.run([design]).iloc[0]
+            self.assertAlmostEqual(
+                result["observed"], self._expected(study, design).metrics["observed"]
+            )
+            seed = study.realize(design, 0).points_seed
+            self.assertIn(
+                ("observations", seed, START, START + HOURS / 3), observations._caches
+            )
+            self.assertIn(("contacts", START, START + HOURS), observations._caches)
+            contexts = SatelliteCache._contexts(directory)
+            self.assertIn(("contacts", START, START + HOURS), contexts.values())
+            self.assertIn((seed, START, START + HOURS / 3), contexts.values())
+            folder = observations._contacts(START, START + HOURS).folder
+            self.assertGreater(len(list(folder.glob("*.pkl"))), 0)
+            # a fresh session reads them from disk
+            again = Observations(TARGETS, START, HOURS, directory=directory)
+            again.evaluate(study.architecture_of(design), study.realize(design, 0))
+            self.assertEqual(again._contacts(START, START + HOURS).misses, 0)
+            self.assertEqual(observations.prune(), 0)

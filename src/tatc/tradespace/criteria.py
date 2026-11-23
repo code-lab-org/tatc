@@ -16,22 +16,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, get_args
 
 import numpy as np
 
 from . import tables
-from .statistics import _OPERATORS, Mean, Statistic, _named_statistics
+from .statistics import _OPERATORS, Mean, Operator, Statistic, _named_statistics
+from .values import named
 
-_DIRECTIONS = ("min", "max")
+Direction = Literal["min", "max"]
+"""The direction of an objective: to minimize or to maximize it."""
+
+Rule = Literal["worst", "mean"]
+"""How statistics are combined across groups (see `Across`)."""
+
+_DIRECTIONS = get_args(Direction)
+
+Objectives = Mapping[str | Statistic, Direction]
+"""Objectives: statistics (or their names, or metrics, see `Criteria`) and
+their directions, which functions that judge designs take in place of
+`Criteria` of the means of metrics alone (or of the statistics given)."""
 
 
 @dataclass(frozen=True)
 class Requirement:
     """
-    A requirement on a statistic of a design (by its name in the statistics
-    of criteria, see `Criteria`, or a metric, whose mean it then is): for
-    example, `Requirement("sufficient p10", ">=", 80)`, or
+    A requirement on a statistic of a design: the statistic itself, or its
+    name in the statistics of criteria (see `Criteria`), or a metric, whose
+    mean it then is: for example, `Requirement(Quantile("sufficient", 0.1),
+    ">=", 80)` (named `sufficient p10`, see `Statistic.name`), or
     `Requirement("feasible", ">=", 1)`, which requires every replicate of a
     design to be feasible (`feasible` is the share of its replicates that
     are, see `summarize`).
@@ -46,20 +59,36 @@ class Requirement:
     keep each as a constraint of its own.
 
     Args:
-        name (str): The statistic (or metric).
+        name (str | Statistic): The statistic, or its name (or a metric).
         operator (str): The comparison: `">="`, `">"`, `"<="`, or `"<"`.
         value (float): The required value.
         scale (float | None): The scale of violations, in the units of the
             statistic, or `None` for the magnitude of the value (or 1 if it
             is 0).
+
+    Attributes:
+        name (str): The name of the statistic (see `Statistic.name`, of a
+            statistic given).
+        statistic (Statistic | None): The statistic, if it was given (rather
+            than its name).
     """
 
-    name: str
-    operator: str
+    name: str | Statistic
+    operator: Operator
     value: float
     scale: float | None = None
+    statistic: Statistic | None = field(
+        default=None, init=False, repr=False, metadata={"fingerprint": False}
+    )
 
     def __post_init__(self):
+        if isinstance(self.name, Statistic):
+            object.__setattr__(self, "statistic", self.name)
+            object.__setattr__(self, "name", self.name.name)
+        elif not isinstance(self.name, str):
+            raise TypeError(
+                f"a requirement is on a statistic (or its name), not {self.name!r}"
+            )
         if self.operator not in _OPERATORS:
             raise ValueError(f"operator must be one of {list(_OPERATORS)}")
         if self.scale is not None and not self.scale > 0:
@@ -106,7 +135,22 @@ class Requirement:
         return np.where(np.isnan(statistic), np.nan, violation)
 
 
-_RULES = ("worst", "mean")
+_RULES = get_args(Rule)
+
+
+def _name_of(key: Any, what: str) -> str:
+    """
+    Gets the name of a statistic that a key of criteria gives (such as an
+    objective): the statistic's name (see `Statistic.name`), or the name.
+
+    Raises:
+        TypeError: if the key is neither a statistic nor a name.
+    """
+    if isinstance(key, Statistic):
+        return key.name
+    if not isinstance(key, str):
+        raise TypeError(f"{what} names a statistic (or is one), not {key!r}")
+    return key
 
 
 @dataclass(frozen=True)
@@ -160,19 +204,19 @@ class Across:
             groups (by value of the column), or `None` for equal weights:
             normalized over the groups of the results, each of which must
             have one.
-        rules (Mapping[str, str]): The rules of some statistics (by name), in
-            place of `rule`.
+        rules (Mapping[str | Statistic, str]): The rules of some statistics
+            (by name, or the statistics), in place of `rule`.
     """
 
     column: str = "scenario"
-    rule: str = "worst"
+    rule: Rule = "worst"
     weights: Mapping[Any, float] | None = None
-    rules: Mapping[str, str] = field(default_factory=dict)
+    rules: Mapping[str | Statistic, Rule] = field(default_factory=dict)
 
     def __post_init__(self):
         if not isinstance(self.column, str) or not self.column:
             raise TypeError("the column must be a name (a non-empty string)")
-        rules = dict(self.rules)
+        rules = {_name_of(name, "a rule"): rule for name, rule in self.rules.items()}
         for rule in [self.rule, *rules.values()]:
             if rule not in _RULES:
                 raise ValueError(f"a rule must be one of {list(_RULES)}, not {rule!r}")
@@ -212,9 +256,12 @@ def _tolerance_array(
     values (first row) and their shares of the values of the objectives
     (second row), checking them.
     """
-    unknown = set(tolerances) - set(objectives)
+    unknown = [name for name in tolerances if name not in objectives]
     if unknown:
-        raise ValueError(f"tolerances of names that are not objectives: {unknown}")
+        raise ValueError(
+            "tolerances of names that are not objectives: "
+            + ", ".join(named(name, objectives) for name in unknown)
+        )
     values = np.zeros((2, len(objectives)))
     for i, name in enumerate(objectives):
         value = tolerances.get(name, 0.0)
@@ -242,17 +289,20 @@ class Criteria:
     (such as a sensor), in each group of which designs are judged
     separately::
 
+        COST = Quantile("cost", 0.7)  # named cost p70
         criteria = Criteria(
-            {"cost p70": "min", "coverage": "max"},
-            statistics=[Quantile("cost", 0.7)],  # named cost p70
-            requirements=[Requirement("cost p70", "<=", 150)],
+            {COST: "min", "coverage": "max"},
+            requirements=[Requirement(COST, "<=", 150)],
             tolerances={"coverage": 1.0},
         )
         summary = summarize(results, criteria)
         front = summary[summary.pareto]
 
-    Objectives and requirements name statistics: those of `statistics`, or
-    otherwise the means of the metrics of their names. A design is
+    Objectives, requirements, and tolerances are statistics, or name them:
+    those given (as objectives, in requirements, or in `statistics`), or
+    otherwise the means of the metrics of their names. A statistic given is
+    named by its conventional name (see `Statistic.name`, such as `cost
+    p70`), by which the columns of summaries name it. A design is
     efficient if it meets the requirements and no other design that meets
     them is as good in every objective and better in at least one, by more
     than the tolerances (see `pareto_front`).
@@ -276,8 +326,9 @@ class Criteria:
     means of metrics alone.
 
     Args:
-        objectives (Mapping[str, str]): The objectives: statistics (or
-            metrics) and their directions (`"min"` or `"max"`).
+        objectives (Mapping[str | Statistic, str]): The objectives:
+            statistics (or their names, or metrics) and their directions
+            (`"min"` or `"max"`).
         statistics (Mapping[str, Statistic | str] | Sequence): Statistics,
             by name, of objectives and requirements that are not means of
             the metrics of their names (a metric given as a string, or a
@@ -286,9 +337,10 @@ class Criteria:
             names (see `Statistic.name`, such as `cost p70` of
             `Quantile("cost", 0.7)`).
         requirements (Sequence[Requirement]): Requirements on statistics.
-        tolerances (Mapping[str, float | str]): The tolerances of objectives
-            (by name, zero if not given): values in their units, or
-            percentages of their values (such as `"5%"`).
+        tolerances (Mapping[str | Statistic, float | str]): The tolerances
+            of objectives (by name, or the statistics, zero if not given):
+            values in their units, or percentages of their values (such as
+            `"5%"`).
         by (Sequence[str] | str): The columns that group the records of an
             evaluation (such as a sensor), in each group of which designs are
             judged separately.
@@ -297,32 +349,32 @@ class Criteria:
             scenarios), if any.
     """
 
-    objectives: Mapping[str, str]
+    objectives: Objectives
     statistics: Mapping[str, Statistic | str] | Sequence[Statistic | str] = field(
         default_factory=dict
     )
     requirements: Sequence[Requirement] = ()
-    tolerances: Mapping[str, Tolerance] = field(default_factory=dict)
+    tolerances: Mapping[str | Statistic, Tolerance] = field(default_factory=dict)
     by: Sequence[str] | str = ()
     across: Across | None = None
 
     def __post_init__(self):
         if not isinstance(self.objectives, Mapping):
             raise TypeError("objectives must be a mapping of names to directions")
-        objectives = dict(self.objectives)
-        if len(objectives) == 0:
-            raise ValueError("at least one objective is required")
-        for name, direction in objectives.items():
-            if direction not in _DIRECTIONS:
-                raise ValueError(
-                    f"direction of {name!r} must be 'min' or 'max', not {direction!r}"
-                )
-        statistics = _named_statistics(self.statistics)
+        given: list[Statistic] = []  # the statistics given rather than named
+        objectives = _objectives_of(self.objectives, given)
         requirements = tuple(self.requirements)
         for requirement in requirements:
             if not isinstance(requirement, Requirement):
                 raise TypeError(f"{requirement!r} is not a Requirement")
-        tolerances = dict(self.tolerances)
+            if requirement.statistic is not None:
+                given.append(requirement.statistic)
+        tolerances = {}
+        for key, tolerance in self.tolerances.items():
+            tolerances[_name_of(key, "a tolerance")] = tolerance
+            if isinstance(key, Statistic):
+                given.append(key)
+        statistics = _with_given(_named_statistics(self.statistics), given)
         _tolerance_array(objectives, tolerances)  # checks them
         by = tuple(tables.names(self.by))
         object.__setattr__(self, "objectives", objectives)
@@ -365,7 +417,57 @@ class Criteria:
         )
 
 
-def _as_criteria(criteria: Criteria | Mapping[str, str]) -> Criteria:
+def _objectives_of(objectives: Objectives, given: list[Statistic]) -> dict[str, str]:
+    """
+    Gets the directions of objectives by the names of their statistics,
+    adding the statistics given (rather than named) to `given`.
+
+    Raises:
+        ValueError: if there are no objectives, several of a name, or a
+            direction is neither `"min"` nor `"max"`.
+    """
+    if len(objectives) == 0:
+        raise ValueError("at least one objective is required")
+    directions: dict[str, str] = {}
+    for key, direction in objectives.items():
+        name = _name_of(key, "an objective")
+        if name in directions:
+            raise ValueError(f"several objectives named {name!r}")
+        if direction not in _DIRECTIONS:
+            raise ValueError(
+                f"direction of {name!r} must be 'min' or 'max', not {direction!r}"
+            )
+        directions[name] = direction
+        if isinstance(key, Statistic):
+            given.append(key)
+    return directions
+
+
+def _with_given(
+    statistics: dict[str, Statistic], given: Sequence[Statistic]
+) -> dict[str, Statistic]:
+    """
+    Gets the statistics of criteria by name with those given as objectives,
+    in requirements, or with tolerances (rather than named), by their names
+    (see `Statistic.name`), but the means of metrics of their names, which
+    are the statistics of names that are not given.
+
+    Raises:
+        ValueError: if statistics of the same name differ.
+    """
+    for statistic in given:
+        name = statistic.name
+        known = statistics.get(name)
+        if known is not None and known != statistic:
+            raise ValueError(
+                f"statistics of the same name {name!r}: {known!r} and {statistic!r}"
+            )
+        if statistic != Mean(name):
+            statistics[name] = statistic
+    return statistics
+
+
+def _as_criteria(criteria: Criteria | Objectives) -> Criteria:
     """
     Gets criteria given as criteria, or as a mapping of objectives to their
     directions (the criteria of the means of the metrics of their names).

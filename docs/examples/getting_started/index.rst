@@ -20,6 +20,9 @@ in order:
 #. :doc:`ComputeCoverage`: compute the coverage of a region of interest.
 #. :doc:`ComputeLatency`: compute the latency of observations downlinked to
    ground stations.
+#. :doc:`EvaluateArchitecture`: evaluate an architecture of satellites, radars,
+   surface stations, and ground stations, and measure the value of each member
+   and of candidates, such as a data relay (TDRS) and a proposed satellite.
 
 .. toctree::
   :hidden:
@@ -30,3 +33,4 @@ in order:
   CollectOrbitGroundTrack.ipynb
   ComputeCoverage.ipynb
   ComputeLatency.ipynb
+  EvaluateArchitecture.ipynb

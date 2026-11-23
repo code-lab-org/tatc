@@ -3,7 +3,7 @@ Defines object schemas.
 """
 
 from .air import Aircraft, Trajectory
-from .architecture import Architecture
+from .architecture import ActiveWindow, Architecture, Relay
 from .attitude import (
     Attitude,
     AttitudeSchedule,
@@ -56,6 +56,7 @@ radar stations (see `tatc.analysis.collect_footprints`).
 """
 
 __all__ = [
+    "ActiveWindow",
     "Aircraft",
     "AllInstruments",
     "AllOrbits",
@@ -81,6 +82,7 @@ __all__ = [
     "PointedInstrument",
     "RadarBand",
     "RadarStation",
+    "Relay",
     "SOCConstellation",
     "Satellite",
     "SunSynchronousOrbit",

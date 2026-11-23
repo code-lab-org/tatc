@@ -15,6 +15,7 @@ import yaml
 from pydantic import ValidationError
 
 from tatc.catalog import (
+    GroundNetwork,
     RadarNetwork,
     SatelliteSystem,
     SurfaceNetwork,
@@ -46,11 +47,14 @@ from shapely.geometry import box
 
 from tatc.schemas import (
     CircularOrbit,
+    GroundStation,
     InSituInstrument,
     GeosynchronousOrbit,
+    Relay,
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
 )
+from tatc.analysis import collect_relay_contacts
 from tatc.constants import timescale
 from tatc.utils import compute_geoid_height
 
@@ -343,6 +347,21 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "nasa_space_network": (
+        "nominal",
+        {
+            "tdrs": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "nexrad": (
         "validated",
         {
@@ -356,6 +375,22 @@ EXPECTED_SYSTEM_STATUS = {
         {
             "plane": ("validated", 30, []),
             "ground_track": ("validated", 30, []),
+        },
+        [],
+    ),
+    "noaa_ground_stations": (
+        "nominal",
+        {
+            key: (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            )
+            for key in ("jpss", "poes", "goes")
         },
         [],
     ),
@@ -485,6 +520,23 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "tdrs": (
+        "nominal",
+        {
+            "slot": (
+                "nominal",
+                None,
+                [
+                    "slot_longitude_error_p95",
+                    "inclination_error_p95",
+                    "test_sets",
+                    "test_span_days",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "timed": (
         "validated",
         {
@@ -592,7 +644,7 @@ class TestLoading(unittest.TestCase):
         """
         self.assertEqual(
             [s.id for s in list_systems(system_class="geostationary")],
-            ["goes", "himawari", "intelsat_40e", "mtg"],
+            ["goes", "himawari", "intelsat_40e", "mtg", "tdrs"],
         )
         self.assertEqual(
             [s.id for s in list_systems(tier="validated")],
@@ -686,6 +738,7 @@ class TestLoading(unittest.TestCase):
         self.assertIsInstance(get_system("jpss"), SatelliteSystem)
         self.assertIsInstance(get_system("nexrad"), RadarNetwork)
         self.assertIsInstance(get_system("uscrn"), SurfaceNetwork)
+        self.assertIsInstance(get_system("noaa_ground_stations"), GroundNetwork)
         data = _system_data("nexrad")
         data["system_class"] = "surface_network"
         with self.assertRaises(ValidationError):
@@ -1032,6 +1085,38 @@ class TestBuild(unittest.TestCase):
         offsets = [abs((n - nodes[0] + 60) % 120 - 60) for n in nodes]
         self.assertLess(max(offsets), 10)
 
+    def test_relay_systems(self):
+        """
+        Test that data relay satellites are built without cataloged instruments,
+        that a relay is built of those neither retired nor in storage, and that
+        other systems build no relays.
+        """
+        tdrs = get_system("tdrs")
+        self.assertEqual(tdrs.role, "relaying")
+        statuses = {s.id: s.status for s in tdrs.spacecraft}
+        self.assertEqual(
+            tdrs.get_default_members(),
+            [k for k, v in statuses.items() if v not in ("retired", "storage")],
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            relay = tdrs.build_relay(min_grazing_altitude=100e3)
+        self.assertFalse([w for w in caught if "instrument" in str(w.message)])
+        self.assertIsInstance(relay, Relay)
+        self.assertEqual(relay.name, "tdrs")
+        self.assertEqual(relay.min_grazing_altitude, 100e3)
+        self.assertEqual(
+            [s.name for s in relay.satellites],
+            [tdrs.get_spacecraft(m).name for m in tdrs.get_default_members()],
+        )
+        self.assertEqual(relay.ground_stations, [])
+        spares = tdrs.build_relay(members=["tdrs-6", "tdrs-7"], name="spares")
+        self.assertEqual([s.name for s in spares.satellites], ["TDRS 6", "TDRS 7"])
+        with self.assertRaisesRegex(ValueError, "relays"):
+            tdrs.build(payload=True)
+        with self.assertRaisesRegex(ValueError, "not relays"):
+            get_system("goes").build_relay()
+
     def test_occultation_transmitters(self):
         """
         Test that the constellations of radio occultation entries are the
@@ -1203,6 +1288,56 @@ class TestBuild(unittest.TestCase):
             get_system("nexrad").build(
                 radius=1000
             )  # pylint: disable=unexpected-keyword-arg
+
+    def test_ground_stations(self):
+        """
+        Test that ground stations are built for a program (its stations, with
+        the configuration's minimum elevation angle, or one given), that a
+        configuration's stations are of the network, and that networks of
+        ground stations summarize their role as receiving.
+        """
+        network = get_system("noaa_ground_stations")
+        stations = network.build("jpss")
+        self.assertEqual(
+            [s.name for s in stations], ["FCDAS", "SvalSat", "McMurdo", "TrollSat"]
+        )
+        self.assertTrue(all(isinstance(s, GroundStation) for s in stations))
+        self.assertTrue(all(s.min_elevation_angle == 5 for s in stations))
+        # (ground elevations above the ellipsoid, with the geoid height)
+        fcdas = network.stations.load().set_index("id").loc["FCDAS"]
+        self.assertAlmostEqual(
+            stations[0].elevation,
+            fcdas.ground + float(compute_geoid_height(fcdas.longitude, fcdas.latitude)),
+        )
+        self.assertEqual([s.name for s in network.build("goes")], ["WCDAS", "FCDAS"])
+        (svalsat,) = network.build(members="SvalSat", min_elevation_angle=10)
+        self.assertEqual(svalsat.min_elevation_angle, 10)
+        self.assertEqual(network.summarize()["role"], "receiving")
+        data = _system_data("noaa_ground_stations")
+        data["configurations"]["jpss"]["members"] = ["FCDAS", "Kiruna"]
+        with self.assertRaisesRegex(ValidationError, "unknown stations"):
+            parse_system(data)
+
+    def test_relay_ground_terminals(self):
+        """
+        Test that the Space Network's terminals build ground stations for a
+        relay, through which it relays only from the relay satellites in view
+        of them.
+        """
+        terminals = get_system("nasa_space_network").build()
+        self.assertEqual([t.name for t in terminals], ["WSC"])
+        relay = get_system("tdrs").build_relay(ground_stations=terminals)
+        self.assertEqual(relay.ground_stations, terminals)
+        satellite = get_system("jpss").build(
+            members="noaa-21", epoch=EPOCH, payload=False
+        )
+        contacts = collect_relay_contacts(
+            relay, satellite, EPOCH, EPOCH + timedelta(hours=6)
+        )
+        self.assertGreater(len(contacts), 0)
+        self.assertEqual(set(contacts.ground_station), {"WSC"})
+        # (TDRS 13, near 11.5 deg W, is not in view of White Sands)
+        self.assertNotIn("TDRS 13", set(contacts.relay_satellite))
 
     def test_build_errors(self):
         """

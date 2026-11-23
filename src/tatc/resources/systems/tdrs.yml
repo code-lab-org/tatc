@@ -1,0 +1,125 @@
+id: tdrs
+name: Tracking and Data Relay Satellite System
+aliases: [TDRSS, TDRS, Space Network]
+system_class: geostationary
+role: relaying
+selection: NASA's geostationary data relay satellites, which relay the data of satellites in low Earth orbit (such as the ISS and Hubble) to ground terminals.
+operator: NASA
+spacecraft:
+  - id: tdrs-3
+    name: TDRS 3
+    norad_id: 19548
+    status: retired
+    as_of: 2026-05-22
+  - id: tdrs-5
+    name: TDRS 5
+    norad_id: 21639
+    status: retired
+    as_of: 2026-05-22
+  - id: tdrs-6
+    name: TDRS 6
+    norad_id: 22314
+    status: storage
+    as_of: 2026-05-22
+  - id: tdrs-7
+    name: TDRS 7
+    norad_id: 23613
+    status: storage
+    as_of: 2026-05-22
+  - id: tdrs-8
+    name: TDRS 8
+    norad_id: 26388
+    status: storage
+    as_of: 2026-05-22
+  - id: tdrs-11
+    name: TDRS 11
+    norad_id: 39070
+    status: operational
+    as_of: 2026-05-22
+  - id: tdrs-12
+    name: TDRS 12
+    norad_id: 39504
+    status: operational
+    as_of: 2026-05-22
+  - id: tdrs-13
+    name: TDRS 13
+    norad_id: 42915
+    status: operational
+    as_of: 2026-05-22
+default_configuration: slot
+configurations:
+  slot:
+    grade: ground_track
+    description: The longitude of each satellite's subpoint, maintained by station-keeping, from its element set.
+    orbits:
+      tdrs-3: {type: geosynchronous, longitude: -48.906, inclination: 12.48}
+      tdrs-5: {type: geosynchronous, longitude: -167.673, inclination: 14.05}
+      tdrs-6: {type: geosynchronous, longitude: -45.872, inclination: 14.19}
+      tdrs-7: {type: geosynchronous, longitude: 89.207, inclination: 13.27}
+      tdrs-8: {type: geosynchronous, longitude: 84.751, inclination: 12.93}
+      tdrs-11: {type: geosynchronous, longitude: -174.266, inclination: 3.77}
+      tdrs-12: {type: geosynchronous, longitude: -40.924, inclination: 4.15}
+      tdrs-13: {type: geosynchronous, longitude: -11.485, inclination: 3.52}
+    provenance:
+      tdrs-3:
+        longitude: &tdrs_3
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-3]
+          period: "2026-11-22"
+        inclination: *tdrs_3
+      tdrs-5:
+        longitude: &tdrs_5
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-5]
+          period: "2026-11-22"
+        inclination: *tdrs_5
+      tdrs-6:
+        longitude: &tdrs_6
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-6]
+          period: "2026-11-22"
+        inclination: *tdrs_6
+      tdrs-7:
+        longitude: &tdrs_7
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-7]
+          period: "2026-11-22"
+        inclination: *tdrs_7
+      tdrs-8:
+        longitude: &tdrs_8
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-8]
+          period: "2026-11-22"
+        inclination: *tdrs_8
+      tdrs-11:
+        longitude: &tdrs_11
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-11]
+          period: "2026-11-22"
+        inclination: *tdrs_11
+      tdrs-12:
+        longitude: &tdrs_12
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-12]
+          period: "2026-11-22"
+        inclination: *tdrs_12
+      tdrs-13:
+        longitude: &tdrs_13
+          kind: measured
+          source: validate_system_orbits.py --fit, the mean over the day after the element set nearest the middle of the day
+          platforms: [tdrs-13]
+          period: "2026-11-22"
+        inclination: *tdrs_13
+    limitations:
+      - The satellites are kept at their mean longitudes and inclinations, without the daily motion of the subpoint within the station-keeping box.
+      - The older satellites (TDRS 3 to 8) are inclined 12 to 14 degrees, so that their subpoints trace a figure eight of that latitude each day, whose phase (the node of the orbit) is not modeled.
+      - The retired satellites (TDRS 3 and 5) and those in storage (TDRS 6, 7, and 8) are kept at their longitudes of the day fitted, although they may drift or be moved.
+      - The statuses are those of eoPortal's table of the TDRS fleet (updated 2026-05-22), whose listed longitudes are older than the element sets.
+      - A relay built from the system is always in contact with the ground, unless it is given ground stations, such as the terminals at White Sands (see the system nasa_space_network, which does not include those at Guam and Blossom Point).

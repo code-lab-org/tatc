@@ -147,6 +147,12 @@ class TestStudy(unittest.TestCase):
         # functions without the parameter, or without signatures, are given the
         # built object only
         Study(self.space, build, lambda planes: {"score": planes}).run()
+        # a first parameter named design is given the built object (as here,
+        # where it is the design)
+        results = Study(
+            self.space, lambda d: d, lambda design: {"value": design.planes}
+        ).run()
+        self.assertTrue((results.value == results.planes).all())
         results = Study(self.space, lambda d: {"value": d.planes}, dict).run()
         self.assertEqual(list(results.value), list(results.planes))
 

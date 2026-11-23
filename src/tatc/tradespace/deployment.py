@@ -57,7 +57,7 @@ from .events import (
 )
 from .failures import FailureModel, RestorationPolicy
 from .mission import Capability, Decision, MissionHistory, Phase
-from .simulation import _check_sampling, _Sampler, _Simulation
+from .simulation import Sampling, _check_sampling, _Sampler, _Simulation
 from .values import Values
 
 
@@ -276,7 +276,7 @@ class Deployment:
         seed: int | None = None,
         *,
         histories: int = 1,
-        sampling: str = "stratified",
+        sampling: Sampling = "stratified",
         stress: float = 1.0,
         launch_stress: float | None = None,
     ) -> list[MissionHistory]:
@@ -342,12 +342,18 @@ class Deployment:
             return [self.simulate(model, None)]
         model = model or FailureModel()
         launch_stress = stress if launch_stress is None else launch_stress
+        # the permutations of the strata, shared by the histories of the replicate
+        orders: dict = {}
         return [
             _Simulation(
                 self,
                 model,
                 (seed, k),
-                _Sampler(seed, k, histories) if sampling == "stratified" else None,
+                (
+                    _Sampler(seed, k, histories, orders)
+                    if sampling == "stratified"
+                    else None
+                ),
                 stress,
                 launch_stress,
             ).run()
@@ -360,7 +366,7 @@ class Deployment:
         seed: int = 0,
         *,
         histories: int = 1000,
-        sampling: str = "stratified",
+        sampling: Sampling = "stratified",
     ) -> dict[str, float]:
         """
         Estimates the expected measures of the mission (see
