@@ -384,6 +384,56 @@ def compute_latencies(
     return obs
 
 
+def _find_endpoint_downlinks(
+    obs: pd.DataFrame,
+    contacts: pd.DataFrame,
+    named: list[str],
+    during_contact: Literal["next", "end", "immediate"],
+) -> pd.DataFrame:
+    """
+    Finds the downlink of each observation (sorted by end) through the
+    contacts of one endpoint (a ground station, or a relay satellite and its
+    ground station), which do not overlap each other: at the epoch of the
+    first contact that starts after the observation ends, or by a contact in
+    progress (see `compute_latencies`), if earlier.
+    """
+    # pair each observation with the first contact that starts after it ends
+    found = pd.merge_asof(
+        obs[["_satellite", "epoch", "end"]],
+        contacts.sort_values(by="downlink_start"),
+        by="_satellite",
+        left_on="end",
+        right_on="downlink_start",
+        direction="forward",
+    )
+    if during_contact != "next":
+        # the first contact that ends after the observation ends, which is in
+        # progress if it started before the observation ends (as the contacts
+        # of an endpoint do not overlap, no other one is)
+        current = pd.merge_asof(
+            obs[["_satellite", "end"]],
+            contacts.sort_values(by="downlink_end"),
+            by="_satellite",
+            left_on="end",
+            right_on="downlink_end",
+            direction="forward",
+        )
+        in_progress = current["downlink_start"] <= current["end"]
+        if during_contact == "end":
+            downlinked = current["downlink_end"]
+        else:
+            downlinked = current["downlink_start"].where(
+                current["downlink_start"] > found["epoch"], found["epoch"]
+            )
+        earlier = in_progress & (
+            found["downlinked"].isna() | (downlinked < found["downlinked"])
+        )
+        for column in named:
+            found.loc[earlier, column] = current.loc[earlier, column]
+        found.loc[earlier, "downlinked"] = downlinked[earlier]
+    return found[[*named, "downlinked"]]
+
+
 def _find_downlinks(
     observations: pd.DataFrame,
     downlinks: pd.DataFrame,
@@ -394,7 +444,9 @@ def _find_downlinks(
     `compute_latencies`): its `ground_station` (and `relay`, if the downlinks
     name relays, see `collect_relay_contacts`) and the time it is
     `downlinked` (missing without one, as for the observations of other
-    platforms).
+    platforms): the earliest through any endpoint (a ground station, or a
+    relay satellite and its ground station), whose contacts may overlap
+    those of others.
 
     Args:
         observations (pandas.DataFrame): The observations, each with its
@@ -408,10 +460,9 @@ def _find_downlinks(
             observations' index
     """
     named = ["ground_station"] + (["relay"] if "relay" in downlinks.columns else [])
-    if downlinks.empty:
-        downlinks = _get_empty_downlinks_frame().assign(
-            **{column: pd.Series([], dtype="str") for column in named}
-        )
+    endpoint = named + (
+        ["relay_satellite"] if "relay_satellite" in downlinks.columns else []
+    )
     obs = pd.DataFrame(
         {
             # the satellite of each observation (missing for other platforms),
@@ -434,7 +485,18 @@ def _find_downlinks(
         }
     )
     obs = obs.sort_values(by="end").reset_index(drop=True)
-    contacts = downlinks[["satellite", *named, "start", "epoch", "end"]].rename(
+    found = pd.DataFrame(
+        {
+            **{
+                column: pd.Series(None, index=obs.index, dtype=object)
+                for column in named
+            },
+            "downlinked": pd.Series(
+                pd.NaT, index=obs.index, dtype="datetime64[ns, UTC]"
+            ),
+        }
+    )
+    contacts = downlinks[["satellite", *endpoint, "start", "epoch", "end"]].rename(
         columns={
             "satellite": "_satellite",
             "start": "downlink_start",
@@ -442,46 +504,29 @@ def _find_downlinks(
             "end": "downlink_end",
         }
     )
-    for column in ["_satellite", *named]:
+    for column in ["_satellite", *endpoint]:
         contacts[column] = contacts[column].astype(object)
     for column in ["downlink_start", "downlinked", "downlink_end"]:
         contacts[column] = contacts[column].dt.as_unit("ns")
-    # pair each observation with the first downlink that starts after it ends
-    obs = pd.merge_asof(
-        obs,
-        contacts.sort_values(by="downlink_start"),
-        by="_satellite",
-        left_on="end",
-        right_on="downlink_start",
-        direction="forward",
+    # the contacts of each endpoint, which do not overlap each other
+    keys = np.array(
+        [
+            "\x00".join(map(str, row))
+            for row in contacts[endpoint].itertuples(index=False)
+        ],
+        dtype=object,
     )
-    if during_contact != "next":
-        # find the first downlink that ends after the observation ends, which
-        # is in progress if it started before the observation ends
-        current = pd.merge_asof(
-            obs[["_satellite", "end"]],
-            contacts.sort_values(by="downlink_end"),
-            by="_satellite",
-            left_on="end",
-            right_on="downlink_end",
-            direction="forward",
-        )
-        in_progress = current["downlink_start"] <= current["end"]
-        if during_contact == "end":
-            downlinked = current["downlink_end"]
-        else:
-            downlinked = current["downlink_start"].where(
-                current["downlink_start"] > obs["epoch"], obs["epoch"]
-            )
-        earlier = in_progress & (
-            obs["downlinked"].isna() | (downlinked < obs["downlinked"])
+    for _, group in contacts.groupby(keys, sort=False):
+        candidate = _find_endpoint_downlinks(obs, group, named, during_contact)
+        earlier = candidate["downlinked"].notna() & (
+            found["downlinked"].isna() | (candidate["downlinked"] < found["downlinked"])
         )
         for column in named:
-            obs.loc[earlier, column] = current.loc[earlier, column]
-        obs.loc[earlier, "downlinked"] = downlinked[earlier]
-    obs = obs.sort_values(by="_row")
+            found.loc[earlier, column] = candidate.loc[earlier, column]
+        found.loc[earlier, "downlinked"] = candidate.loc[earlier, "downlinked"]
+    found = found.iloc[np.argsort(obs["_row"].to_numpy(), kind="stable")]
     return pd.DataFrame(
-        {column: obs[column].array for column in [*named, "downlinked"]},
+        {column: found[column].array for column in [*named, "downlinked"]},
         index=observations.index,
     )
 

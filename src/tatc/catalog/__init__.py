@@ -1,8 +1,9 @@
 """
 Catalog of instruments of past and present missions, in configurations compared
 with their data products, and of systems (satellite programs, radar networks,
-and surface networks), in configurations compared with reference data such as
-element sets and station metadata, from which to build baseline systems.
+surface networks, and networks of ground stations), in configurations compared
+with reference data such as element sets and station metadata, from which to
+build baseline systems.
 
 An entry's `validation` states how far each configuration has been validated:
 not every entry is fully `validated`, and only `validated` configurations have
@@ -39,6 +40,7 @@ from .standard import (
     Tier,
 )
 from .system_schemas import (
+    GroundNetwork,
     RadarNetwork,
     SatelliteSystem,
     Spacecraft,
@@ -51,6 +53,7 @@ __all__ = [
     "ConfigurationValidation",
     "EntryValidation",
     "GateResult",
+    "GroundNetwork",
     "Grade",
     "InstrumentClass",
     "InstrumentEntry",

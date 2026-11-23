@@ -1,0 +1,6 @@
+id,name,latitude,longitude,ground
+FCDAS,Fairbanks Command and Data Acquisition Station,64.974,-147.50989,378.4
+WCDAS,Wallops Command and Data Acquisition Station,37.947234,-75.463906,18.0
+SvalSat,Svalbard Satellite Station,78.229722,15.408056,0.0
+McMurdo,McMurdo Ground Station,-77.839167,166.666944,0.0
+TrollSat,Troll Satellite Station,-72.002147,2.525012,1416.35

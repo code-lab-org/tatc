@@ -427,6 +427,48 @@ class SurfaceConfiguration(_SystemConfiguration):
         }
 
 
+class GroundConfiguration(_SystemConfiguration):
+    """
+    The ground stations of a network that receive the data of a program's
+    satellites, as validated for a use.
+    """
+
+    members: tuple[str, ...] = Field(
+        default=(),
+        description="The identifiers of the stations that serve the use (such "
+        + "as a program), in order, or none for every station.",
+    )
+    min_elevation_angle: float = Field(
+        ...,
+        ge=0,
+        le=90,
+        description="The minimum elevation angle (degrees) of a contact.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ...,
+        description="The origin of the members (`members`, if given) and the "
+        + "minimum elevation angle (`min_elevation_angle`).",
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> GroundConfiguration:
+        _check_provenance(
+            {"min_elevation_angle"} | ({"members"} if self.members else set()),
+            self.provenance,
+        )
+        return self
+
+    def get_fitted(self, platform: str | None = None) -> list[Provenance]:
+        del platform
+        return [p for p in self.provenance.values() if p.kind == "measured"]
+
+    def get_content(self) -> dict[str, Any]:
+        return {
+            "members": list(self.members),
+            "min_elevation_angle": self.min_elevation_angle,
+        }
+
+
 @functools.lru_cache(maxsize=None)
 def _read_table(file: str) -> tuple[pd.DataFrame, str]:
     """
@@ -495,8 +537,9 @@ class SystemEntry(_CatalogModel):
     """
     A system of a past or present program, in configurations validated against
     reference data, from which to build the platforms of baseline systems in
-    pre-phase A studies: a `SatelliteSystem`, a `RadarNetwork`, or a
-    `SurfaceNetwork`, parsed by its `system_class` with `parse_system`.
+    pre-phase A studies: a `SatelliteSystem`, a `RadarNetwork`, a
+    `SurfaceNetwork`, or a `GroundNetwork`, parsed by its `system_class` with
+    `parse_system`.
     """
 
     id: str = Field(..., description="Entry identifier.")
@@ -523,8 +566,8 @@ class SystemEntry(_CatalogModel):
     def _check_class(cls, data: Any) -> Any:
         if cls is SystemEntry:
             raise TypeError(
-                "a SystemEntry is a SatelliteSystem, RadarNetwork, or "
-                "SurfaceNetwork: parse one with parse_system"
+                "a SystemEntry is a SatelliteSystem, RadarNetwork, "
+                "SurfaceNetwork, or GroundNetwork: parse one with parse_system"
             )
         return data
 
@@ -730,7 +773,15 @@ class SystemEntry(_CatalogModel):
             "configurations": ", ".join(self.configurations),
             "members": len(self.get_members()),
             "active": len(self.get_default_members()),
-            "role": getattr(self, "role", "observing"),
+            "role": getattr(
+                self,
+                "role",
+                (
+                    "receiving"
+                    if self.system_class == SystemClass.GROUND_NETWORK
+                    else "observing"
+                ),
+            ),
         }
 
     def select_configuration(
@@ -1339,21 +1390,102 @@ class SurfaceNetwork(_NetworkSystem):
         ]
 
 
+class GroundNetwork(_NetworkSystem):
+    """
+    A network of ground stations that receive the data of satellites (see
+    `tatc.schemas.GroundStation` and `tatc.analysis.collect_downlinks`): its
+    stations, and those that serve each use (such as a program) in each
+    configuration.
+    """
+
+    system_class: Literal[SystemClass.GROUND_NETWORK] = Field(
+        ..., description="System class."
+    )
+    configurations: dict[str, GroundConfiguration] = Field(
+        ..., min_length=1, description="The ways of modeling it, by identifier."
+    )
+
+    @model_validator(mode="after")
+    def _check_members(self) -> GroundNetwork:
+        stations = set(self.get_member_names())
+        for key, configuration in self.configurations.items():
+            unknown = set(configuration.members) - stations
+            if unknown:
+                raise ValueError(f"{key}: unknown stations {sorted(unknown)}")
+        return self
+
+    def build(
+        self,
+        configuration: str | None = None,
+        *,
+        grade: SystemGrade | str | None = None,
+        members: str | Sequence[str] | None = None,
+        region: BaseGeometry | None = None,
+        min_elevation_angle: float | None = None,
+    ) -> list[GroundStation]:
+        """
+        Builds the ground stations of a configuration (see
+        `select_configuration`): those that serve its use (or `members`),
+        named by their identifiers (see `get_member_names`), at the elevations
+        of their ground above the WGS 84 ellipsoid (the table's height above
+        mean sea level plus the EGM2008 geoid height), with its minimum
+        elevation angle.
+
+        Args:
+            configuration (str | None): The configuration, if not selected by
+                grade.
+            grade (SystemGrade | str | None): The grade of the use, if any.
+            members (str | Sequence[str] | None): The identifiers (or names)
+                of the stations to build, in the order of the stations. By
+                default, those of the configuration (or every station, in the
+                order of the table).
+            region (shapely.geometry.base.BaseGeometry | None): A region
+                (longitude and latitude) within which to build stations.
+            min_elevation_angle (float | None): The minimum elevation angle
+                (degrees) of a contact, instead of the configuration's.
+
+        Returns:
+            list[GroundStation]: The stations.
+
+        Raises:
+            ValueError: If a member is unknown.
+        """
+        selected = self.configurations[self._select(configuration, grade)]
+        if members is None and selected.members:
+            members = list(selected.members)
+        table, ground = self._select_stations(members, region)
+        angle = (
+            selected.min_elevation_angle
+            if min_elevation_angle is None
+            else min_elevation_angle
+        )
+        return [
+            GroundStation(
+                name=row.id,
+                latitude=row.latitude,
+                longitude=row.longitude,
+                elevation=float(elevation),
+                min_elevation_angle=angle,
+            )
+            for row, elevation in zip(table.itertuples(), ground)
+        ]
+
+
 AnySystem = Annotated[
-    SatelliteSystem | RadarNetwork | SurfaceNetwork,
+    SatelliteSystem | RadarNetwork | SurfaceNetwork | GroundNetwork,
     Field(discriminator="system_class"),
 ]
 """A catalog system, by its `system_class`."""
 
-_SYSTEM_ADAPTER: TypeAdapter[SatelliteSystem | RadarNetwork | SurfaceNetwork] = (
-    TypeAdapter(AnySystem)
-)
+_SYSTEM_ADAPTER: TypeAdapter[
+    SatelliteSystem | RadarNetwork | SurfaceNetwork | GroundNetwork
+] = TypeAdapter(AnySystem)
 
 
 def parse_system(data: Mapping[str, Any]) -> SystemEntry:
     """
     Parses a system as the schema of its class: a `SatelliteSystem`, a
-    `RadarNetwork`, or a `SurfaceNetwork`.
+    `RadarNetwork`, a `SurfaceNetwork`, or a `GroundNetwork`.
 
     Args:
         data (Mapping[str, Any]): The system's fields.

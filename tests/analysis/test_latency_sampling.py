@@ -555,6 +555,27 @@ class TestLatencyAnalysis(IssConstellationTestCase):
         self.assertEqual(latency[2], 20 - 8)
         self.assertEqual(station[2], "S2")
 
+    def test_compute_latencies_overlapping_contacts(self):
+        """
+        Test that an observation that ends during a long contact (such as with
+        a relay) is downlinked by it when another contact that has not started
+        ends first, with the relay of the contact.
+        """
+        observations = gpd.GeoDataFrame(
+            [self._make_observation(1, 12, 12, 13)], crs="EPSG:4326"
+        )
+        relay = {**self._make_downlink(None, 10, 60), "relay": "R"}
+        station = {**self._make_downlink("S2", 15, 25), "relay": None}
+        downlinks = gpd.GeoDataFrame([relay, station], crs="EPSG:4326")
+        immediate = compute_latencies(observations, downlinks, "immediate")
+        self.assertEqual(immediate.latency.iloc[0], pd.Timedelta(0))
+        self.assertEqual(immediate.relay.iloc[0], "R")
+        # at the end of the contact, the station's midpoint is earlier
+        end = compute_latencies(observations, downlinks, "end")
+        self.assertEqual(end.latency.iloc[0], pd.Timedelta(minutes=20 - 12))
+        self.assertEqual(end.ground_station.iloc[0], "S2")
+        self.assertTrue(pd.isna(end.relay.iloc[0]))
+
     def test_compute_latencies_during_contact_invalid(self):
         """
         Test that an unknown during_contact option raises a ValueError.

@@ -18,7 +18,11 @@ from tatc.catalog import (
 )
 from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
 from tatc.catalog.system_orbits import describe_orbit
-from tatc.catalog.system_schemas import OrbitConfiguration, RadarConfiguration
+from tatc.catalog.system_schemas import (
+    GroundConfiguration,
+    OrbitConfiguration,
+    RadarConfiguration,
+)
 
 
 def render_configuration(entry, key: str) -> str:
@@ -60,6 +64,12 @@ def render_configuration(entry, key: str) -> str:
             f"{configuration.min_elevation_angle:g} to "
             f"{configuration.max_elevation_angle:g} deg, beam width "
             f"{configuration.beam_width:g} deg.\n"
+        )
+    elif isinstance(configuration, GroundConfiguration):
+        members = ", ".join(configuration.members) or "every station"
+        parts.append(
+            f"Stations: {escape(members)}; minimum elevation angle "
+            f"{configuration.min_elevation_angle:g} deg.\n"
         )
     else:
         parts.append(

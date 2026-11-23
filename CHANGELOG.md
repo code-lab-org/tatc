@@ -8,6 +8,7 @@ Added:
  - Function `analysis.evaluate_architecture` (and `Architecture.evaluate`): the observations of targets by each platform within its window, the contacts of satellites with ground stations and relays while both are active, the downlink and latency of each observation, and metrics. Its `ArchitectureEvaluation` measures the value of each member, or of groups of members, by leaving it out (`leave_one_out`) and of candidates by adding each (`add_one`), without analyzing the other members again.
  - Function `analysis.collect_platform_observations`: the observations of points and regions by one platform of any kind (orbit analyses for satellites, footprints for others).
  - Catalog system `tdrs`: NASA's Tracking and Data Relay Satellites at their geostationary longitudes, with the new role `relaying` of satellite systems and `SatelliteSystem.build_relay`, which builds a `Relay` of the satellites in service. Spacecraft have a new status, `storage` (spares in orbit), which, as `retired`, is not built by default.
+ - Catalog system `noaa_ground_stations` of the new class `ground_network` (`catalog.GroundNetwork`): the ground stations that receive the data of NOAA's satellites (its Command and Data Acquisition Stations at Fairbanks and Wallops, and SvalSat, McMurdo, and TrollSat), at published antenna positions, with configurations of the stations of JPSS, POES, and GOES; `build` gives `GroundStation`s, with an optional `min_elevation_angle`.
  - Example notebook `EvaluateArchitecture`: a baseline of satellites, radars, surface stations, and ground stations from the catalog, the value of each member, and of a relay (TDRS) and a proposed satellite as candidates.
  - `tradespace.ObservationStudy` builds architectures (or satellites, as before), with an optional `baseline` architecture that every design shares; a mission plan deploys the design's satellites, and the other platforms operate in every phase within their windows. Methods `architecture_of` and `evaluation_of` (the value of each member of a design's architecture from the cached analyses). `Observations` caches the observations of platforms of any kind, the observations of members within windows, and the contacts of each satellite with each ground station and relay, and gives evaluations (`evaluate`); its argument `during_contact` sets the downlink of observations that end during a contact.
 
@@ -19,6 +20,7 @@ Changed:
 
 Fixed:
  - `analysis.collect_footprint_observations` failed for the footprints of radar stations with pandas 3.
+ - `analysis.compute_latencies` missed a contact in progress when another contact (with another ground station or a relay) that had not started ended first, downlinking the observation later.
 
 ## 3.7.0
 

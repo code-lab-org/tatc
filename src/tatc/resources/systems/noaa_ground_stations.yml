@@ -1,0 +1,53 @@
+id: noaa_ground_stations
+name: NOAA Satellite Ground Stations
+aliases: [NESDIS ground stations, CDAS, Command and Data Acquisition Stations]
+system_class: ground_network
+selection: The ground stations that receive the data of NOAA's satellites (JPSS, POES, and GOES) for NESDIS, its own Command and Data Acquisition Stations at Fairbanks and Wallops and the polar stations of the JPSS ground segment, for the latency of baseline systems.
+operator: NOAA NESDIS Office of Satellite and Product Operations, with Kongsberg Satellite Services (KSAT) and NSF (McMurdo)
+stations:
+  file: noaa_ground_stations.csv
+  as_of: 2026-11-22
+  provenance:
+    kind: nominal
+    source: "The positions of an antenna of each station as published: FCDAS's 13 m antenna A and WCDAS's 13 m antenna A from NESDIS's pages of the stations (latitude, longitude, and elevation), and SvalSat (antenna SG3), McMurdo (MG1), and TrollSat (TR3, with its height) from NASA's Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019)"
+default_configuration: jpss
+configurations:
+  jpss:
+    grade: siting
+    description: The stations of the JPSS ground segment that receive the stored mission data of Suomi NPP, NOAA-20, and NOAA-21.
+    members: [FCDAS, SvalSat, McMurdo, TrollSat]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: The stations of the JPSS ground segment (H. Kilcoyne, Joint Polar Satellite System Program Ground Segment Overview, NASA NTRS 20190030867, 2019)
+      min_elevation_angle: &min_elevation
+        kind: placeholder
+        source: An assumption of the elevation above which a station contacts a satellite, not a published mask of the station; give the angle of a study when building stations (build(min_elevation_angle=...))
+    limitations:
+      - TrollSat backs up McMurdo for the southern downlinks (as during McMurdo's maintenance), so building every station counts both, as when both are scheduled.
+  poes:
+    grade: siting
+    description: The Command and Data Acquisition Stations that receive the data of NOAA's Polar Operational Environmental Satellites (NOAA-15, NOAA-18, and NOAA-19).
+    members: [FCDAS, WCDAS]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: NESDIS's pages of FCDAS (its primary ground station for polar-orbiting satellites) and WCDAS (which also operates NOAA's Polar Orbiting Environmental Satellites)
+      min_elevation_angle: *min_elevation
+  goes:
+    grade: siting
+    description: The Command and Data Acquisition Stations that receive the data of the GOES-R series, WCDAS (its primary station) and FCDAS (the backup for GOES-West).
+    members: [WCDAS, FCDAS]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: NESDIS's pages of the GOES-R ground system (WCDAS is the primary site for space-to-ground communications) and of FCDAS (backup support for GOES-West)
+      min_elevation_angle: *min_elevation
+limitations:
+  - Each station is at the position of one of its antennas (published positions, not compared with an independent source); the antennas of a station are within about a kilometer of each other.
+  - The ground elevations of SvalSat and McMurdo are not published with their positions and are taken as sea level (their antennas are higher, which changes the time in view of a satellite negligibly); those of FCDAS and WCDAS are the elevations of their antennas, and TrollSat's the height of its antenna.
+  - The minimum elevation angle is an assumption, not a station's horizon mask (such as the terrain about FCDAS or SvalSat).
+  - Only stations that receive NOAA's satellites for NESDIS are included, not the facilities of NOAA's ground system without receiving antennas of record (the NOAA Satellite Operations Facility in Suitland and the Consolidated Backup facility in Fairmont), the direct broadcast sites of field terminals, or EUMETSAT's stations for Metop.
