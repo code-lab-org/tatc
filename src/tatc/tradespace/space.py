@@ -26,7 +26,7 @@ import numbers
 import zlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -40,7 +40,7 @@ from .nodes import (
     Uncertain,
     _as_node,
 )
-from .values import Scope, Values, generic_path
+from .values import Scope, Values, generic_path, missing_value
 from .walks import (
     _ABSENT,
     _Context,
@@ -157,6 +157,12 @@ class Design:
         return sorted({*object.__dir__(self), *self._values})
 
     def __getitem__(self, name: str) -> Any:
+        if (
+            isinstance(name, str)
+            and name not in self._values
+            and not ("." in name or "[" in name)
+        ):
+            raise KeyError(f"the design has {missing_value(name, self._values)}")
         return self.values[name]
 
     def __contains__(self, name: object) -> bool:
@@ -670,7 +676,7 @@ class DesignSpace(Group):
         self,
         n: int,
         *,
-        method: str = "lhs",
+        method: Literal["lhs", "random"] = "lhs",
         seed: int = 0,
         max_tries: int = 1000,
     ) -> list[Design]:

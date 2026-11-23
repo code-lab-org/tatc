@@ -77,13 +77,13 @@ Failures
 .. autoclass:: tatc.tradespace.failures.Lifetime
    :members: survival, hazard, cumulative_hazard, sample, from_uniform, dimensions, stressed
 
-.. autoclass:: tatc.tradespace.Exponential
+.. autoclass:: tatc.tradespace.ExponentialLifetime
 
-.. autoclass:: tatc.tradespace.Weibull
+.. autoclass:: tatc.tradespace.WeibullLifetime
 
-.. autoclass:: tatc.tradespace.Bathtub
+.. autoclass:: tatc.tradespace.BathtubLifetime
 
-.. autoclass:: tatc.tradespace.Piecewise
+.. autoclass:: tatc.tradespace.PiecewiseLifetime
 
 .. autoclass:: tatc.tradespace.RestorationPolicy
    :members: orbit_spares_of, ground_spares_of

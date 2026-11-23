@@ -26,6 +26,7 @@ import pandas as pd
 
 from .criteria import (
     Criteria,
+    Objectives,
     _as_criteria,
     _costs,
     _signs,
@@ -64,9 +65,7 @@ def _get_violation(frame: pd.DataFrame, criteria: Criteria) -> np.ndarray:
     return np.where(np.isnan(violation), np.inf, violation)
 
 
-def pareto_front(
-    summary: pd.DataFrame, criteria: Criteria | Mapping[str, str]
-) -> pd.Series:
+def pareto_front(summary: pd.DataFrame, criteria: Criteria | Objectives) -> pd.Series:
     """
     Finds the Pareto-efficient (non-dominated) rows of a summary of designs
     (a row per design, such as of `summarize`, not the results of a study,
@@ -90,7 +89,7 @@ def pareto_front(
 
     Args:
         summary (pandas.DataFrame): The rows (such as designs).
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
 
     Returns:
@@ -112,9 +111,7 @@ def pareto_front(
     return pd.Series(front, index=summary.index, name="pareto")
 
 
-def pareto_ranks(
-    summary: pd.DataFrame, criteria: Criteria | Mapping[str, str]
-) -> pd.Series:
+def pareto_ranks(summary: pd.DataFrame, criteria: Criteria | Objectives) -> pd.Series:
     """
     Ranks the rows of a summary of designs (a row per design, see
     `pareto_front`) by non-dominated sorting, in each group
@@ -127,7 +124,7 @@ def pareto_ranks(
 
     Args:
         summary (pandas.DataFrame): The rows (such as designs).
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
 
     Returns:
@@ -193,7 +190,7 @@ def _hypervolume(points: np.ndarray, reference: np.ndarray) -> float:
 
 def hypervolume(
     summary: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     reference: Mapping[str, float] | Sequence[float],
 ) -> float:
     """
@@ -213,7 +210,7 @@ def hypervolume(
     Args:
         summary (pandas.DataFrame): The rows (such as designs), of one group
             (criteria with `by` are not accepted).
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
         reference (Mapping[str, float] | Sequence[float]): The reference
             point: the value of each objective (by column, or in order).
@@ -248,7 +245,7 @@ def hypervolume(
 
 def hypervolume_progress(
     results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     reference: Mapping[str, float] | Sequence[float],
     *,
     step: int = 10,
@@ -263,7 +260,7 @@ def hypervolume_progress(
     Args:
         results (pandas.DataFrame): The results of the search (see
             `Study.run`).
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (columns) and their directions (`"min"` or `"max"`).
         reference (Mapping[str, float] | Sequence[float]): The reference
             point (see `hypervolume`).

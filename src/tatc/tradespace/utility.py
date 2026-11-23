@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, get_args
 
 import numpy as np
 import pandas as pd
@@ -120,7 +120,10 @@ class PiecewiseUtility:
         return np.where(np.isnan(array), np.nan, result)
 
 
-_FORMS = ("additive", "multiplicative")
+Form = Literal["additive", "multiplicative"]
+"""The form of a multi-attribute utility (see `Utility`)."""
+
+_FORMS = get_args(Form)
 
 
 def _scaling_constant(weights: Sequence[float]) -> float:
@@ -189,7 +192,7 @@ class Utility:
 
     attributes: Mapping[str, Callable[[Any], Any]]
     weights: Mapping[str, float]
-    form: str = "additive"
+    form: Form = "additive"
 
     def __post_init__(self):
         attributes, weights = dict(self.attributes), dict(self.weights)

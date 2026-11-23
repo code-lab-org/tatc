@@ -7,14 +7,14 @@ efficiency their replicates do not settle, within a budget of evaluations.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 from .alerts import _warn
-from .criteria import Criteria, _as_criteria, _tolerances
+from .criteria import Criteria, Objectives, _as_criteria, _tolerances
 from .space import Design, _designs
 from .study import Study
 from .summary import pareto_probability
@@ -114,7 +114,7 @@ def _precise(
 
 def refine(
     study: Study,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     results: pd.DataFrame,
     designs: Sequence[Design | str] | pd.DataFrame | None = None,
     *,
@@ -184,7 +184,7 @@ def refine(
 
     Args:
         study (Study): The study that evaluates designs.
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (metrics whose means they are) and their directions
             (`"min"` or `"max"`). A design is uncertain if it is in any
             group of the criteria's `by`.

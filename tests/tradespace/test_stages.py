@@ -14,7 +14,7 @@ from tatc.tradespace import (
     CostModel,
     DeploymentSchedule,
     DesignSpace,
-    Exponential,
+    ExponentialLifetime,
     FailureModel,
     RestorationPolicy,
     SatelliteCost,
@@ -170,7 +170,7 @@ class TestStages(unittest.TestCase):
 
     def test_contingency(self):
         """A rule on failures deploys a stage in the histories that need it."""
-        failures = FailureModel(life=Exponential(0.1))
+        failures = FailureModel(life=ExponentialLifetime(0.1))
         policy = RestorationPolicy(restore=False)
         stage = Stage(2, [0.5, 1.0, 1.5, 2.0], lambda d: d.satellites_operating < 4)
         deployment = SCHEDULE.plan(_layout(), policy=policy, stages=[stage])
@@ -226,7 +226,7 @@ class TestStages(unittest.TestCase):
 
     def test_capability_of_failures(self):
         """The capability at a decision follows failures, as rules on them do."""
-        failures = FailureModel(life=Exponential(0.1))
+        failures = FailureModel(life=ExponentialLifetime(0.1))
         policy = RestorationPolicy(restore=False)
         by_count = SCHEDULE.plan(
             _layout(),
@@ -325,7 +325,7 @@ class TestStages(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "staged"):
             exact_expectations(
                 deployment,
-                FailureModel(life=Exponential(0.2)),
+                FailureModel(life=ExponentialLifetime(0.2)),
                 Capability([], None, len),
             )
 

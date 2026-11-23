@@ -216,6 +216,46 @@ class TestSummary(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize(_results(), missing)
 
+    def test_misspelled_names(self):
+        """Names that are neither statistics nor metrics, and statistics of
+        metrics that the results do not have, are told apart, with the names
+        they may be misspellings of."""
+        with self.assertRaisesRegex(
+            ValueError,
+            "neither statistics nor columns of the results: 'cots' "
+            + r"\(did you mean 'cost'\?\)",
+        ):
+            summarize(_results(), {"cots": "min"})
+        with self.assertRaisesRegex(
+            ValueError, "'value p75' .did you mean 'value p70'"
+        ):
+            summarize(
+                _results(), {"value p75": "max"}, statistics=[Quantile("value", 0.7)]
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"Quantile\('valu', 0.7\) \(named 'valu p70'\) needs 'valu' "
+            + r"\(did you mean 'value'\?\)",
+        ):
+            summarize(_results(), {Quantile("valu", 0.7): "max"})
+        with self.assertRaisesRegex(ValueError, "did you mean 'cost'"):
+            pareto_probability(_results(), {"cots": "min"})
+
+    def test_statistics_given(self):
+        """Criteria of statistics given summarize as those of their names."""
+        given = Criteria(
+            {Quantile("value", 0.7): "max"},
+            requirements=[Requirement(Probability("cost", "<=", 1), ">=", 0.5)],
+        )
+        named = Criteria(
+            {"value p70": "max"},
+            statistics=[Quantile("value", 0.7), Probability("cost", "<=", 1)],
+            requirements=[Requirement("P(cost <= 1)", ">=", 0.5)],
+        )
+        pd.testing.assert_frame_equal(
+            summarize(_results(), given), summarize(_results(), named)
+        )
+
     def test_statistics_of_names(self):
         """Statistics given by names are the means of the metrics, and other
         statistics are named by convention."""

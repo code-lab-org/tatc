@@ -127,7 +127,9 @@ arguments (`Study.replace`)::
 The parts of an `ObservationStudy` (such as its targets and mission plan)
 refer to values of designs by a `Reference` (see
 :py:data:`tatc.tradespace.references.Reference`): a name or path of a
-value, or a function of the realized design.
+value, or a function of the realized design. A study checks that its names
+and paths name values of its designs when it is defined, suggesting the name
+meant by a misspelled one.
 
 Stores of Results
 =================

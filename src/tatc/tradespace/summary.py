@@ -25,6 +25,7 @@ import pandas as pd
 from .criteria import (
     Across,
     Criteria,
+    Objectives,
     _as_criteria,
     _combiners,
     _costs,
@@ -53,6 +54,7 @@ from .tables import (
     value_columns,
     with_values,
 )
+from .values import named
 
 _NEGLIGIBLE = 1e-12
 """The share of the sum of the magnitudes of its terms below which a variance
@@ -413,7 +415,7 @@ def _summary_groups(
 
 
 def _criteria_of(
-    criteria: Criteria | Mapping[str, str] | None,
+    criteria: Criteria | Objectives | None,
     statistics: Mapping[str, Statistic | str] | Sequence | None,
     by: Sequence[str] | str,
 ) -> tuple[Criteria | None, dict[str, Statistic], tuple[str, ...]]:
@@ -506,6 +508,47 @@ def _with_spreads(
         for column, value in ((f"{name} std", deviation), (f"{name} se", error)):
             if column in columns:
                 values[column] = value
+
+
+def _check_metrics(statistics: Mapping[str, Statistic], results: pd.DataFrame) -> None:
+    """
+    Checks that the results have the metrics of the statistics, if any of
+    their records is feasible (results without one have no statistics),
+    telling names that are neither statistics nor columns of the results
+    (the means of metrics of their names) from statistics of metrics that
+    are not, with the names that they may be misspellings of.
+
+    Raises:
+        ValueError: if the results lack a metric of a statistic.
+    """
+    if FEASIBLE in results.columns and not results[FEASIBLE].astype(bool).any():
+        return
+    columns = [str(column) for column in results.columns]
+    known = {*columns, FEASIBLE}
+    unknown, lacking = [], []
+    for name, statistic in statistics.items():
+        missing = [column for column in statistic.columns if column not in known]
+        if not missing:
+            continue
+        if statistic == Mean(name):
+            others = [*columns, *(other for other in statistics if other != name)]
+            unknown.append(named(name, others))
+        else:
+            needs = ", ".join(named(metric, columns) for metric in missing)
+            lacking.append(f"{statistic!r} (named {name!r}) needs {needs}")
+    problems = []
+    if unknown:
+        problems.append(
+            "names that are neither statistics nor columns of the results: "
+            + ", ".join(unknown)
+        )
+    if lacking:
+        problems.append(
+            "statistics of metrics that are not columns of the results: "
+            + "; ".join(lacking)
+        )
+    if problems:
+        raise ValueError("; ".join(problems))
 
 
 def _check_names(
@@ -632,7 +675,7 @@ def _without_constant(summary: pd.DataFrame, columns: Sequence[str]) -> pd.DataF
 
 def _summarize(
     results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str] | None = None,
+    criteria: Criteria | Objectives | None = None,
     *,
     statistics: Mapping[str, Statistic | str] | Sequence | None = None,
     by: Sequence[str] | str = (),
@@ -650,6 +693,7 @@ def _summarize(
     statistics = _with_feasibility(resolved)
     spreads = _spreads(statistics) if spread else {}
     added = [column for columns in spreads.values() for column in columns]
+    _check_metrics(statistics, results)
     _check_names(statistics, results, added)
     order = _ordered(statistics, spreads)
     frames = []
@@ -666,7 +710,7 @@ def _summarize(
 
 def summarize(
     results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str] | None = None,
+    criteria: Criteria | Objectives | None = None,
     *,
     statistics: Mapping[str, Statistic | str] | Sequence | None = None,
     by: Sequence[str] | str = (),
@@ -745,7 +789,7 @@ def summarize(
 
     Args:
         results (pandas.DataFrame): The results.
-        criteria (Criteria | Mapping[str, str] | None): The criteria, or the
+        criteria (Criteria | Objectives | None): The criteria, or the
             objectives (metrics whose means they are) and their directions
             (`"min"` or `"max"`), if any.
         statistics (Mapping[str, Statistic | str] | Sequence | None): Other
@@ -771,7 +815,7 @@ def summarize(
 
 def pareto_probability(
     results: pd.DataFrame,
-    criteria: Criteria | Mapping[str, str],
+    criteria: Criteria | Objectives,
     *,
     n_resamples: int = 500,
     seed: int = 0,
@@ -813,7 +857,7 @@ def pareto_probability(
         results (pandas.DataFrame): The results of a study (see
             `Study.run`), with a record per replicate of each design (and
             group of the criteria's `by`).
-        criteria (Criteria | Mapping[str, str]): The criteria, or the
+        criteria (Criteria | Objectives): The criteria, or the
             objectives (metrics whose means they are) and their directions
             (`"min"` or `"max"`).
         n_resamples (int): The number of resamples (at least 2).
@@ -847,6 +891,7 @@ def pareto_probability(
     ]
     added = {**spreads, **{name: [f"{name} se"] for name in booted}}
     columns = [column for spread in added.values() for column in spread]
+    _check_metrics(statistics, results)
     _check_names(statistics, results, columns)
     order = _ordered(statistics, added)
     tolerances = _tolerances(criteria)

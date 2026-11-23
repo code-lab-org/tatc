@@ -41,8 +41,16 @@ from .hashing import canonical, digest
 from .memory import Forgetful
 from .mission import Capability, Mission, PhaseCache
 from .plans import Failures, MissionPlan
-from .references import Reference, _given_design, _number, _takes_design, value_of
+from .references import (
+    Reference,
+    _check_references,
+    _given_design,
+    _number,
+    _takes_design,
+    value_of,
+)
 from .space import Design, DesignSpace
+from .statistics import Mean
 from .study import Study, _Case
 
 _MAX_TARGETS = 32
@@ -123,6 +131,11 @@ class Targets(Forgetful):
         object.__setattr__(self, "keywords", dict(keywords))
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "_memory", {})
+
+    def _references(self) -> list[tuple[str, Any]]:
+        """Gets the references of the targets to values of the design (see
+        `_check_references`)."""
+        return [("Targets seed", self.seed)]
 
     def _seed_of(self, design: Design | None) -> Any:
         """
@@ -331,6 +344,12 @@ class Observations(Forgetful):
                 + repr(self.during_contact)
             )
         object.__setattr__(self, "_caches", {})
+
+    def _references(self) -> list[tuple[str, Any]]:
+        """Gets the references of the observations to values of the design
+        (see `_check_references`): its start, and the seed of its targets."""
+        # pylint: disable-next=protected-access
+        return [("Observations start", self.start), *self.targets._references()]
 
     def start_of(self, design: Design | None = None) -> datetime:
         """
@@ -689,6 +708,44 @@ class _Evaluation:
         )
 
 
+def _phase_requirements(
+    phases: Sequence[Requirement] | bool | None,
+) -> tuple[Requirement, ...] | None:
+    """
+    Gets the requirements on the phases of a mission (see `ObservationStudy`)
+    if they are summarized (none, if `True`), or `None` if they are not.
+
+    Raises:
+        TypeError: if they are not Requirements.
+        ValueError: if they are on statistics (rather than metrics), or
+            several are on a metric.
+    """
+    if phases is None or phases is False:
+        return None
+    phases = () if phases is True else tuple(phases)
+    if not all(isinstance(requirement, Requirement) for requirement in phases):
+        raise TypeError("the requirements on phases are Requirements")
+    statistics = [
+        requirement.statistic
+        for requirement in phases
+        if requirement.statistic not in (None, Mean(requirement.name))
+    ]
+    if statistics:
+        raise ValueError(
+            "requirements on phases are on the metrics of the phases (by "
+            + f"name), not on statistics: {statistics}"
+        )
+    named = [requirement.name for requirement in phases]
+    repeated = sorted({name for name in named if named.count(name) > 1})
+    if repeated:
+        raise ValueError(
+            f"several requirements on the phases of metrics {repeated}: give "
+            + "one requirement per metric, whose time until the phases meet it "
+            + "is the column `<metric> time`"
+        )
+    return phases
+
+
 class ObservationStudy(Study):
     """
     A trade study of the observations of architectures: each replicate of a
@@ -753,9 +810,10 @@ class ObservationStudy(Study):
         failures (Failures | None): The failures, if any, which require a
             plan.
         phases (Sequence[Requirement] | bool | None): `True` (or requirements
-            on the metrics, at most one of each) to summarize the phases of
-            the mission, which require a plan: of the deployment, or of each
-            history of the failures (whose phases are always summarized).
+            on the metrics, by name, at most one of each) to summarize the
+            phases of the mission, which require a plan: of the deployment,
+            or of each history of the failures (whose phases are always
+            summarized).
         **options (Any): The settings of the study (see `Study`), such as
             `replicates`, `seed`, `n_jobs`, and `store`.
 
@@ -763,7 +821,11 @@ class ObservationStudy(Study):
         TypeError: if the requirements on phases are not Requirements.
         ValueError: if failures or phases are given without a plan, a plan
             without a layout, several requirements on phases of a metric, or
-            statistics of failures of costs without a cost model.
+            requirements on phases of statistics (rather than metrics),
+            statistics of failures of costs without a cost model, or
+            references (of the observations, the plan, or the failures, or
+            the layout) that are names or paths of values the designs do not
+            have.
     """
 
     def __init__(
@@ -780,19 +842,7 @@ class ObservationStudy(Study):
         phases: Sequence[Requirement] | bool | None = None,
         **options: Any,
     ):
-        # the requirements on the phases, if they are summarized
-        phases = None if phases is None or phases is False else phases
-        phases = () if phases is True else None if phases is None else tuple(phases)
-        if phases is not None and not all(isinstance(r, Requirement) for r in phases):
-            raise TypeError("the requirements on phases are Requirements")
-        named = [requirement.name for requirement in phases or ()]
-        repeated = sorted({name for name in named if named.count(name) > 1})
-        if repeated:
-            raise ValueError(
-                f"several requirements on the phases of metrics {repeated}: give "
-                + "one requirement per metric, whose time until the phases meet it "
-                + "is the column `<metric> time`"
-            )
+        phases = _phase_requirements(phases)
         if layout is None and "layout" in space.children:
             layout = "layout"
         if plan is None and (failures is not None or phases is not None):
@@ -808,6 +858,15 @@ class ObservationStudy(Study):
                 raise ValueError(
                     f"statistics of failures of costs without a cost model: {costs}"
                 )
+        _check_references(
+            space,
+            [
+                ("ObservationStudy layout", layout),
+                *getattr(observations, "_references", list)(),
+                *(() if plan is None else plan._references()),
+                *(() if failures is None else failures._references()),
+            ],
+        )
         self.observations, self.metrics, self.layout = observations, metrics, layout
         if baseline is not None and not isinstance(baseline, Architecture):
             raise TypeError(
