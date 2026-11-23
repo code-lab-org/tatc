@@ -10,6 +10,34 @@ data_products:
     url: https://registry.opendata.aws/noaa-jpss/
     access: open
 default_configuration: swath_noaa_20
+performance:
+  reference_altitude: 824000
+  ground_sample_distance: 750
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "NOAA TR NESDIS 150, VIIRS Imagery EDR Users Guide: \"With a nominal altitude of 824 km\" (https://www.star.nesdis.noaa.gov/JPSS/documents/UserGuides/VIIRS_Imagery_EDR_Users_Guide_TR_NESDIS_150.pdf)"
+    ground_sample_distance:
+      kind: nominal
+      source: "NOAA TR NESDIS 150, VIIRS Imagery EDR Users Guide: \"approximately 375 m for the I-bands and 750 m for the DNB and M-bands\" (https://www.star.nesdis.noaa.gov/JPSS/documents/UserGuides/VIIRS_Imagery_EDR_Users_Guide_TR_NESDIS_150.pdf); the moderate-resolution bands, which the configurations model"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 275
+  power: 200
+  data_rate: 5900000
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"The VIIRS instrument has a mass of 275 kg\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+    power:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"power of ~ 200 W (operational average)\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, VIIRS: \"5.9 Mbps\" (https://space.oscar.wmo.int/instruments/view/viirs); eoPortal gives 10.5 Mbit/s in the high rate mode"
 configurations:
   swath_noaa_20:
     grade: coverage

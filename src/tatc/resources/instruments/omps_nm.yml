@@ -10,8 +10,42 @@ data_products:
     url: https://registry.opendata.aws/noaa-jpss/
     access: open
 default_configuration: swath_noaa_21
+performance:
+  reference_altitude: 824000
+  ground_sample_distance: 50000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"824 km above the ground\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, OMPS-nadir: \"Mapper: 50 km on S-NPP but improved to 10km on NOAA-21.\" (https://space.oscar.wmo.int/instruments/view/omps_nadir); eoPortal's NOAA-20 page also gives 50 km"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 12.5
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"The OMPS nadir instrument has a mass of 12.5 kg\" (https://www.eoportal.org/satellite-missions/suomi-npp); the nadir mapper and profiler"
 configurations:
   swath_noaa_21:
+    performance:
+      reference_altitude: 824000
+      ground_sample_distance: 10000
+      ground_sample_distance_exponent: 1
+      provenance:
+        reference_altitude:
+          kind: nominal
+          source: "WMO OSCAR/Space, NOAA-20: \"824 km\" (https://space.oscar.wmo.int/satellites/view/noaa_20)"
+        ground_sample_distance:
+          kind: nominal
+          source: "WMO OSCAR/Space, OMPS-nadir: \"Mapper: 50 km on S-NPP but improved to 10km on NOAA-21.\" (https://space.oscar.wmo.int/instruments/view/omps_nadir)"
+        ground_sample_distance_exponent:
+          kind: derived
+          source: "A fixed angular resolution projects to a ground distance proportional to altitude"
     grade: timing
     description: The swath imaged between the outermost samples of NOAA-21's Nadir Mapper, with a view tailored to the analysis time step.
     platforms: [noaa-21]

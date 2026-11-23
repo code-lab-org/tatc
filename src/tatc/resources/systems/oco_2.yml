@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 40059
     status: operational
     as_of: 2026-11-09
+    resources: &resources_oco_2
+      launch_mass: 460
+      dry_mass: 315
+      power: 521
+      design_life: 2
+      downlink_rate: 150000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, OCO-2: \"Mass at launch 460 kg\" (https://space.oscar.wmo.int/satellites/view/oco_2)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, OCO-2: \"Dry mass 315 kg\" (https://space.oscar.wmo.int/satellites/view/oco_2)"
+        power:
+          kind: nominal
+          source: "eoPortal, OCO-2: \"Spacecraft power 521 W orbit average\" (https://www.eoportal.org/satellite-missions/oco-2)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, OCO-2: \"Mission design life 2 years\" (https://www.eoportal.org/satellite-missions/oco-2)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, OCO-2: \"returned to the ground at 150 Mbit/s using an L3 Communications X-band transmitter\" (https://www.eoportal.org/satellite-missions/oco-2)"
 default_configuration: plane
 configurations:
   plane:

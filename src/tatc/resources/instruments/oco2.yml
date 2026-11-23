@@ -10,6 +10,34 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/OCO2_L1B_Science_11.2/summary
     access: registration
 default_configuration: nadir
+performance:
+  reference_altitude: 705000
+  ground_sample_distance: 2250
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, OCO-2: \"defined by the slit width for a 705 km orbit\" (https://www.eoportal.org/satellite-missions/oco-2)"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, OCO-2: \"1.29 km x 2.25 km footprint at nadir\" (https://www.eoportal.org/satellite-missions/oco-2); the coarser dimension"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 150
+  power: 165
+  data_rate: 1000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, OCO spectrometer: \"150 kg\" (https://space.oscar.wmo.int/instruments/view/oco_spectrometer); eoPortal gives 140 kg"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, OCO spectrometer: \"165 W\" (https://space.oscar.wmo.int/instruments/view/oco_spectrometer); eoPortal gives about 105 W"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, OCO spectrometer: \"1 Mbps\" (https://space.oscar.wmo.int/instruments/view/oco_spectrometer)"
 configurations:
   nadir:
     grade: timing

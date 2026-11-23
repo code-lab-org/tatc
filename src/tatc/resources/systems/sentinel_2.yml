@@ -10,16 +10,44 @@ spacecraft:
     norad_id: 40697
     status: extended
     as_of: 2026-10-03
+    resources: &resources_sentinel_2
+      launch_mass: 1200
+      dry_mass: 1080
+      power: 1700
+      design_life: 7.25
+      storage: 2400000000000
+      downlink_rate: 560000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-2A: \"Mass at launch 1200 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_2a); the same for Sentinel-2B and 2C"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-2A: \"Dry mass 1080 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_2a); the same for Sentinel-2B and 2C"
+        power:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-2: \"The S/C power is 1700 W max\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2); a maximum"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-2: \"designed for a design life of 7.25 years\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+        storage:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-2: \"Onboard data storage 2.4 Tbit\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-2: \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
   - id: sentinel-2b
     name: Sentinel-2B
     norad_id: 42063
     status: operational
     as_of: 2026-10-03
+    resources: *resources_sentinel_2
   - id: sentinel-2c
     name: Sentinel-2C
     norad_id: 60989
     status: operational
     as_of: 2026-10-03
+    resources: *resources_sentinel_2
 default_configuration: plane
 configurations:
   plane:

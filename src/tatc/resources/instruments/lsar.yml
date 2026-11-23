@@ -10,6 +10,16 @@ data_products:
     url: https://asf.alaska.edu/datasets/daac/nisar/
     access: registration
 default_configuration: swath_20_40mhz
+performance:
+  reference_altitude: 747000
+  signal_to_noise_exponent: 3
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, NISAR: \"an altitude of 747 km\" (https://www.eoportal.org/satellite-missions/nisar)"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a synthetic aperture radar from a distributed target falls as the cube of range, as its synthetic aperture grows with range"
 configurations:
   swath_20_40mhz:
     grade: timing

@@ -10,6 +10,20 @@ data_products:
     url: https://earth.esa.int/eogateway/catalog/earthcare-l1-products
     access: registration
 default_configuration: views
+resources:
+  mass: 21.6
+  power: 39
+  data_rate: 50000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, BBR: \"21.6 kg\" (https://space.oscar.wmo.int/instruments/view/bbr)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, BBR: \"39 W\" (https://space.oscar.wmo.int/instruments/view/bbr)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, BBR: \"50 kbps\" (https://space.oscar.wmo.int/instruments/view/bbr)"
 configurations:
   views:
     grade: timing

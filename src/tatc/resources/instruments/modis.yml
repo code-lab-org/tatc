@@ -14,6 +14,34 @@ data_products:
     url: https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/products/MYD03
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 705000
+  ground_sample_distance: 1000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Aqua: \"705 km\" (https://space.oscar.wmo.int/satellites/view/aqua)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, MODIS: \"IFOV: 0.25 km (two channels), 0.5 km (5 channels), 1.0 km (29 channels)\" (https://space.oscar.wmo.int/instruments/view/modis)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 250
+  power: 225
+  data_rate: 6200000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, MODIS: \"250 kg\" (https://space.oscar.wmo.int/instruments/view/modis)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, MODIS: \"225 W\" (https://space.oscar.wmo.int/instruments/view/modis)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, MODIS: \"6.2 Mbps\" (https://space.oscar.wmo.int/instruments/view/modis)"
 configurations:
   swath:
     grade: timing

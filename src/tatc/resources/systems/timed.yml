@@ -10,6 +10,32 @@ spacecraft:
     norad_id: 26998
     status: extended
     as_of: 2026-11-13
+    resources: &resources_timed
+      launch_mass: 660
+      dry_mass: 587
+      power: 426
+      design_life: 2
+      storage: 2500000000
+      downlink_rate: 4000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, TIMED: \"S/C mass = 660 kg\" (https://www.eoportal.org/satellite-missions/timed)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, TIMED: \"Dry mass 587 kg\" (https://space.oscar.wmo.int/satellites/view/timed)"
+        power:
+          kind: nominal
+          source: "eoPortal, TIMED: \"power = 426 W (solar panels, 50 Ah Ni-H 2 battery)\" (https://www.eoportal.org/satellite-missions/timed)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, TIMED: \"mission design life = 2 years\" (https://www.eoportal.org/satellite-missions/timed)"
+        storage:
+          kind: nominal
+          source: "eoPortal, TIMED: \"SSR (Solid State Recorder), 2.5 Gbit capacity\" (https://www.eoportal.org/satellite-missions/timed)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, TIMED: \"High-rate modulation 4 Mbit/s with DQPSK modulation\" (https://www.eoportal.org/satellite-missions/timed)"
 default_configuration: plane
 configurations:
   plane:

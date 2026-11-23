@@ -11,126 +11,190 @@ spacecraft:
     norad_id: 32275
     status: operational
     as_of: 2026-11-18
+    resources: &resources_glonass_m
+      launch_mass: 1415
+      power: 1400
+      design_life: 7
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"with a mass of approximately 1,415 kg\" (https://www.eoportal.org/satellite-missions/glonass)"
+        power:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"an electrical power of approximately 1,400 W\" (https://www.eoportal.org/satellite-missions/glonass)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"extended spacecraft life to seven years\" (https://www.eoportal.org/satellite-missions/glonass)"
   - id: cosmos-2434
     name: Cosmos 2434 (GLONASS 721)
     norad_id: 32393
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2436
     name: Cosmos 2436 (GLONASS 723)
     norad_id: 32395
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2456
     name: Cosmos 2456 (GLONASS 730)
     norad_id: 36111
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2457
     name: Cosmos 2457 (GLONASS 733)
     norad_id: 36112
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2476
     name: Cosmos 2476 (GLONASS 744)
     norad_id: 37867
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2477
     name: Cosmos 2477 (GLONASS 745)
     norad_id: 37868
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2485
     name: Cosmos 2485 (GLONASS 747)
     norad_id: 39155
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2492
     name: Cosmos 2492 (GLONASS 754)
     norad_id: 39620
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2500
     name: Cosmos 2500 (GLONASS 755)
     norad_id: 40001
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2501
     name: Cosmos 2501 (GLONASS 702K)
     norad_id: 40315
     status: operational
     as_of: 2026-11-18
+    resources: &resources_glonass_k1
+      launch_mass: 935
+      power: 1270
+      design_life: 10
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"with a mass of approximately 935 kg\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K1"
+        power:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"electrical power of approximately 1,270 W\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K1"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"a design lifetime of 10 years\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K1"
   - id: cosmos-2514
     name: Cosmos 2514 (GLONASS 751)
     norad_id: 41330
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2522
     name: Cosmos 2522 (GLONASS 752)
     norad_id: 42939
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2527
     name: Cosmos 2527 (GLONASS 756)
     norad_id: 43508
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2529
     name: Cosmos 2529 (GLONASS 757)
     norad_id: 43687
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2534
     name: Cosmos 2534 (GLONASS 758)
     norad_id: 44299
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2544
     name: Cosmos 2544 (GLONASS 759)
     norad_id: 44850
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2545
     name: Cosmos 2545 (GLONASS 760)
     norad_id: 45358
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2547
     name: Cosmos 2547 (GLONASS 705K)
     norad_id: 46805
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_k1
   - id: cosmos-2557
     name: Cosmos 2557 (GLONASS 706K)
     norad_id: 52984
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_k1
   - id: cosmos-2559
     name: Cosmos 2559 (GLONASS 707K)
     norad_id: 54031
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_k1
   - id: cosmos-2564
     name: Cosmos 2564 (GLONASS 761)
     norad_id: 54377
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_m
   - id: cosmos-2569
     name: Cosmos 2569 (GLONASS 703K)
     norad_id: 57517
     status: operational
     as_of: 2026-11-18
+    resources: &resources_glonass_k2
+      launch_mass: 1645
+      power: 4370
+      design_life: 10
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"substantially increasing the mass to approximately 1,645 kg\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K2"
+        power:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"the electrical power to approximately 4,370 W\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K2"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GLONASS: \"retaining the 10-year design lifetime\" (https://www.eoportal.org/satellite-missions/glonass); of GLONASS-K2"
   - id: cosmos-2584
     name: Cosmos 2584 (GLONASS 704K)
     norad_id: 63130
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_k2
   - id: cosmos-2596
     name: Cosmos 2596 (GLONASS 708K)
     norad_id: 65590
     status: operational
     as_of: 2026-11-18
+    resources: *resources_glonass_k1
 default_configuration: plane
 configurations:
   plane:

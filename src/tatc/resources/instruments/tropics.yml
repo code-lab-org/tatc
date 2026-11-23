@@ -10,6 +10,26 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets?keywords=TROPICS
     access: registration
 default_configuration: swath_tropics_03
+performance:
+  reference_altitude: 550000
+  ground_sample_distance: 24000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "Blackwell, TROPICS, NASA GESTAR seminar, 26 Sep 2023: \"Spatial Information (at 550 km)\" (https://gestar2.umbc.edu/wp-content/uploads/sites/674/2023/11/Blackwell_TROPICS_CREWSR_NASA_GESTAR_26Sep2023.pdf)"
+    ground_sample_distance:
+      kind: nominal
+      source: "Blackwell, TROPICS, NASA GESTAR seminar, 26 Sep 2023: \"F-band : 22-km DT, ~24-km CT\" (https://gestar2.umbc.edu/wp-content/uploads/sites/674/2023/11/Blackwell_TROPICS_CREWSR_NASA_GESTAR_26Sep2023.pdf); the coarser dimension of the nadir footprint of the temperature-sounding channels"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  power: 3
+  provenance:
+    power:
+      kind: nominal
+      source: "Blackwell, TROPICS, NASA GESTAR seminar, 26 Sep 2023: \"Power: 15 W (payload is 3W)\" (https://gestar2.umbc.edu/wp-content/uploads/sites/674/2023/11/Blackwell_TROPICS_CREWSR_NASA_GESTAR_26Sep2023.pdf)"
 configurations:
   swath_tropics_03:
     grade: coverage

@@ -10,6 +10,24 @@ spacecraft:
     norad_id: 58928
     status: operational
     as_of: 2026-11-10
+    resources: &resources_pace
+      launch_mass: 1694
+      power: 2700
+      design_life: 3
+      downlink_rate: 600000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, PACE: \"The total spacecraft mass is 1694 kg, including approximately 235 kg of hydrazine propellant.\" (https://www.eoportal.org/satellite-missions/pace-mission)"
+        power:
+          kind: nominal
+          source: "eoPortal, PACE: \"generating up to 2.7 kW at the beginning of life\" (https://www.eoportal.org/satellite-missions/pace-mission)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, PACE: \"designed for a three-year primary mission\" (https://www.eoportal.org/satellite-missions/pace-mission)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, PACE: \"Ka-band for high-rate downlink of science data at 600 Mbps\" (https://www.eoportal.org/satellite-missions/pace-mission)"
 default_configuration: plane
 configurations:
   plane:

@@ -10,6 +10,24 @@ spacecraft:
     norad_id: 65159
     status: operational
     as_of: 2026-11-17
+    resources: &resources_metop_sga1
+      launch_mass: 4400
+      power: 3290
+      storage: 745000000000
+      downlink_rate: 781000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Metop-SG-A1: \"Mass at launch 4400 kg\" (https://space.oscar.wmo.int/satellites/view/metop_sg_a1)"
+        power:
+          kind: nominal
+          source: "eoPortal, MetOp-SG: \"Power consumption 3.29 kW 2.40 kW\" (https://www.eoportal.org/satellite-missions/metop-sg); the consumption of satellite A (Table 2)"
+        storage:
+          kind: nominal
+          source: "eoPortal, MetOp-SG: \"Data storage 745 Gbit (sized for 1.5 orbits of Satellite A)\" (https://www.eoportal.org/satellite-missions/metop-sg)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, MetOp-SG: \"Ka-band downlink (Mbit/s) 781 (2 channels)\" (https://www.eoportal.org/satellite-missions/metop-sg)"
 default_configuration: plane
 configurations:
   plane:

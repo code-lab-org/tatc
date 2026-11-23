@@ -10,6 +10,16 @@ spacecraft:
     norad_id: 25544
     status: operational
     as_of: 2026-11-09
+    resources: &resources_iss
+      power: 75000
+      downlink_rate: 600000000
+      provenance:
+        power:
+          kind: nominal
+          source: "NASA, Space Station Facts and Figures: \"8 solar arrays provide 75 to 90 kilowatts of power\" (https://www.nasa.gov/international-space-station/space-station-facts-and-figures/); the lower bound"
+        downlink_rate:
+          kind: nominal
+          source: "NASA (2019), Data Rate Increase on the International Space Station: \"The station now supports a 600 megabit-per-second (Mbps) connection\" (https://www.nasa.gov/missions/station/data-rate-increase-on-the-international-space-station-supports-future-exploration/); through TDRS"
 default_configuration: plane
 configurations:
   plane:

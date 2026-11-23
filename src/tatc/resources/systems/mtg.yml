@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 54743
     status: operational
     as_of: 2026-11-17
+    resources: &resources_meteosat_12
+      launch_mass: 3600
+      dry_mass: 1600
+      power: 2000
+      design_life: 8.5
+      downlink_rate: 165000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Meteosat-12: \"Mass at launch 3600 kg\" (https://space.oscar.wmo.int/satellites/view/meteosat_12)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Meteosat-12: \"Dry mass 1600 kg\" (https://space.oscar.wmo.int/satellites/view/meteosat_12)"
+        power:
+          kind: nominal
+          source: "eoPortal, Meteosat Third Generation: \"Spacecraft power 2 kW\" (https://www.eoportal.org/satellite-missions/meteosat-third-generation); of MTG-I"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Meteosat Third Generation: \"The satellites have a nominal design life of 8.5 years.\" (https://www.eoportal.org/satellite-missions/meteosat-third-generation)"
+        downlink_rate:
+          kind: nominal
+          source: "WMO OSCAR/Space, Meteosat-12: \"MDA ... 165000 kbps Mission Data Acquisition\" (https://space.oscar.wmo.int/satellites/view/meteosat_12)"
 default_configuration: slot
 configurations:
   slot:

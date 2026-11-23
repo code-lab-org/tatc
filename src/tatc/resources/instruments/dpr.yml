@@ -10,6 +10,38 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_2ADPR_08/summary
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 407000
+  ground_sample_distance: 5000
+  ground_sample_distance_exponent: 1
+  signal_to_noise_exponent: 2
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "eoPortal, GPM: \"GPM DPR-KaPR (Ka-band) at 407 km GPM DPR-KuPR (Ku-band) at 407 km\" (https://www.eoportal.org/satellite-missions/gpm)"
+    ground_sample_distance:
+      kind: nominal
+      source: "eoPortal, GPM: \"Horizonal resolution at nadir 5 km 5 km 4.3 km\" (https://www.eoportal.org/satellite-missions/gpm); of the KaPR and KuPR at 407 km"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A real-aperture radar's footprint is set by its beam width, so it grows in proportion to altitude"
+    signal_to_noise_exponent:
+      kind: derived
+      source: "The return of a radar from a target that fills its beam (precipitation or cloud) falls as the square of range"
+resources:
+  mass: 780
+  power: 710
+  data_rate: 190000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, DPR: \"780 kg\" (https://space.oscar.wmo.int/instruments/view/dpr)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, DPR: \"710 W\" (https://space.oscar.wmo.int/instruments/view/dpr)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, DPR: \"190 kbps\" (https://space.oscar.wmo.int/instruments/view/dpr)"
 configurations:
   swath:
     grade: timing

@@ -18,6 +18,34 @@ data_products:
     url: https://data.eumetsat.int/product/EO:EUM:DAT:0694
     access: registration
 default_configuration: full_disk
+performance:
+  reference_altitude: 35786000
+  ground_sample_distance: 2000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: derived
+      source: "The altitude of the geostationary orbit, at whose sub-satellite point the resolution is stated"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, FCI: \"2.0 km\" (https://space.oscar.wmo.int/instruments/view/fci); of the infrared channels in the normal mode"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 300
+  power: 500
+  data_rate: 150000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, FCI: \"300 kg\" (https://space.oscar.wmo.int/instruments/view/fci)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, FCI: \"500 W\" (https://space.oscar.wmo.int/instruments/view/fci)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, FCI: \"~ 150 Mbps\" (https://space.oscar.wmo.int/instruments/view/fci)"
 configurations:
   full_disk:
     grade: coverage

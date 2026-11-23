@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 65053
     status: operational
     as_of: 2026-11-04
+    resources: &resources_nisar
+      launch_mass: 2392
+      power: 4000
+      design_life: 3
+      storage: 9000000000000
+      downlink_rate: 3500000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "ISRO, GSLV-F16/NISAR: \"NISAR, weighing 2392 kg\" (https://www.isro.gov.in/Mission_GSLVF16_NISAR.html)"
+        power:
+          kind: nominal
+          source: "eoPortal, NISAR: \"together supply approximately 4 kW of power when illuminated\" (https://www.eoportal.org/satellite-missions/nisar)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, NISAR: \"NISAR has a design life of three years.\" (https://www.eoportal.org/satellite-missions/nisar)"
+        storage:
+          kind: nominal
+          source: "eoPortal, NISAR: \"a high capacity solid-state recorder (with 9 Tbit capacity at end of life)\" (https://www.eoportal.org/satellite-missions/nisar)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, NISAR: \"data downlink per orbit at 3.5 Gbit/s data rate\" (https://www.eoportal.org/satellite-missions/nisar)"
 default_configuration: plane
 configurations:
   plane:

@@ -10,6 +10,20 @@ data_products:
     url: https://search.earthdata.nasa.gov/search?q=PACE_HARP2_L1B_SCI
     access: registration
 default_configuration: swath
+resources:
+  mass: 9.6
+  power: 11.5
+  data_rate: 4000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, PACE: \"has a mass of 9.6 kg\" (https://www.eoportal.org/satellite-missions/pace-mission)"
+    power:
+      kind: nominal
+      source: "eoPortal, PACE: \"consumes an average power of 11.5 W during operation\" (https://www.eoportal.org/satellite-missions/pace-mission)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, HARP2: \"~ 4 Mbps\" (https://space.oscar.wmo.int/instruments/view/harp2)"
 configurations:
   swath:
     grade: timing

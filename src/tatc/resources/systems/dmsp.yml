@@ -10,6 +10,20 @@ spacecraft:
     norad_id: 35951
     status: extended
     as_of: 2026-11-03
+    resources: &resources_dmsp_f18
+      launch_mass: 1220
+      power: 2200
+      design_life: 5
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, DMSP-F18: \"Mass at launch 1220 kg\" (https://space.oscar.wmo.int/satellites/view/dmsp_f18)"
+        power:
+          kind: nominal
+          source: "WMO OSCAR/Space, DMSP-F18: \"Power 2200 W\" (https://space.oscar.wmo.int/satellites/view/dmsp_f18)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, DMSP Block 5D: \"The Block 5D-3 series spacecraft have a design life of 5 years.\" (https://www.eoportal.org/satellite-missions/dmsp-block-5d)"
 default_configuration: plane
 configurations:
   plane:

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from ..attitude import Attitude, AttitudeSchedule, GlintAttitude, TargetAttitude
 from ..instrument import AllInstruments, InSituInstrument, Instrument
+from ..resources import InstrumentResources, SpacecraftResources
 
 AllAttitudes = Annotated[
     Attitude | TargetAttitude | GlintAttitude | AttitudeSchedule,
@@ -41,6 +42,11 @@ class SpaceSystem(BaseModel):
         + "attitudes), from which the views of its instruments are rotated, or "
         + "`None` for a body aligned with the nadir frame (each instrument's "
         + "`velocity_frame` then orients it).",
+    )
+    resources: SpacecraftResources | None = Field(
+        default=None,
+        description="The mass, power, life, and data handling of the "
+        + "spacecraft (of each member, for a constellation), if given.",
     )
 
     @model_validator(mode="after")
@@ -102,3 +108,14 @@ class SpaceSystem(BaseModel):
         if self.attitude is None:
             return instrument
         return instrument.bind_attitude(self.attitude)
+
+    def get_payload_resources(self) -> InstrumentResources:
+        """
+        Gets the total resources of the instruments carried by this space
+        system (of each member, for a constellation; see
+        `InstrumentResources.total`).
+
+        Returns:
+            InstrumentResources: The totals.
+        """
+        return InstrumentResources.total(i.resources for i in self.instruments)

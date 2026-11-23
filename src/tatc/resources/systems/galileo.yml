@@ -11,151 +11,207 @@ spacecraft:
     norad_id: 37846
     status: operational
     as_of: 2026-11-18
+    resources: &resources_galileo_iov
+      launch_mass: 700
+      power: 1600
+      design_life: 12
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "ESA, The first four satellites: \"Launch mass \u00b7 700kg\" (https://www.esa.int/Our_Activities/Navigation/Galileo/The_first_four_satellites)"
+        power:
+          kind: nominal
+          source: "ESA, The first four satellites: \"Peak power \u00b7 1600 W\" (https://www.esa.int/Our_Activities/Navigation/Galileo/The_first_four_satellites); a peak"
+        design_life:
+          kind: nominal
+          source: "ESA Navipedia, Galileo IOV Satellites: \"in-orbit lifetime that is specified as 12 years\" (https://gssc.esa.int/navipedia/index.php/Galileo_IOV_Satellites)"
   - id: galileo-gsat0102
     name: Galileo GSAT0102
     norad_id: 37847
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_iov
   - id: galileo-gsat0103
     name: Galileo GSAT0103
     norad_id: 38857
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_iov
   - id: galileo-gsat0203
     name: Galileo GSAT0203
     norad_id: 40544
     status: operational
     as_of: 2026-11-18
+    resources: &resources_galileo_foc
+      launch_mass: 730
+      power: 1900
+      design_life: 12
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, Galileo FOC: \"730 kg (including 63 kg of fuel and 30 kg margin)\" (https://www.eoportal.org/satellite-missions/galileo-foc)"
+        power:
+          kind: nominal
+          source: "eoPortal, Galileo FOC: \"provided power production of 1.9 kW (end of life)\" (https://www.eoportal.org/satellite-missions/galileo-foc)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Galileo FOC: \"\u226512 years in space\" (https://www.eoportal.org/satellite-missions/galileo-foc)"
   - id: galileo-gsat0204
     name: Galileo GSAT0204
     norad_id: 40545
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0206
     name: Galileo GSAT0206
     norad_id: 40890
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0209
     name: Galileo GSAT0209
     norad_id: 41174
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0208
     name: Galileo GSAT0208
     norad_id: 41175
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0211
     name: Galileo GSAT0211
     norad_id: 41549
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0210
     name: Galileo GSAT0210
     norad_id: 41550
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0207
     name: Galileo GSAT0207
     norad_id: 41859
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0212
     name: Galileo GSAT0212
     norad_id: 41860
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0213
     name: Galileo GSAT0213
     norad_id: 41861
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0214
     name: Galileo GSAT0214
     norad_id: 41862
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0215
     name: Galileo GSAT0215
     norad_id: 43055
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0216
     name: Galileo GSAT0216
     norad_id: 43056
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0217
     name: Galileo GSAT0217
     norad_id: 43057
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0218
     name: Galileo GSAT0218
     norad_id: 43058
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0221
     name: Galileo GSAT0221
     norad_id: 43564
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0222
     name: Galileo GSAT0222
     norad_id: 43565
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0219
     name: Galileo GSAT0219
     norad_id: 43566
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0220
     name: Galileo GSAT0220
     norad_id: 43567
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0223
     name: Galileo GSAT0223
     norad_id: 49809
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0224
     name: Galileo GSAT0224
     norad_id: 49810
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0225
     name: Galileo GSAT0225
     norad_id: 59598
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0227
     name: Galileo GSAT0227
     norad_id: 59600
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0232
     name: Galileo GSAT0232
     norad_id: 61182
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0226
     name: Galileo GSAT0226
     norad_id: 61183
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0233
     name: Galileo GSAT0233
     norad_id: 67160
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
   - id: galileo-gsat0234
     name: Galileo GSAT0234
     norad_id: 67162
     status: operational
     as_of: 2026-11-18
+    resources: *resources_galileo_foc
 default_configuration: plane
 configurations:
   plane:

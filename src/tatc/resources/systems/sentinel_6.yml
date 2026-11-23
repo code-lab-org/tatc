@@ -10,11 +10,34 @@ spacecraft:
     norad_id: 46984
     status: operational
     as_of: 2026-11-09
+    resources: &resources_sentinel_6
+      launch_mass: 1440
+      dry_mass: 1191
+      power: 1000
+      design_life: 5.5
+      downlink_rate: 150000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-6A: \"Mass at launch 1440 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_6a); the same for Sentinel-6B"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Sentinel-6A: \"Dry mass 1191 kg\" (https://space.oscar.wmo.int/satellites/view/sentinel_6a); the same for Sentinel-6B"
+        power:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-6: \"about 1 kW average in flight\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6); nearly 5.5 kW at beginning of life"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-6: \"each a nominal lifetime of 5.5 years\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Copernicus Sentinel-6: \"transmitting them at 150 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
   - id: sentinel-6b
     name: Sentinel-6B
     norad_id: 66514
     status: operational
     as_of: 2026-11-09
+    resources: *resources_sentinel_6
 default_configuration: plane
 configurations:
   plane:

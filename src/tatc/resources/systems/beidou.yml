@@ -11,141 +11,174 @@ spacecraft:
     norad_id: 43001
     status: operational
     as_of: 2026-11-22
+    resources: &resources_beidou_3_meo
+      design_life: 12
+      provenance:
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, BD-3 M (Types 1 and 2): \"Lifetime: 12 years\" (https://space.skyrocket.de/doc_sdat/bd-3m.htm); the same for the satellites of CAST (Type 1) and CAS (Type 2, https://space.skyrocket.de/doc_sdat/bd-3m-2.htm)"
   - id: beidou-3-m2
     name: BeiDou-3 M2
     norad_id: 43002
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m7
     name: BeiDou-3 M7
     norad_id: 43107
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m8
     name: BeiDou-3 M8
     norad_id: 43108
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m4
     name: BeiDou-3 M4
     norad_id: 43207
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m3
     name: BeiDou-3 M3
     norad_id: 43208
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m9
     name: BeiDou-3 M9
     norad_id: 43245
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m10
     name: BeiDou-3 M10
     norad_id: 43246
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m5
     name: BeiDou-3 M5
     norad_id: 43581
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m6
     name: BeiDou-3 M6
     norad_id: 43582
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m12
     name: BeiDou-3 M12
     norad_id: 43602
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m11
     name: BeiDou-3 M11
     norad_id: 43603
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m13
     name: BeiDou-3 M13
     norad_id: 43622
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m14
     name: BeiDou-3 M14
     norad_id: 43623
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m16
     name: BeiDou-3 M16
     norad_id: 43647
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m15
     name: BeiDou-3 M15
     norad_id: 43648
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m17
     name: BeiDou-3 M17
     norad_id: 43706
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m18
     name: BeiDou-3 M18
     norad_id: 43707
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m24
     name: BeiDou-3 M24
     norad_id: 44542
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m23
     name: BeiDou-3 M23
     norad_id: 44543
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m22
     name: BeiDou-3 M22
     norad_id: 44793
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m21
     name: BeiDou-3 M21
     norad_id: 44794
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m19
     name: BeiDou-3 M19
     norad_id: 44864
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m20
     name: BeiDou-3 M20
     norad_id: 44865
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m28
     name: BeiDou-3 M28
     norad_id: 58654
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m26
     name: BeiDou-3 M26
     norad_id: 58655
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m25
     name: BeiDou-3 M25
     norad_id: 61186
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
   - id: beidou-3-m27
     name: BeiDou-3 M27
     norad_id: 61187
     status: operational
     as_of: 2026-11-22
+    resources: *resources_beidou_3_meo
 default_configuration: plane
 configurations:
   plane:

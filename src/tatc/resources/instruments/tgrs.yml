@@ -10,6 +10,20 @@ data_products:
     url: https://registry.opendata.aws/gnss-ro-opendata/
     access: open
 default_configuration: occultations
+resources:
+  mass: 6
+  power: 65
+  data_rate: 100000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, TGRS (COSMIC-2): \"6 kg\" (https://space.oscar.wmo.int/instruments/view/tgrs_cosmic_2)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, TGRS (COSMIC-2): \"65 W\" (https://space.oscar.wmo.int/instruments/view/tgrs_cosmic_2)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, TGRS (COSMIC-2): \"100 kbps\" (https://space.oscar.wmo.int/instruments/view/tgrs_cosmic_2)"
 configurations:
   occultations:
     grade: timing

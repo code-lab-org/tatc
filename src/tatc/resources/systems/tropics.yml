@@ -10,16 +10,28 @@ spacecraft:
     norad_id: 56753
     status: retired
     as_of: 2025-12-11
+    resources: &resources_tropics
+      launch_mass: 5.3
+      design_life: 1
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "Gunter's Space Page, TROPICS: \"Mass: 5.3 kg\" (https://space.skyrocket.de/doc_sdat/tropics.htm); OSCAR gives 3.9 kg and eoPortal 6 kg"
+        design_life:
+          kind: nominal
+          source: "Gunter's Space Page, TROPICS: \"Lifetime: 1 year (planned)\" (https://space.skyrocket.de/doc_sdat/tropics.htm)"
   - id: tropics-05
     name: TROPICS-05
     norad_id: 56442
     status: retired
     as_of: 2025-12-04
+    resources: *resources_tropics
   - id: tropics-06
     name: TROPICS-06
     norad_id: 56444
     status: retired
     as_of: 2025-10-25
+    resources: *resources_tropics
 default_configuration: plane
 configurations:
   plane:

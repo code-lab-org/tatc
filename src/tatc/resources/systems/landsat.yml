@@ -9,11 +9,51 @@ spacecraft:
     norad_id: 39084
     status: operational
     as_of: 2026-11-03
+    resources: &resources_landsat_8
+      launch_mass: 2780
+      dry_mass: 1512
+      power: 4300
+      design_life: 5
+      storage: 3100000000000
+      downlink_rate: 384000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"Launch mass of 2780 kg; dry mass of 1512 kg\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm); OSCAR gives 2623 kg"
+        dry_mass:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"Launch mass of 2780 kg; dry mass of 1512 kg\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+        power:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"Power: 4.3 kW @ EOL (End of Life)\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"The mission design life is 5 years\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+        storage:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"a storage capacity of 4 Tbit @ BOL and 3.1 Tbit @ EOL\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm); at end of life"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Landsat-8/LDCM: \"to maintain a 384 Mbit/s downlink\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
   - id: landsat-9
     name: Landsat 9
     norad_id: 49260
     status: operational
     as_of: 2026-11-05
+    resources: &resources_landsat_9
+      launch_mass: 2710
+      power: 4300
+      design_life: 5
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "NASA, Landsat 9 Fast Facts: \"Mass: 5,975 pounds (2,710 kilograms)\" (https://www.nasa.gov/wp-content/uploads/2015/04/landsat_9_fast_facts.pdf)"
+        power:
+          kind: nominal
+          source: "WMO OSCAR/Space, Landsat-9: \"Power 4300 W\" (https://space.oscar.wmo.int/satellites/view/landsat_9)"
+        design_life:
+          kind: nominal
+          source: "NASA, Landsat 9 Fast Facts: \"Mission Design Life: 5 years\" (https://www.nasa.gov/wp-content/uploads/2015/04/landsat_9_fast_facts.pdf)"
 default_configuration: plane
 configurations:
   plane:

@@ -14,6 +14,20 @@ data_products:
     url: https://podaac.jpl.nasa.gov/dataset/ASCATB-L2-25km
     access: registration
 default_configuration: swaths
+resources:
+  mass: 260
+  power: 215
+  data_rate: 42000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, ASCAT: \"260 kg\" (https://space.oscar.wmo.int/instruments/view/ascat)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, ASCAT: \"215 W\" (https://space.oscar.wmo.int/instruments/view/ascat)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, ASCAT: \"42 kbps\" (https://space.oscar.wmo.int/instruments/view/ascat)"
 configurations:
   swaths:
     grade: coverage

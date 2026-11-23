@@ -10,6 +10,30 @@ data_products:
     url: https://registry.opendata.aws/sentinel5p/
     access: open
 default_configuration: swath
+performance:
+  reference_altitude: 824000
+  ground_sample_distance: 5500
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Sentinel-5P: \"824 km\" (https://space.oscar.wmo.int/satellites/view/sentinel_5p)"
+    ground_sample_distance:
+      kind: nominal
+      source: "NASA Earthdata, S5P L2 cloud HiR NRT: \"Spatial resolution is 5.5 km along-track and 3.5 km across-track at nadir.\" (https://www.earthdata.nasa.gov/data/catalog/ges-disc-s5p-l2-cloud-hir-nrt-3); since 6 August 2019; the coarser dimension"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 224
+  power: 170
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, Copernicus Sentinel-5P: \"206.6 kg, plus 17.4 kg for the instrument control unit\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+    power:
+      kind: nominal
+      source: "eoPortal, Copernicus Sentinel-5P: \"170 W (average) and 382 W (max)\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
 configurations:
   swath:
     grade: coverage

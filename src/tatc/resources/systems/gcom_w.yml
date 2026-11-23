@@ -10,6 +10,28 @@ spacecraft:
     norad_id: 38337
     status: operational
     as_of: 2026-11-01
+    resources: &resources_gcom_w
+      launch_mass: 1991
+      dry_mass: 1840
+      power: 3880
+      design_life: 5
+      downlink_rate: 20000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, GCOM: \"The spacecraft has a mass of about 1991 kg at launch\" (https://www.eoportal.org/satellite-missions/gcom)"
+        dry_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, GCOM-W: \"Dry mass 1840 kg\" (https://space.oscar.wmo.int/satellites/view/gcom_w)"
+        power:
+          kind: nominal
+          source: "eoPortal, GCOM: \"Spacecraft power generation > 3880 W @ EOL\" (https://www.eoportal.org/satellite-missions/gcom); a lower bound"
+        design_life:
+          kind: nominal
+          source: "eoPortal, GCOM: \"The design life is 5 years.\" (https://www.eoportal.org/satellite-missions/gcom)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, GCOM: \"the payload downlink is conducted over the X-band, at a data rate of 20 Mbit/s\" (https://www.eoportal.org/satellite-missions/gcom)"
 default_configuration: plane
 configurations:
   plane:

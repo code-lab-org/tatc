@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from ..analysis import collect_limb_observations, collect_ro_observations
 from ..analysis.limb_sampling import ScanDirection
@@ -36,6 +36,11 @@ from ..schemas import (
     TargetAttitude,
 )
 from ..schemas.orbit import AllOrbits
+from ..schemas.resources import (
+    InstrumentPerformance,
+    InstrumentResources,
+    SpacecraftResources,
+)
 from ..schemas.space.base import AllAttitudes
 from ..utils import (
     VelocityFrame,
@@ -129,6 +134,122 @@ def _check_provenance(described: set[str], provenance: dict[str, Any]) -> None:
         )
 
 
+def _check_sourced(model: Any, paired: Mapping[str, str] | None = None) -> None:
+    """
+    Checks that a model of sourced values gives at least one value and a
+    provenance for each value given (and only those), and that each value
+    given of `paired` gives the value it is paired with (such as its exponent).
+    """
+    given = set(model.model_fields_set) - {"provenance"}
+    if not given:
+        raise ValueError("sourced values need at least one value")
+    _check_provenance(given, model.provenance)
+    for value, partner in (paired or {}).items():
+        if value in given and partner not in given:
+            raise ValueError(f"{value} needs its {partner}")
+
+
+def _to_core(model: Any, core: type[Any]) -> Any:
+    """
+    Gets the core model of a model of sourced values, without its provenance.
+    """
+    return core(**model.model_dump(exclude={"provenance"}, exclude_unset=True))
+
+
+class PerformanceSpecification(InstrumentPerformance):
+    """
+    The nominal performance of an instrument (see
+    `tatc.schemas.InstrumentPerformance`), with the origin of each value given.
+    A ground sample distance or signal-to-noise ratio needs its exponent.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value given, by its field."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "PerformanceSpecification":
+        _check_sourced(
+            self,
+            {
+                "ground_sample_distance": "ground_sample_distance_exponent",
+                "ground_sample_distance_exponent": "ground_sample_distance",
+                "signal_to_noise_ratio": "signal_to_noise_exponent",
+            },
+        )
+        if not set(self.model_fields_set) - {"provenance", "reference_altitude"}:
+            raise ValueError(
+                "a performance needs a ground sample distance, a signal-to-noise "
+                "ratio, or the exponent of the scaling of noise"
+            )
+        return self
+
+    def to_performance(self) -> InstrumentPerformance:
+        """
+        Gets the performance without its provenance.
+
+        Returns:
+            InstrumentPerformance: The performance.
+        """
+        return _to_core(self, InstrumentPerformance)
+
+
+class ResourceSpecification(InstrumentResources):
+    """
+    The resources of an instrument (see `tatc.schemas.InstrumentResources`),
+    with the origin of each value given.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value given, by its field."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "ResourceSpecification":
+        _check_sourced(self)
+        return self
+
+    def to_resources(self) -> InstrumentResources:
+        """
+        Gets the resources without their provenance.
+
+        Returns:
+            InstrumentResources: The resources.
+        """
+        return _to_core(self, InstrumentResources)
+
+
+class SpacecraftResourceSpecification(SpacecraftResources):
+    """
+    The resources of a spacecraft (see `tatc.schemas.SpacecraftResources`),
+    with the origin of each value given.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value given, by its field."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "SpacecraftResourceSpecification":
+        _check_sourced(self)
+        return self
+
+    def to_resources(self) -> SpacecraftResources:
+        """
+        Gets the resources without their provenance.
+
+        Returns:
+            SpacecraftResources: The resources.
+        """
+        return _to_core(self, SpacecraftResources)
+
+
 class InstrumentSpecification(_CatalogModel):
     """
     The class and parameters of an instrument, from which objects are constructed.
@@ -170,6 +291,12 @@ class InstrumentSpecification(_CatalogModel):
                 f"unknown instrument type {self.type!r}: {sorted(_INSTRUMENT_CLASSES)}"
             )
         fields = set(_INSTRUMENT_CLASSES[self.type].model_fields) - {"type"}
+        sourced = {"performance", "resources"} & set(self.parameters)
+        if sourced:
+            raise ValueError(
+                f"{sorted(sourced)} belong to the entry or the configuration, "
+                "with their provenance, not to an instrument's parameters"
+            )
         if "velocity_frame" in self.parameters:
             raise ValueError(
                 "velocity_frame belongs to the configuration, as it sets the "
@@ -203,13 +330,23 @@ class InstrumentSpecification(_CatalogModel):
         """
         return self.parameters.get(_TAILORED_FIELD) == _TAILORED
 
-    def construct_instrument(self, tailored_field_of_view: float | None) -> Instrument:
+    def construct_instrument(
+        self,
+        tailored_field_of_view: float | None,
+        *,
+        performance: InstrumentPerformance | None = None,
+        resources: InstrumentResources | None = None,
+    ) -> Instrument:
         """
         Constructs a new instrument that shares no state with this specification.
 
         Args:
             tailored_field_of_view (float | None): The along-track field of view
                 (degrees), if this specification tailors it to a time step.
+            performance (InstrumentPerformance | None): The instrument's
+                performance, if any.
+            resources (InstrumentResources | None): The instrument's resources,
+                if any.
 
         Returns:
             Instrument: The instrument.
@@ -217,7 +354,11 @@ class InstrumentSpecification(_CatalogModel):
         parameters = copy.deepcopy(self.parameters)
         if self.is_tailored:
             parameters[_TAILORED_FIELD] = tailored_field_of_view
-        return _INSTRUMENT_CLASSES[self.type](**parameters)
+        return _INSTRUMENT_CLASSES[self.type](
+            **parameters,
+            performance=copy.deepcopy(performance),
+            resources=copy.deepcopy(resources),
+        )
 
 
 class TiltSchedule(_CatalogModel):
@@ -717,6 +858,19 @@ class Configuration(_CatalogModel):
     limitations: tuple[str, ...] = Field(
         default=(), description="What this configuration does not represent."
     )
+    performance: PerformanceSpecification | None = Field(
+        default=None,
+        description="The instrument's performance in this configuration, if it "
+        + "differs from the entry's (such as the resolution of a mode of a "
+        + "synthetic aperture radar), which it replaces. It is not part of the "
+        + "digest.",
+    )
+    resources: ResourceSpecification | None = Field(
+        default=None,
+        description="The instrument's resources in this configuration, if they "
+        + "differ from the entry's, which they replace. They are not part of "
+        + "the digest.",
+    )
 
     @model_validator(mode="after")
     def _check_instruments(self) -> "Configuration":
@@ -895,7 +1049,13 @@ class InstrumentPayload:
     of analyzing views of instruments, if any.
     """
 
-    def to_satellite(self, orbit: AllOrbits, *, name: str) -> Satellite:
+    def to_satellite(
+        self,
+        orbit: AllOrbits,
+        *,
+        name: str,
+        resources: SpacecraftResources | None = None,
+    ) -> Satellite:
         """
         Builds a satellite that carries the instruments with their attitude.
         Analyze it with the `instrument_index` of this payload, or, for a
@@ -905,14 +1065,20 @@ class InstrumentPayload:
         Args:
             orbit (AllOrbits): The orbit.
             name (str): The satellite's name.
+            resources (SpacecraftResources | None): The spacecraft's resources,
+                if any.
 
         Returns:
             Satellite: The satellite.
         """
         if not self.instruments:
-            return Satellite(name=name, orbit=orbit)
+            return Satellite(name=name, orbit=orbit, resources=resources)
         return Satellite(
-            name=name, orbit=orbit, instruments=self.instruments, attitude=self.attitude
+            name=name,
+            orbit=orbit,
+            instruments=self.instruments,
+            attitude=self.attitude,
+            resources=resources,
         )
 
 
@@ -944,6 +1110,18 @@ class InstrumentEntry(_CatalogModel):
     )
     limitations: tuple[str, ...] = Field(
         default=(), description="What no configuration represents."
+    )
+    performance: PerformanceSpecification | None = Field(
+        default=None,
+        description="The instrument's nominal performance (its ground sample "
+        + "distance and signal-to-noise ratio, and their scaling with "
+        + "altitude), unless a configuration replaces it. It is not validated "
+        + "and does not affect which observations are made.",
+    )
+    resources: ResourceSpecification | None = Field(
+        default=None,
+        description="The instrument's mass, power, and data rate, unless a "
+        + "configuration replaces them. They are not validated.",
     )
     record: ValidationRecord | None = Field(
         default=None, description="The results of its validation."
@@ -1049,6 +1227,52 @@ class InstrumentEntry(_CatalogModel):
             if key == f"{name}{_get_platform_suffix(c)}"
         ]
 
+    def get_performance(
+        self, configuration: str | None = None
+    ) -> InstrumentPerformance | None:
+        """
+        Gets the instrument's nominal performance in a configuration: the
+        configuration's, or else the entry's.
+
+        Args:
+            configuration (str | None): The identifier of the configuration, or
+                a name of its variants (see `get_variants`), or `None` for the
+                default configuration.
+
+        Returns:
+            InstrumentPerformance | None: The performance, or `None` if not
+                given.
+        """
+        specification = self._get_sourced(configuration, "performance")
+        return None if specification is None else specification.to_performance()
+
+    def get_resources(
+        self, configuration: str | None = None
+    ) -> InstrumentResources | None:
+        """
+        Gets the instrument's resources in a configuration: the
+        configuration's, or else the entry's.
+
+        Args:
+            configuration (str | None): The identifier of the configuration, or
+                a name of its variants (see `get_variants`), or `None` for the
+                default configuration.
+
+        Returns:
+            InstrumentResources | None: The resources, or `None` if not given.
+        """
+        specification = self._get_sourced(configuration, "resources")
+        return None if specification is None else specification.to_resources()
+
+    def _get_sourced(self, configuration: str | None, field: str) -> Any:
+        """
+        Gets the sourced values of a field (`performance` or `resources`) of a
+        configuration, or else of the entry.
+        """
+        key = self.select_configuration(configuration)
+        selected = getattr(self.configurations[key], field)
+        return getattr(self, field) if selected is None else selected
+
     def select_configuration(
         self,
         configuration: str | None = None,
@@ -1133,7 +1357,11 @@ class InstrumentEntry(_CatalogModel):
     ) -> InstrumentPayload:
         """
         Builds the instruments of a configuration with the attitude they were
-        validated with. Each call builds new objects.
+        validated with. Each call builds new objects. Every instrument has the
+        configuration's performance (see `get_performance`), and the one
+        analyzed by default (at its `instrument_index`, the first of the
+        parts of one view) has its resources (see `get_resources`), so that
+        the totals of a satellite's instruments count them once.
 
         Args:
             configuration (str | None): The identifier of the configuration, or a
@@ -1204,10 +1432,18 @@ class InstrumentEntry(_CatalogModel):
                 f"configuration {key!r} of {self.id!r} is a sounding, analyzed "
                 "without an attitude"
             )
+        performance, resources = (
+            self.get_performance(key),
+            self.get_resources(key),
+        )
         return InstrumentPayload(
             instruments=[
-                instrument.construct_instrument(tailored)
-                for instrument in selected.instruments
+                instrument.construct_instrument(
+                    tailored,
+                    performance=performance,
+                    resources=resources if i == selected.instrument_index else None,
+                )
+                for i, instrument in enumerate(selected.instruments)
             ],
             attitude=(
                 None

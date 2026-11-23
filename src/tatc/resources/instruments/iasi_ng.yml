@@ -10,6 +10,34 @@ data_products:
     url: https://data.eumetsat.int/product/EO:EUM:DAT:0892
     access: registration
 default_configuration: swath
+performance:
+  reference_altitude: 835000
+  ground_sample_distance: 12000
+  ground_sample_distance_exponent: 1
+  provenance:
+    reference_altitude:
+      kind: nominal
+      source: "WMO OSCAR/Space, Metop-SG-A1: \"835 km\" (https://space.oscar.wmo.int/satellites/view/metop_sg_a1)"
+    ground_sample_distance:
+      kind: nominal
+      source: "WMO OSCAR/Space, IASI-NG: \"4 x 4 12-km IFOV's regularly spread within the 100 x 100 km2 FOV\" (https://space.oscar.wmo.int/instruments/view/iasi_ng)"
+    ground_sample_distance_exponent:
+      kind: derived
+      source: "A fixed angular resolution projects to a ground distance proportional to altitude"
+resources:
+  mass: 360
+  power: 500
+  data_rate: 6000000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, IASI-NG: \"360 kg\" (https://space.oscar.wmo.int/instruments/view/iasi_ng)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, IASI-NG: \"500 W\" (https://space.oscar.wmo.int/instruments/view/iasi_ng)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, IASI-NG: \"6 Mbps\" (https://space.oscar.wmo.int/instruments/view/iasi_ng)"
 configurations:
   swath:
     grade: timing

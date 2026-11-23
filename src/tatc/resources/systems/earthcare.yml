@@ -10,6 +10,24 @@ spacecraft:
     norad_id: 59908
     status: operational
     as_of: 2026-11-07
+    resources: &resources_earthcare
+      launch_mass: 2200
+      power: 1700
+      design_life: 3
+      downlink_rate: 150000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "ESA, EarthCARE facts and figures: \"Mass 2200 kg (including a maximum of 310 kg fuel)\" (https://www.esa.int/Applications/Observing_the_Earth/FutureEO/EarthCARE/Facts_and_figures)"
+        power:
+          kind: nominal
+          source: "ESA, EarthCARE facts and figures: \"Power 1.7 kW (end-of-life orbit average)\" (https://www.esa.int/Applications/Observing_the_Earth/FutureEO/EarthCARE/Facts_and_figures)"
+        design_life:
+          kind: nominal
+          source: "ESA, EarthCARE facts and figures: \"Life Minimum of three years\" (https://www.esa.int/Applications/Observing_the_Earth/FutureEO/EarthCARE/Facts_and_figures)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, EarthCARE: \"Payload data will be transferred at a rate of up to 150 Mbit/s via X-band\" (https://www.eoportal.org/satellite-missions/earthcare)"
 default_configuration: plane
 configurations:
   plane:

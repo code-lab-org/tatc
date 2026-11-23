@@ -10,16 +10,78 @@ spacecraft:
     norad_id: 43013
     status: operational
     as_of: 2026-11-09
+    resources: &resources_noaa_20
+      launch_mass: 2229
+      power: 1650
+      design_life: 7
+      downlink_rate: 300000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "Asbury and Scott, JPSS-1, 34th Space Symposium (2018): \"the JPSS-1 satellite has a launch mass of 2,229 kg\" (https://www.spacesymposium.org/wp-content/uploads/2017/10/Asbury-Scott_JPSS-1-Building-the-Nations-Next-Generation-Operational-Weather-Satellite.pdf); OSCAR and eoPortal give 2540 kg"
+        power:
+          kind: nominal
+          source: "Asbury and Scott, JPSS-1, 34th Space Symposium (2018): \"1650 Watts orbit-average power available at the end of life\" (https://www.spacesymposium.org/wp-content/uploads/2017/10/Asbury-Scott_JPSS-1-Building-the-Nations-Next-Generation-Operational-Weather-Satellite.pdf)"
+        design_life:
+          kind: nominal
+          source: "Asbury and Scott, JPSS-1, 34th Space Symposium (2018): \"with a 7-year design lifetime\" (https://www.spacesymposium.org/wp-content/uploads/2017/10/Asbury-Scott_JPSS-1-Building-the-Nations-Next-Generation-Operational-Weather-Satellite.pdf)"
+        downlink_rate:
+          kind: nominal
+          source: "Asbury and Scott, JPSS-1, 34th Space Symposium (2018): \"a gimbaled Ka-band antenna providing a 300 Mbit/s downlink\" (https://www.spacesymposium.org/wp-content/uploads/2017/10/Asbury-Scott_JPSS-1-Building-the-Nations-Next-Generation-Operational-Weather-Satellite.pdf)"
   - id: noaa-21
     name: NOAA-21
     norad_id: 54234
     status: operational
     as_of: 2026-11-09
+    resources: &resources_noaa_21
+      launch_mass: 2930
+      power: 4450
+      design_life: 7
+      downlink_rate: 261000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "eoPortal, NOAA-20 (JPSS-2): \"It had a launch mass of 2930 kg\" (https://www.eoportal.org/satellite-missions/noaa-20)"
+        power:
+          kind: nominal
+          source: "eoPortal, NOAA-20 (JPSS-2): \"a deployable five-panel solar array capable of generating 4450 W\" (https://www.eoportal.org/satellite-missions/noaa-20)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, NOAA-20 (JPSS-2): \"Each of the satellites has a lifespan of at least 7 years.\" (https://www.eoportal.org/satellite-missions/noaa-20)"
+        downlink_rate:
+          kind: nominal
+          source: "WMO OSCAR/Space, NOAA-21: \"SMD ... 261000 kbps Stored Mission Data (info data rate)\" (https://space.oscar.wmo.int/satellites/view/noaa_21)"
   - id: suomi-npp
     name: Suomi NPP
     norad_id: 37849
     status: retired
     as_of: 2026-11-02
+    resources: &resources_suomi_npp
+      launch_mass: 2128
+      dry_mass: 1400
+      power: 2285
+      design_life: 5
+      storage: 280000000000
+      downlink_rate: 300000000
+      provenance:
+        launch_mass:
+          kind: nominal
+          source: "WMO OSCAR/Space, Suomi NPP: \"Mass at launch 2128 kg\" (https://space.oscar.wmo.int/satellites/view/snpp)"
+        dry_mass:
+          kind: nominal
+          source: "eoPortal, Suomi NPP: \"The S/C dry mass is about 1400 kg.\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+        power:
+          kind: nominal
+          source: "WMO OSCAR/Space, Suomi NPP: \"Power 2285 W\" (https://space.oscar.wmo.int/satellites/view/snpp)"
+        design_life:
+          kind: nominal
+          source: "eoPortal, Suomi NPP: \"The spacecraft has an on-orbit design lifetime of 5 years\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+        storage:
+          kind: nominal
+          source: "eoPortal, Suomi NPP: \"a solid-state recorder of about 280 Gbit capacity\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+        downlink_rate:
+          kind: nominal
+          source: "eoPortal, Suomi NPP: \"Downlink data rate 300 Mbit/s in X-band\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
 default_configuration: plane
 configurations:
   plane:

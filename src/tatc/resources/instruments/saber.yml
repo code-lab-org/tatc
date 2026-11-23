@@ -10,6 +10,20 @@ data_products:
     url: https://saber.gats-inc.com/data.php
     access: open
 default_configuration: north_viewing
+resources:
+  mass: 62
+  power: 64
+  data_rate: 4000
+  provenance:
+    mass:
+      kind: nominal
+      source: "WMO OSCAR/Space, SABER: \"62 kg\" (https://space.oscar.wmo.int/instruments/view/saber)"
+    power:
+      kind: nominal
+      source: "WMO OSCAR/Space, SABER: \"64 W\" (https://space.oscar.wmo.int/instruments/view/saber)"
+    data_rate:
+      kind: nominal
+      source: "WMO OSCAR/Space, SABER: \"4 kbps\" (https://space.oscar.wmo.int/instruments/view/saber)"
 configurations:
   north_viewing:
     grade: timing

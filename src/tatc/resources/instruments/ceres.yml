@@ -14,6 +14,20 @@ data_products:
     url: https://asdc.larc.nasa.gov/project/CERES
     access: registration
 default_configuration: swath_noaa_20
+resources:
+  mass: 57
+  power: 50
+  data_rate: 10500
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"57 kg/scanner\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+    power:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"50 W (average) per scanner\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
+    data_rate:
+      kind: nominal
+      source: "eoPortal, Suomi NPP: \"10.5 kbit/scanner (average)\" (https://www.eoportal.org/satellite-missions/suomi-npp)"
 configurations:
   swath_noaa_20:
     grade: coverage

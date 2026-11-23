@@ -10,6 +10,20 @@ data_products:
     url: https://disc.gsfc.nasa.gov/datasets/GPM_1CTRMMTMI_08/summary
     access: registration
 default_configuration: feeds
+resources:
+  mass: 65
+  power: 50
+  data_rate: 8800
+  provenance:
+    mass:
+      kind: nominal
+      source: "eoPortal, TRMM: \"instrument mass =65 kg\" (https://www.eoportal.org/satellite-missions/trmm)"
+    power:
+      kind: nominal
+      source: "eoPortal, TRMM: \"power = 50W\" (https://www.eoportal.org/satellite-missions/trmm)"
+    data_rate:
+      kind: nominal
+      source: "eoPortal, TRMM: \"Data rate = 8.8 kbit/s\" (https://www.eoportal.org/satellite-missions/trmm)"
 configurations:
   feeds:
     grade: timing
