@@ -657,6 +657,35 @@ class TestLoading(unittest.TestCase):
         with self.assertRaises(ValueError):
             list_systems(system_class="balloon")
 
+    def test_list_by_grade(self):
+        """
+        Test that systems are selected by their tier for a use, the lowest of
+        their configurations that serve it: a system partial for the planes of its
+        orbits may be validated for its ground track, a ground track configuration
+        serves the plane grade, and a grade selects the systems with a
+        configuration for it.
+        """
+        sentinel_1 = get_system("sentinel_1")
+        self.assertEqual(sentinel_1.get_tier().value, "partial")
+        self.assertEqual(sentinel_1.get_tier("ground_track").value, "validated")
+        # the plane grade takes the plane configuration, partial, as well
+        self.assertEqual(sentinel_1.get_tier("plane").value, "partial")
+        self.assertIsNone(sentinel_1.get_tier("siting"))
+        validated = [s.id for s in list_systems(tier="validated")]
+        for_tracks = [
+            s.id for s in list_systems(tier="validated", grade="ground_track")
+        ]
+        self.assertIn("sentinel_1", for_tracks)
+        self.assertNotIn("sentinel_1", validated)
+        self.assertNotIn("gpm", for_tracks)
+        self.assertEqual([s.id for s in list_systems(grade="coverage")], ["nexrad"])
+        self.assertEqual(
+            [s.id for s in list_systems(satellite=False, grade="siting")],
+            [s.id for s in list_systems(satellite=False)],
+        )
+        with self.assertRaises(ValueError):
+            list_systems(grade="pixels")
+
     def test_loaded_copies_independent(self):
         """
         Test that changing a loaded system does not change later ones.

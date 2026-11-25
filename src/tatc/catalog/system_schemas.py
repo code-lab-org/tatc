@@ -628,6 +628,33 @@ class SystemEntry(_CatalogModel):
         """
         return evaluate_system(self)
 
+    def get_tier(self, grade: SystemGrade | str | None = None) -> Tier | None:
+        """
+        Gets the tier of this system for a use: the system's tier (see
+        `validation`), or, for a grade, the lowest tier of its configurations
+        that serve the grade (as a configuration at the ground track grade serves
+        the plane grade, see `tatc.catalog.system_standard.serves_system`), as a
+        system is only as strong as its weakest configuration. A system that is
+        partial for one use may be validated for another (such as its ground
+        track).
+
+        Args:
+            grade (SystemGrade | str | None): The grade of the use, or `None` for
+                the system's tier.
+
+        Returns:
+            Tier | None: The tier, or `None` if no configuration serves the grade.
+        """
+        validation = self.validation
+        if grade is None:
+            return validation.tier
+        tiers = [
+            validation.configurations[key].tier
+            for key, configuration in self.configurations.items()
+            if configuration.serves(grade)
+        ]
+        return min(tiers, key=lambda tier: tier.rank) if tiers else None
+
     def get_digest(self, configuration: str) -> str:
         """
         Gets the digest of the values of a configuration that affect analysis
