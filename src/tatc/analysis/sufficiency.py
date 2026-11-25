@@ -372,10 +372,17 @@ def estimate_sampling_error(
     index = pd.Index(keys).get_indexer(result["target_hash"].to_numpy())
     found = index >= 0
     picked = np.where(found, index, 0)
-    sample_counts = np.where(found, counts[picked], 0).astype(int)
-    relative_error = np.sqrt(np.where(found, variance[picked], np.nan))
+
+    def per_target(values: np.ndarray, missing: float) -> np.ndarray:
+        # (without samples, there are no groups to pick from)
+        if len(keys) == 0:
+            return np.full(len(index), missing, dtype=float)
+        return np.where(found, values[picked], missing)
+
+    sample_counts = per_target(counts, 0).astype(int)
+    relative_error = np.sqrt(per_target(variance, np.nan))
     with np.errstate(divide="ignore"):
-        effective = np.where(found, 1 / pairs[picked], 0.0)
+        effective = per_target(1 / pairs, 0.0)
     if isinstance(standard_deviation, (Mapping, pd.Series)):
         sigma = result["target_hash"].map(standard_deviation).to_numpy(dtype=float)
     else:

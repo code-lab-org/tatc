@@ -30,6 +30,7 @@ Changed:
 Fixed:
  - `analysis.collect_footprint_observations` failed for the footprints of radar stations with pandas 3.
  - `analysis.compute_latencies` missed a contact in progress when another contact (with another ground station or a relay) that had not started ended first, downlinking the observation later.
+ - `analysis.estimate_sampling_error` failed (with an `IndexError`) for observations without any rows, rather than giving every target no samples and no error.
 
 ## 3.7.0
 
