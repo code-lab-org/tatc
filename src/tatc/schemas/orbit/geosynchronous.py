@@ -11,8 +11,10 @@ from typing import Literal
 
 import numpy as np
 from pydantic import AliasChoices, Field
+from skyfield.api import wgs84
 
 from ... import constants, utils
+from ...utils.cache import get_cached
 from .base_circular import CircularOrbitBase
 from .gp import GeneralPerturbationsOrbit
 
@@ -22,6 +24,9 @@ _GEOSYNCHRONOUS_MEAN_ALTITUDE = (
     utils.orbital.mean_motion_to_semimajor_axis(360 / constants.EARTH_SIDEREAL_DAY_S)
     - constants.EARTH_MEAN_RADIUS
 )
+# the corrections of the node that place the sub-satellite point at epoch, at most,
+# and the error (degrees) at which they stop
+_NODE_ITERATIONS, _NODE_TOLERANCE = 5, 1e-9
 
 
 class GeosynchronousOrbit(CircularOrbitBase):
@@ -69,20 +74,62 @@ class GeosynchronousOrbit(CircularOrbitBase):
 
     def get_right_ascension_ascending_node(self) -> float:
         """
-        Gets the right ascension of ascending node, derived from this
-        orbit's fixed longitude and Earth's rotation angle (Greenwich
-        Apparent Sidereal Time) at epoch, since a geosynchronous satellite
-        remains above a fixed Earth-relative longitude rather than a
-        fixed inertial-frame RAAN. As with SunSynchronousOrbit's
-        equator-crossing-time convention, this is computed independently
-        of true_anomaly.
+        Gets the right ascension of ascending node, derived from this orbit's
+        fixed longitude, since a geosynchronous satellite remains above a fixed
+        Earth-relative longitude rather than a fixed inertial-frame RAAN: the node
+        (in the TEME frame of SGP4) that places the satellite's sub-satellite
+        point at epoch at the orbit's longitude, rotated by its argument of
+        latitude (its true anomaly and argument of perigee), as SGP4 propagates
+        it (see `to_gp_orbit`).
+
+        The node starts from the Earth's rotation angle that orients TEME
+        (Greenwich Mean Sidereal Time) at epoch plus the longitude, and is
+        corrected for the periodic lunar and solar terms of SGP4's deep-space
+        propagation, which displace the satellite at its epoch from the position
+        of its mean elements (by up to about 0.04 degrees, by the date). As with
+        SunSynchronousOrbit's equator-crossing-time convention, the longitude is
+        that of the node, independent of the true anomaly.
+
+        Returns:
+            float: the right ascension of ascending node (degrees)
+        """
+        return get_cached(
+            self,
+            "right_ascension_ascending_node",
+            self.model_dump_json(),
+            self._compute_right_ascension_ascending_node,
+        )
+
+    def _compute_right_ascension_ascending_node(self) -> float:
+        """
+        Computes the right ascension of ascending node (see
+        `get_right_ascension_ascending_node`), without caching.
 
         Returns:
             float: the right ascension of ascending node (degrees)
         """
         epoch_time = constants.timescale.from_datetime(self.epoch)
-        earth_rotation_angle = epoch_time.gast * 15  # hours -> degrees
-        return (earth_rotation_angle + self.longitude) % 360
+        # the longitude of the sub-satellite point, from the node's longitude and
+        # the argument of latitude
+        latitude_argument = np.radians(
+            self.get_perigee_argument() + self.get_true_anomaly()
+        )
+        inclination = np.radians(self.inclination)
+        expected = self.longitude + np.degrees(
+            np.arctan2(
+                np.cos(inclination) * np.sin(latitude_argument),
+                np.cos(latitude_argument),
+            )
+        )
+        node = epoch_time.gmst * 15 + self.longitude  # hours -> degrees
+        for _ in range(_NODE_ITERATIONS):
+            track = self._build_gp_orbit(node).get_orbit_track(self.epoch)
+            error = (expected - wgs84.subpoint_of(track).longitude.degrees + 180) % 360
+            error -= 180
+            node += error
+            if abs(error) < _NODE_TOLERANCE:
+                break
+        return float(node % 360)
 
     def get_derived_orbit(
         self, delta_mean_anomaly: float, delta_raan: float
@@ -121,8 +168,36 @@ class GeosynchronousOrbit(CircularOrbitBase):
         Returns:
             GeneralPerturbationsOrbit: the general perturbations orbit
         """
+        return self._build_gp_orbit(self.get_right_ascension_ascending_node())
+
+    def _build_gp_orbit(self, node: float) -> GeneralPerturbationsOrbit:
+        """
+        Builds the general perturbations orbit of this orbit with a right
+        ascension of ascending node, maintained at its longitude on a repeat
+        ground track with a repeat cycle of one nodal day.
+
+        Args:
+            node (float): The right ascension of ascending node (degrees).
+
+        Returns:
+            GeneralPerturbationsOrbit: the general perturbations orbit
+        """
+        # deferred import to avoid a circular import (keplerian.py imports the
+        # orbit base module)
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from .keplerian import KeplerianOrbit
+
+        elements = KeplerianOrbit(
+            semimajor_axis=self.get_semimajor_axis(),
+            inclination=self.get_inclination(),
+            right_ascension_ascending_node=node % 360,
+            eccentricity=self.get_eccentricity(),
+            perigee_argument=self.get_perigee_argument(),
+            true_anomaly=self.get_true_anomaly(),
+            epoch=self.get_epoch(),
+        ).to_gp_orbit()
         return GeneralPerturbationsOrbit(
-            elements=super()._compute_gp_orbit().elements,
+            elements=elements.elements,
             remove_drag=True,
             repeat_cycle=timedelta(days=1),
         )

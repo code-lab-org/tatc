@@ -7,6 +7,7 @@ Unit tests for the GeosynchronousOrbit schema.
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 from pydantic import ValidationError
 
 from tatc import constants
@@ -118,20 +119,53 @@ class TestGeosynchronousOrbit(unittest.TestCase):
             delta=1.0,
         )
 
-    def test_get_right_ascension_ascending_node_at_greenwich_matches_gast(self):
+    def test_get_right_ascension_ascending_node_near_gmst(self):
         """
-        Test that a satellite at longitude 0 (the Greenwich meridian) has
-        a right ascension of ascending node exactly equal to Earth's
-        rotation angle (Greenwich Apparent Sidereal Time) at epoch -- the
-        defining relationship between Earth-fixed longitude and inertial
-        right ascension.
+        Test that a satellite at longitude 0 (the Greenwich meridian) has a right
+        ascension of ascending node near Earth's rotation angle that orients the
+        TEME frame of SGP4 (Greenwich Mean Sidereal Time) at epoch, within the
+        correction for SGP4's lunar and solar terms (up to about 0.04 deg).
         """
         epoch = datetime(2022, 6, 15, 6, 0, 0, tzinfo=timezone.utc)
         o = GeosynchronousOrbit(longitude=0, epoch=epoch)
-        expected_raan = constants.timescale.from_datetime(epoch).gast * 15 % 360
-        self.assertAlmostEqual(
-            o.get_right_ascension_ascending_node(), expected_raan, delta=1e-6
+        gmst = constants.timescale.from_datetime(epoch).gmst * 15 % 360
+        self.assertAlmostEqual(o.get_right_ascension_ascending_node(), gmst, delta=0.05)
+
+    def test_longitude_at_epoch(self):
+        """
+        Test that the sub-satellite point at epoch is at the orbit's longitude on
+        every month of a year, whose SGP4 lunar and solar terms differ (they
+        displaced it by up to about 0.04 deg before the node was corrected).
+        """
+        for month in range(1, 13):
+            for longitude in (-75.2, 0.0, 140.7):
+                epoch = datetime(2026, month, 1, tzinfo=timezone.utc)
+                orbit = GeosynchronousOrbit(longitude=longitude, epoch=epoch)
+                position = orbit.to_gp_orbit().get_geographic_position(epoch)
+                self.assertAlmostEqual(
+                    position.longitude.degrees, longitude, delta=1e-6, msg=epoch
+                )
+                # the lunar and solar terms also move its latitude, by up to about
+                # 0.004 deg, which the node does not correct
+                self.assertAlmostEqual(position.latitude.degrees, 0, delta=0.01)
+
+    def test_longitude_at_epoch_with_argument_of_latitude(self):
+        """
+        Test that a satellite offset in true anomaly (as in a constellation) and
+        inclined lies at the longitude its argument of latitude gives, from the
+        orbit's longitude at its node.
+        """
+        epoch = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+        orbit = GeosynchronousOrbit(
+            longitude=10.0, inclination=5.0, true_anomaly=30.0, epoch=epoch
         )
+        expected = 10.0 + np.degrees(
+            np.arctan2(
+                np.cos(np.radians(5)) * np.sin(np.radians(30)), np.cos(np.radians(30))
+            )
+        )
+        position = orbit.to_gp_orbit().get_geographic_position(epoch)
+        self.assertAlmostEqual(position.longitude.degrees, expected, delta=1e-6)
 
     def test_get_right_ascension_ascending_node_wraps_to_0_360(self):
         """
