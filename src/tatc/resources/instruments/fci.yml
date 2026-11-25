@@ -51,7 +51,7 @@ configurations:
     grade: coverage
     description: The Earth's disk, as imaged by a full-disk scan.
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -67,7 +67,7 @@ configurations:
     grade: coverage
     description: Where the land surface temperature is retrieved (local zenith angle up to 70 degrees).
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -83,7 +83,7 @@ configurations:
     grade: coverage
     description: Where the sea surface temperature is of acceptable quality or better (quality levels 4 and 5, local zenith angle up to 65 degrees).
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -134,4 +134,5 @@ configurations:
       - The products are navigated to the grid seen from the nominal position, whereas a satellite's element sets lie up to a few hundredths of a degree from it, which moves a view projected from the satellite's position by kilometers. The configuration's along-track and cross-track directions are east and north only in the inertial frame.
       - "The grid is that of the infrared bands in the normal mode. The visible and near-infrared bands' grid is twice as fine, and the high-resolution mode's grids twice as fine again."
 limitations:
+  - A geostationary satellite barely moves relative to the Earth, so every configuration uses the inertial frame, in which its motion, and so the along-track direction, is east (the coverage configurations, whose views are cones about nadir, do not depend on it).
   - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the rapid scans of Europe.

@@ -2,9 +2,9 @@
   "entry_id": "ahi",
   "configurations": {
     "full_disk": {
-      "digest": "5d2ecc67bdbb68e12af30c19e66df0aaa5fcf3e4ff2b13907a799b4f1aeea633",
-      "standard_version": 2,
-      "tatc_version": "3.6.0",
+      "digest": "19014f7e41355f5437677195c21b8f8fea8936ebbe9eaa304da4ee0f9c99b1d7",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ahi.py",
       "reference": "AHI-CMSK cloud mask, every 8th pixel",
       "period": "2026-11-08T12:00Z",
@@ -29,9 +29,9 @@
       }
     },
     "cloud_top_height": {
-      "digest": "c8a8fcb28e64996bea02ea074e53c4519119687b7252385dd2a7eac09dffaff9",
-      "standard_version": 2,
-      "tatc_version": "3.6.0",
+      "digest": "05df7f70898a281fa00d84a2679cf3d52b0087a2b70d2dfd0d37f97e44225ddb",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ahi.py",
       "reference": "AHI-CHGT cloud top height, the greatest local zenith angle at which it is retrieved",
       "period": "2026-11-08T12:00Z",

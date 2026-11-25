@@ -592,6 +592,24 @@ class TestLoading(unittest.TestCase):
                     (entry.id, key),
                 )
 
+    def test_velocity_frame_of_platform(self):
+        """
+        Test that the configurations of an entry on a platform share its velocity
+        frame, which sets the spacecraft's attitude (yaw steering, or the inertial
+        frame of a geostationary satellite), whatever their grades.
+        """
+        for entry in list_entries():
+            frames = {}
+            for key, configuration in entry.configurations.items():
+                for platform in configuration.platforms:
+                    frames.setdefault(platform, {})[
+                        key
+                    ] = configuration.velocity_frame.value
+            for platform, by_key in frames.items():
+                self.assertEqual(
+                    len(set(by_key.values())), 1, (entry.id, platform, by_key)
+                )
+
     def test_platform_names(self):
         """
         Test that, in an entry with configurations fitted on more than one platform,
@@ -1288,13 +1306,15 @@ class TestEntryStatus(unittest.TestCase):
             )
         )
 
-    def test_abi_builds_without_attitude(self):
+    def test_earth_fixed_builds_without_attitude(self):
         """
         Test that an Earth-fixed configuration without other attitude fields
-        builds as it was tested, without an attitude.
+        builds as it was tested, without an attitude, and that an inertial one
+        (as every geostationary configuration is) builds with an inertial attitude.
         """
+        self.assertIsNone(get_entry("mhs").build(configuration="beams").attitude)
         payload = get_entry("abi").build()
-        self.assertIsNone(payload.attitude)
+        self.assertEqual(payload.attitude.velocity_frame, VelocityFrame.INERTIAL)
         self.assertIsInstance(payload.instruments[0], Instrument)
 
 

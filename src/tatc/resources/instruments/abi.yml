@@ -51,7 +51,7 @@ configurations:
     grade: coverage
     description: The Earth's disk, as imaged by a full-disk scan.
     platforms: [goes-19]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -67,7 +67,7 @@ configurations:
     grade: coverage
     description: Where the sea surface temperature product is of good quality (local zenith angle up to 67 degrees).
     platforms: [goes-19]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -81,7 +81,7 @@ configurations:
     grade: coverage
     description: Where the land surface temperature product is of good quality (local zenith angle up to 55 degrees).
     platforms: [goes-19]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -130,5 +130,6 @@ configurations:
       - The products are navigated to the grid seen from the nominal position, whereas a satellite's element sets lie up to a few hundredths of a degree from it, which moves a view projected from the satellite's position by kilometers. The configuration's along-track and cross-track directions are east and north only in the inertial frame.
       - "The grid is that of the infrared bands. The visible and near-infrared bands' grids are two (28 urad) and four (14 urad) times as fine; the detectors' instantaneous fields of view differ from the grid's angle (GOES-R Series Data Book, Table 3-1)."
 limitations:
+  - A geostationary satellite barely moves relative to the Earth, so every configuration uses the inertial frame, in which its motion, and so the along-track direction, is east (the coverage configurations, whose views are cones about nadir, do not depend on it).
   - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the mesoscale and CONUS sectors.
   - On GOES-18 (GOES-West, 137.2 deg W), recorded as a transfer (full-disk products of 2026-11-17 at 12:00 UTC, with a public element set), every imaged pixel was observed, with elevation angles within 0.0006 deg, and the product limits were within 0.37 deg (sea surface temperature) and 0.25 deg (land surface temperature). Using the configurations on GOES-18 warns, as for any platform on which they were not validated.

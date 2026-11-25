@@ -2,9 +2,9 @@
   "entry_id": "abi",
   "configurations": {
     "full_disk": {
-      "digest": "0f24250ef8d0f2c98436fe13b243610e5617b920edc31c6c4ea794c3b1326e73",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "24161a7680309cc73a692c947966db61105310a9021b648a064cd389fe5be424",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-ACMF clear sky mask, every 8th pixel",
       "period": "2026-10-03T12:00Z",
@@ -19,7 +19,7 @@
         },
         {
           "name": "elevation_error_max",
-          "value": 0.00037989186479592263
+          "value": 0.00037989186472486836
         }
       ],
       "transfers": {
@@ -39,13 +39,13 @@
       },
       "fixture_metrics": {
         "imaged_pixels_observed": 100.0,
-        "elevation_error_max": 0.00037431447341873536
+        "elevation_error_max": 0.0003743144734329462
       }
     },
     "sst_good_quality": {
-      "digest": "61f9d59e6d03c56b386b70e62a6f025e9f21eacfcd6bec545120e5d067823023",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "748354c2ce29dc281316954b6707255e4460bc98471315c163dab317e46913ef",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-SSTF SST and quality flags",
       "period": "2026-10-03T12:00Z",
@@ -83,9 +83,9 @@
       }
     },
     "lst_good_quality": {
-      "digest": "3c44900855e1fb4542e9f2948171c27c9cec3723ff52a082ecc9d919bf13ffb9",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "d5ae3d7caea6bbbabab4317e47c6e363a016ae69e5c7fe4b75041eff9feef08b",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-LSTF LST and quality flags",
       "period": "2026-10-03T12:00Z",
@@ -119,7 +119,7 @@
         }
       },
       "fixture_metrics": {
-        "product_limit": 0.2588730783312698
+        "product_limit": 0.2588730783312627
       }
     },
     "pixels": {
