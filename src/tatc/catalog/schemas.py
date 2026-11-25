@@ -139,8 +139,14 @@ def _check_sourced(model: Any, paired: Mapping[str, str] | None = None) -> None:
     Checks that a model of sourced values gives at least one value and a
     provenance for each value given (and only those), and that each value
     given of `paired` gives the value it is paired with (such as its exponent).
+    A value set to `None` (as a model dumped with its defaults gives it) is not
+    given.
     """
-    given = set(model.model_fields_set) - {"provenance"}
+    given = {
+        name
+        for name in model.model_fields_set - {"provenance"}
+        if getattr(model, name) is not None
+    }
     if not given:
         raise ValueError("sourced values need at least one value")
     _check_provenance(given, model.provenance)
