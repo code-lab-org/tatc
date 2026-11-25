@@ -103,6 +103,77 @@ configurations:
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
+  beams_tropics_03:
+    grade: sample_size
+    description: The 81 spots of a scan of TROPICS-03's 118 GHz band, at the roll of its swath, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [tropics-03]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters: &beam_parameters
+          name: TROPICS 118 GHz
+          field_of_regard: 121.5
+          cross_track_field_of_view: 121.5
+          along_track_field_of_view: 1.5
+          cross_track_pixels: 81
+          roll_angle: -2.0254
+          is_rectangular: true
+          cross_track_oversampling: 0.427481
+          along_track_oversampling: 0.375
+          scan_period: 2.0
+        provenance: &beam_provenance_03
+          field_of_regard: &nominal_sampling
+            kind: nominal
+            source: "TROPICS L1 Radiance ATBD (TRPCS-ATBD-034 Rev 2.0, 2021), Table 2: \"Maximum Earth View Sector Angle ... ±60\", \"81 per scan (one at nadir)\", so spots are spaced 1.5 deg (https://ntrs.nasa.gov/api/citations/20210018919/downloads/TRPCS-ATBD-034_L1rad_V2pt0.pdf)"
+          cross_track_field_of_view: *nominal_sampling
+          along_track_field_of_view: *nominal_sampling
+          cross_track_pixels: *nominal_sampling
+          roll_angle: *measured_03
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &cross_oversampling
+            kind: derived
+            source: "One minus the spot spacing of 1.5 deg divided by the cross-track beam width of the 118 GHz band (F) of the TROPICS L1 Radiance ATBD, Table 1, 2.62 deg (\"2.4/2.62\", down/cross), which includes the smearing of the beam during the 1/120 s integration"
+          along_track_oversampling:
+            kind: derived
+            source: "One minus the spot spacing of 1.5 deg divided by the down-track beam width of the 118 GHz band (F) of the TROPICS L1 Radiance ATBD, Table 1, 2.4 deg"
+          scan_period:
+            kind: nominal
+            source: "TROPICS L1 Radiance ATBD, Table 2: \"Rotation Period ... 2\" s"
+    limitations:
+      - &tropics_pixels Pixels are projected at the time of the middle spot of a scan, whereas the radiometer samples its spots over about 0.67 s, and with the roll of the swath, whereas the satellites' pointing varies from scan to scan, so pixels lie a few kilometers from the spots (median), and farther in scans flown reversed.
+  beams_tropics_05:
+    grade: sample_size
+    description: The 81 spots of a scan of TROPICS-05's 118 GHz band, at the roll of its swath, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [tropics-05]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          roll_angle: 1.6739
+        provenance:
+          <<: *beam_provenance_03
+          roll_angle: *measured_05
+    limitations:
+      - *tropics_pixels
+  beams_tropics_06:
+    grade: sample_size
+    description: The 81 spots of a scan of TROPICS-06's 118 GHz band, at the roll of its swath, whose footprints and spacing `compute_sample_sizes` gives.
+    platforms: [tropics-06]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          roll_angle: -0.1555
+        provenance:
+          <<: *beam_provenance_03
+          roll_angle: *measured_06
+    limitations:
+      - *tropics_pixels
+      - On the held-out day (2024-10-01), the pixels lay 32.5 km from the spots (median), beyond the gate's 6 km, as the product places the satellite about 21 km ahead of every element set of the day (see the swath). They lay 10.3 km from them on 2024-09-20, and 6.0 km on the fitting day (2024-08-15), whereas TROPICS-03's and TROPICS-05's lie about 3.8 km from theirs, so the offset is that of TROPICS-06's product rather than of the configuration, which shares their sampling.
 limitations:
   - Each satellite's scan is off center by up to about 2 deg, on a side that differs between satellites, so each has its own configuration.
   - The satellites' pointing varies from scan to scan, the roll of the scan's edges by about 1.2 deg between the 5th and 95th percentiles, and by about 0.15 deg between days, which moves the edges of the swath by several kilometers, so swath widths differ from the view's by about 6 to 11 km (median), and the configurations are at the coverage grade, as epochs are within about 1.5 s (95th percentile).

@@ -11,6 +11,7 @@
       "platforms": [
         "tropics-03"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -49,6 +50,7 @@
       "platforms": [
         "tropics-05"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -87,6 +89,7 @@
       "platforms": [
         "tropics-06"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -113,6 +116,141 @@
       "fixture_metrics": {
         "passes_found": 96.66666666666667,
         "epoch_p95": 5.577971716599999
+      }
+    },
+    "beams_tropics_03": {
+      "digest": "05676755fae66e2a912484884263bd55809e38054c2762e10eccb1fe1507212a",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "Footprints of the TROPICS L1 Radiance ATBD; 118 GHz spot positions of TROPICS03BRTTL1B",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-03"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.783915445918317
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.8440132855100035
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 57.424850778871196
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9996062953193684
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.999469121022495
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 3.8942027506251193,
+        "spacing_along_ratio_median": 0.9998170408033995,
+        "spacing_cross_ratio_median": 0.9994237362880252
+      }
+    },
+    "beams_tropics_05": {
+      "digest": "fd094321bb541c372a7d82e5b12e69343c1edc139afa68d19c41980df4369193",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "Footprints of the TROPICS L1 Radiance ATBD; 118 GHz spot positions of TROPICS05BRTTL1B",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-05"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.783915445918317
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.655187252848595
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 19.599298403371325
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9984938215595427
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.999760565408847
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 3.5439331439266946,
+        "spacing_along_ratio_median": 0.9981055537947778,
+        "spacing_cross_ratio_median": 0.9996461940898705
+      }
+    },
+    "beams_tropics_06": {
+      "digest": "b4bc372dbf8aadff4ad9358f0d4b3f95de9c1f0c0bd53a082cc7fbb361873e90",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_tropics.py",
+      "reference": "Footprints of the TROPICS L1 Radiance ATBD; 118 GHz spot positions of TROPICS06BRTTL1B",
+      "period": "2024-10-01",
+      "platforms": [
+        "tropics-06"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.783915445918317
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 32.495275559453134
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 49.555943743083134
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9921336521499844
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000482056486315
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 32.35137615964348,
+        "spacing_along_ratio_median": 0.9941552253776195,
+        "spacing_cross_ratio_median": 1.002088708310747
       }
     }
   }

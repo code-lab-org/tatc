@@ -51,7 +51,7 @@ configurations:
     grade: coverage
     description: The Earth's disk, as imaged by a full-disk scan.
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -67,7 +67,7 @@ configurations:
     grade: coverage
     description: Where the land surface temperature is retrieved (local zenith angle up to 70 degrees).
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -83,7 +83,7 @@ configurations:
     grade: coverage
     description: Where the sea surface temperature is of acceptable quality or better (quality levels 4 and 5, local zenith angle up to 65 degrees).
     platforms: [meteosat-12]
-    velocity_frame: earth_fixed
+    velocity_frame: inertial
     instruments:
       - type: instrument
         parameters:
@@ -95,5 +95,44 @@ configurations:
             source: compute_field_of_regard(35786e3, 90 - 65), from the bound beyond which the product gives no sea surface temperature of acceptable quality or better (validate_catalog_fci.py --fit), which the product does not declare
             platforms: [meteosat-12]
             period: "2026-10-16"
+  pixels:
+    grade: sample_size
+    description: The fixed grid of the infrared bands in the normal mode (2 km at the sub-satellite point), 5568 pixels square of 55.887 urad in scan angles, whose sizes and spacing `compute_sample_sizes` gives (east-west along track, north-south across track). Analyze it on a geosynchronous orbit at the grid's longitude (0.0 deg), to which the products are navigated.
+    platforms: [meteosat-12]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: FCI
+          field_of_regard: 20
+          cross_track_field_of_view: 17.829282
+          along_track_field_of_view: 17.829282
+          cross_track_pixels: 5568
+          along_track_pixels: 5568
+          view_geometry: scan_along_first
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the Earth's disk
+          cross_track_field_of_view: &grid
+            kind: derived
+            source: "The angle of the spatial sampling distance of 2 km at the sub-satellite point (EUMETSAT, MTG End User Requirements Document, EUM/MTG/SPE/07/0036 v5A, Table 1, and p. 77: \"requirements expressed in spatial sampling distance are taken to apply at the sub-satellite point and can be translated to a spatial sampling angle\", https://user.eumetsat.int/s3/eup-strapi-media/pdf_mtg_eurd_d7b503ecc4.pdf) from the geostationary altitude of 35,786.4 km, 55.887 urad"
+          along_track_field_of_view: *grid
+          cross_track_pixels: &size
+            kind: nominal
+            source: "EUMETSAT, MTG FCI test data description (EUM/MTG/TEN/19/1090563), p. 4: \"Size: 5568x5568 or 11136x11136 pixels, depending on the channel\""
+          along_track_pixels: *size
+          view_geometry:
+            kind: derived
+            source: "The reference grid rotates about the axis S3 and then about S2' (MTG End User Requirements Document), the convention of CGMS (a sweep about the y axis), the angles of a scan view along track first in the inertial frame"
+          is_rectangular:
+            kind: derived
+            source: Models the fixed grid as a rectangular view
+    limitations:
+      - Only sizes at the sub-satellite point are published, which the grid's angle defines, so the sample size gate is not applied.
+      - The products are navigated to the grid seen from the nominal position, whereas a satellite's element sets lie up to a few hundredths of a degree from it, which moves a view projected from the satellite's position by kilometers. The configuration's along-track and cross-track directions are east and north only in the inertial frame.
+      - "The grid is that of the infrared bands in the normal mode. The visible and near-infrared bands' grid is twice as fine, and the high-resolution mode's grids twice as fine again."
 limitations:
+  - A geostationary satellite barely moves relative to the Earth, so every configuration uses the inertial frame, in which its motion, and so the along-track direction, is east (the coverage configurations, whose views are cones about nadir, do not depend on it).
   - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the rapid scans of Europe.

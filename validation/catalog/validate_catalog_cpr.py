@@ -15,6 +15,11 @@ profiles' times and positions are read, with range requests:
     python validation/catalog/validate_catalog_cpr.py <data directory> 2026-09-27 --fit
     python validation/catalog/validate_catalog_cpr.py <data directory> 2026-11-07
 
+It also validates the entry's sample size configuration (`footprints`), following
+`validation_io.validate_footprints`: the spacing of profiles along track is compared
+with that measured, which the gate tests, and the published footprint, without the
+gate.
+
 Without a day, it takes that of the entry's record (a fit needs its day). The
 element set is the one nearest the middle of the day in
 `elements/earthcare_2026-09-27.3le` (or in a file given with `--elements`). With
@@ -36,10 +41,22 @@ from earthcare_io import (
     load_day,
     to_seconds,
     validate_profiler,
+    validate_profiler_footprints,
 )
-from validation_io import parse_run
+from validation_io import FIXTURES, Footprints, parse_run
 
 CONFIGURATION = "nadir"
+# published footprints at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), on eoPortal, which states the
+# along-track size of a profile rather than of the beam, compared without the gate
+PUBLISHED_FOOTPRINTS = (("CPR", 393.14, 97.05, 0, 1.0, 0.65),)
+FOOTPRINTS = Footprints(
+    key="footprints",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    reference="Footprint on eoPortal (not gated); profile spacing of CPR_NOM_1B",
+    fixture_path=FIXTURES / "cpr.npz",
+    gate_published=False,
+)
 
 
 def read_cpr(f, day: datetime) -> dict:
@@ -72,14 +89,17 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_profiler(
-        run,
-        CONFIGURATION,
-        profiles,
-        orbit,
-        tle,
-        "CPR_NOM_1B (profile positions and times)",
-    )
+    if FOOTPRINTS.key in run.configurations:
+        validate_profiler_footprints(run, FOOTPRINTS, profiles, orbit, tle)
+    if CONFIGURATION in run.configurations:
+        validate_profiler(
+            run,
+            CONFIGURATION,
+            profiles,
+            orbit,
+            tle,
+            "CPR_NOM_1B (profile positions and times)",
+        )
 
 
 if __name__ == "__main__":

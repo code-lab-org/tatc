@@ -10,9 +10,28 @@ import pathlib
 import re
 
 from tatc.catalog import STANDARD_VERSION, get_entry, get_entry_ids
-from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS
+from tatc.catalog.standard import MIN_HOLDOUT_GAP_DAYS, get_required_grades, serves
 
 REPOSITORY = "https://github.com/code-lab-org/tatc/blob/main/"
+
+
+def is_optional(entry, grade) -> bool:
+    """
+    Checks whether a configuration's grade is optional for its entry's class: it
+    serves none of the grades the class requires, so its tier does not set the
+    entry's.
+
+    Args:
+        entry (InstrumentEntry): The entry.
+        grade (Grade): The configuration's grade.
+
+    Returns:
+        bool: `True`, if the grade is optional.
+    """
+    return not any(
+        serves(grade, required)
+        for required in get_required_grades(entry.instrument_class)
+    )
 
 
 def escape(text: str) -> str:
@@ -131,7 +150,9 @@ def render_configuration(entry, key: str) -> str:
     parts = [
         heading(f"``{key}``{default}", "-"),
         f"**Tier:** `{validation.tier.value}`. **Grade:** "
-        f"`{configuration.grade.value}`. **Tested on:** "
+        f"`{configuration.grade.value}`"
+        + (" (optional)" if is_optional(entry, configuration.grade) else "")
+        + ". **Tested on:** "
         + ", ".join(names[p] for p in configuration.platforms)
         + ".\n",
         escape(configuration.description) + "\n",
@@ -332,8 +353,9 @@ def render() -> str:
                 f"``{e.instrument_class.value}``",
                 f"`{e.validation.tier.value}`",
                 ", ".join(
-                    f"``{key}`` ({c.grade.value}, "
-                    f"{e.validation.configurations[key].tier.value})"
+                    f"``{key}`` ({c.grade.value}"
+                    + (", optional" if is_optional(e, c.grade) else "")
+                    + f", {e.validation.configurations[key].tier.value})"
                     for key, c in e.configurations.items()
                 ),
                 ", ".join(p.name for p in e.get_spacecraft()),
@@ -358,7 +380,11 @@ and their records when the documentation is built.
 An entry's tier is computed from its results and the thresholds of
 :doc:`standard` (version {STANDARD_VERSION}), and cannot be declared. Values fitted
 to reference data are tested on data at least {MIN_HOLDOUT_GAP_DAYS} days from
-their fitting data. A `partial` entry can still be useful within its
+their fitting data. An entry's tier is set by its configurations at the
+grades its class requires; configurations at an optional grade (the sample size
+grade of the pushbroom, lidar, profiler, altimeter, geostationary, SAR, and
+scatterometer classes) have their own tiers, which do not set the entry's. An entry's tier for a use is that of its weakest
+configuration at the use's grade (`get_tier`), by which entries can be listed. A `partial` entry can still be useful within its
 limitations, which each configuration lists below; a `validated` entry also has
 limitations.
 
@@ -367,6 +393,7 @@ limitations.
     from tatc.catalog import get_entry, list_entries
 
     list_entries(tier="validated")
+    list_entries(tier="validated", grade="coverage")  # validated for coverage
     entry = get_entry("atms")
     entry.validation  # tier, gate results, and gaps of each configuration
     satellite = entry.to_satellite(orbit, time_step=10, platform="noaa-21")

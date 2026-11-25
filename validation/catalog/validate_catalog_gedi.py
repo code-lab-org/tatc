@@ -25,6 +25,11 @@ element sets of the days in `elements/iss_2026-04-01.3le` (or in a file given wi
     python validation/catalog/validate_catalog_gedi.py <data directory> 2026-05-01 --fit
     python validation/catalog/validate_catalog_gedi.py <data directory> 2026-06-08
 
+It also validates the entry's sample size configuration (`footprints`), following
+`validation_io.validate_footprints`: the spacing of each beam's shots along track is
+compared with that measured, which the gate tests, and the published footprint, the
+divergence's, without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 With `--write`, it writes the entry's validation record and the reduced fixture from
 which unit tests recompute the results.
@@ -44,16 +49,32 @@ import pandas as pd
 from tatc.schemas import GeneralPerturbationsOrbit
 from validate_catalog_atlas import add_offsets, score_views, track_bearings, write_views
 from validation_io import (
+    FIXTURES,
+    Footprints,
     RemoteFile,
     ecef,
     get_with_retries,
     login_earthdata,
+    measure_along_spacing,
     parse_run,
     up,
+    validate_footprints,
 )
 
 CONFIGURATION = "beams"
 SHORT_NAME, VERSION = "GEDI01_B", "003"
+# published footprints at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), of Dubayah et al. (2020), the
+# divergence's at the nominal altitude, compared without the gate
+PUBLISHED_FOOTPRINTS = (("GEDI BEAM0101", 410, 51.6, 0, 0.023, 0.023),)
+FOOTPRINTS = Footprints(
+    key="footprints",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    reference=f"Footprint of Dubayah et al. (2020) (not gated); shot spacing of "
+    f"{SHORT_NAME} version {VERSION} (every 200th shot of each beam)",
+    fixture_path=FIXTURES / "gedi.npz",
+    gate_published=False,
+)
 # the beams, as the product names them, from left to right of the ground track (as
 # measured on the fitting day)
 BEAMS = (
@@ -258,6 +279,34 @@ def score_spacing(entry, shots: pd.DataFrame) -> float:
     return float(np.median(errors))
 
 
+def validate_shot_spacing(run, orbit, tle, shots: pd.DataFrame) -> None:
+    """
+    Scores the footprints configuration: the published footprint, and the spacing of
+    each beam's shots along track (every 200th shot, over 200 shot periods).
+    """
+    entry = run.entry
+    satellite = entry.build(
+        configuration=FOOTPRINTS.key, orbit=orbit, platform=run.platform
+    ).to_satellite(orbit, name=entry.name)
+    period = (
+        entry.configurations[FOOTPRINTS.key].instruments[0].parameters["scan_period"]
+    )
+    rows, names = [], []
+    for (_, beam), group in shots.groupby(["file", "beam"]):
+        group = group.sort_values("gps_seconds")
+        seconds = (group.time - pd.Timestamp(run.day)).dt.total_seconds().to_numpy()
+        part = measure_along_spacing(
+            seconds,
+            group.latitude.to_numpy(),
+            group.longitude.to_numpy(),
+            SHOT_STRIDE * period,
+            SHOT_STRIDE,
+        )
+        rows.append(part)
+        names += [f"GEDI {beam}"] * len(part)
+    validate_footprints(FOOTPRINTS, run, satellite, names, np.concatenate(rows), tle)
+
+
 def main() -> None:
     """Validates the entry on a day of data, or fits its views."""
     run = parse_run("gedi", __doc__)
@@ -271,6 +320,10 @@ def main() -> None:
     )
     if run.fit:
         fit(shots, orbit)
+        return
+    if FOOTPRINTS.key in run.configurations:
+        validate_shot_spacing(run, orbit, tle, shots)
+    if CONFIGURATION not in run.configurations:
         return
     scored = score_views(run, CONFIGURATION, orbit, shots, BEAMS, SAMPLE_PER_BEAM)
     spacing = score_spacing(run.entry, shots)

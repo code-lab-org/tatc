@@ -23,8 +23,33 @@ from tatc.catalog.standard import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 7
+FROZEN_VERSION = 11
 FROZEN_GATES = {
+    # version 11 added the sample size grade of the SAR and scatterometer classes,
+    # and changed no other gate
+    ("sar", "sample_size"): [("sample_size_within_3pct", 90, False)],
+    ("scatterometer", "sample_size"): [("sample_size_within_3pct", 90, False)],
+    # version 10 added the sample size grade of the geostationary class, with the
+    # gates of cross-track scanners, and changed no other gate
+    ("geostationary", "sample_size"): [
+        ("sample_size_within_3pct", 90, False),
+        ("pixel_position_median", 6, True),
+    ],
+    # version 9 added the sample size grade of the lidar, profiler, and altimeter
+    # classes, and changed no other gate
+    **{
+        (instrument_class, "sample_size"): [
+            ("sample_size_within_3pct", 90, False),
+            ("spacing_along_error", 3, True),
+        ]
+        for instrument_class in ("lidar", "profiler", "altimeter")
+    },
+    # version 8 added the sample size grade of the pushbroom class, with the gates
+    # of cross-track scanners, and changed no other gate
+    ("pushbroom", "sample_size"): [
+        ("sample_size_within_3pct", 90, False),
+        ("pixel_position_median", 6, True),
+    ],
     # version 7 added the limb and occultation classes, and changed no other gate
     ("limb", "coverage"): [
         ("tangent_position_median", 10, True),
@@ -206,6 +231,22 @@ class TestFrozenGates(unittest.TestCase):
         self.assertEqual(
             get_required_grades(InstrumentClass.GEOSTATIONARY), (Grade.COVERAGE,)
         )
+        # the pushbroom class's sample size grade is gated but optional
+        get_gates(InstrumentClass.PUSHBROOM, Grade.SAMPLE_SIZE)
+        self.assertEqual(
+            get_required_grades(InstrumentClass.PUSHBROOM), (Grade.COVERAGE,)
+        )
+        # as are those of the lidar, profiler, and altimeter classes
+        for instrument_class in (
+            "lidar",
+            "profiler",
+            "altimeter",
+            "geostationary",
+            "sar",
+            "scatterometer",
+        ):
+            get_gates(instrument_class, Grade.SAMPLE_SIZE)
+            self.assertEqual(get_required_grades(instrument_class), (Grade.COVERAGE,))
 
     def test_compatible_versions(self):
         """
@@ -217,6 +258,20 @@ class TestFrozenGates(unittest.TestCase):
         self.assertFalse(is_compatible(InstrumentClass.LIDAR, 1))
         self.assertTrue(is_compatible(InstrumentClass.LIDAR, 2))
         self.assertFalse(is_compatible(InstrumentClass.PROFILER, 5))
+        self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 1, Grade.COVERAGE))
+        self.assertFalse(is_compatible(InstrumentClass.PUSHBROOM, 7, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 8, Grade.SAMPLE_SIZE))
+        self.assertFalse(is_compatible(InstrumentClass.LIDAR, 8, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.LIDAR, 9, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.LIDAR, 8, Grade.COVERAGE))
+        self.assertFalse(
+            is_compatible(InstrumentClass.GEOSTATIONARY, 9, Grade.SAMPLE_SIZE)
+        )
+        self.assertTrue(
+            is_compatible(InstrumentClass.GEOSTATIONARY, 10, Grade.SAMPLE_SIZE)
+        )
+        self.assertFalse(is_compatible(InstrumentClass.SAR, 10, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.SAR, 11, Grade.SAMPLE_SIZE))
         self.assertFalse(
             is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
         )
@@ -540,6 +595,34 @@ class TestTiers(unittest.TestCase):
                 record={"standard_version": version},
             ).validation
             self.assertEqual(validation.tier, expected, version)
+
+    def test_only_optional_configurations(self):
+        """
+        Test that an entry whose only configuration is at an optional grade has a
+        tier (nominal without a comparison, else partial, as it lacks the grades
+        its class requires), and that a result under a version before the grade's
+        names the grade in its gap.
+        """
+        validation = _entry(grade="sample_size").validation
+        self.assertEqual(validation.tier, Tier.NOMINAL)
+        self.assertEqual(validation.missing_grades, (Grade.COVERAGE,))
+        metrics = [
+            {"name": "sample_size_within_3pct", "value": 100},
+            {"name": "pixel_position_median", "value": 1},
+        ]
+        validation = _entry(
+            metrics=metrics, grade="sample_size", record={"standard_version": 10}
+        ).validation
+        self.assertEqual(validation.configurations["c"].tier, Tier.VALIDATED)
+        self.assertEqual(validation.tier, Tier.PARTIAL)
+        validation = _entry(
+            metrics=metrics, grade="sample_size", record={"standard_version": 9}
+        ).validation
+        self.assertEqual(validation.configurations["c"].tier, Tier.PARTIAL)
+        self.assertIn(
+            "does not apply to the sample_size grade of the geostationary class",
+            validation.configurations["c"].gaps[-1],
+        )
 
     def test_grade_without_gates_invalid(self):
         """

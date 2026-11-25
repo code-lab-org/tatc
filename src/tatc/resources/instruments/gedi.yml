@@ -161,6 +161,83 @@ configurations:
       - The body's pitch of -3.2916 deg is measured with validate_catalog_gedi.py --fit on 2026-05-01, from the shots' median offset along the ground track of the element set (24.39 km behind, 21.34 to 27.07 km at the 95th and 5th percentiles), at the station's median altitude of 424.1 km. It was added after the run on 2026-06-05 recorded below, and the configuration tested again on 2026-06-08.
       - On data held out on 2026-06-08 (38 days from the fit, with the pitch, with the beams' center within 1 deg of nadir for 85.9% of shots), 99.55% of sampled shots were within their beams' views at their times, and the spacing between adjacent beams was within 0.026 km (median) of the views', but TAT-C's epochs followed the shots' times by 1.1 s (median; 1.5 s at the 95th percentile), failing the timing gate. The pitch, measured as 24.4 km on the fitting day, moved the epochs by about 3.5 s, more than the offset of about 18 km on 2026-06-05; the along-track offset varies between days, by the station's attitude or GEDI's pointing, which were not measured.
       - On data held out on 2026-06-05 (35 days from the fit, without the pitch, with the beams' center within 1 deg of nadir for 92.2% of shots), 99.9% of sampled shots were within their beams' views at their times, and the spacing between adjacent beams was within 0.026 km (median) of the views', but TAT-C's epochs preceded the shots' times by 2.4 s (median; 2.8 s at the 95th percentile), failing the timing gate. A steady offset of about 18 km along track is consistent with the beams pointing behind the plane across track (the station's attitude and GEDI's mounting, as ECOSTRESS's pitch), which the views do not model; the fit measured offsets across track only.
+  footprints:
+    grade: sample_size
+    description: The footprints of the eight beams, at the angles of the beams configuration, whose sizes and spacing along track `compute_sample_sizes` gives. Analyze one beam at a time with its instrument index (0 on the left, 7 on the right).
+    platforms: [iss]
+    velocity_frame: inertial
+    attitude:
+      pitch_angle: -3.2916
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters: &footprint_parameters
+          name: GEDI BEAM0000
+          field_of_regard: 20
+          cross_track_field_of_view: 0.003214
+          along_track_field_of_view: 0.003214
+          roll_angle: 0.4794
+          is_rectangular: false
+          scan_period: 0.008264
+        provenance: &footprint_provenance
+          field_of_regard:
+            kind: derived
+            source: Contains the footprint, pitched with the body
+          cross_track_field_of_view: &divergence
+            kind: nominal
+            source: "Dubayah et al. (2020), Science of Remote Sensing 1, 100002, p. 9: \"56.1 µrad (1/e2) beam divergence, that generates a 23 ± 2 m diameter footprint from the nominal 410 km altitude\" (https://ntrs.nasa.gov/api/citations/20200002117/downloads/20200002117.pdf)"
+          along_track_field_of_view: *divergence
+          roll_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a footprint as a circular view
+          scan_period:
+            kind: derived
+            source: "Two pulses of a laser, as every other shot of a beam is dithered to another track (Dubayah et al., 2020, p. 3: \"Each laser fires 242 times per second\" and \"footprint centers are separated by 60 m along track\")"
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM0001
+          roll_angle: 0.3949
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM0010
+          roll_angle: 0.3278
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM0011
+          roll_angle: 0.2441
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM0101
+          roll_angle: 0.1364
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM0110
+          roll_angle: 0.053
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM1000
+          roll_angle: -0.0482
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: GEDI BEAM1011
+          roll_angle: -0.1315
+        provenance: *footprint_provenance
+    limitations:
+      - The published footprint (23 m from 410 km) is that of the divergence, so it is compared without the gate; the mission's documents also give about 25 m and 30 m. The footprint is the beam's 1/e2 diameter, as a circle.
 limitations:
   - GEDI was stored on the station from March 2023 to April 2024, without observing. Its processed data were available until 10 June 2026 when the entry was made.
   - The station's orbit decays and is reboosted often, so element sets age quickly; the views were fitted and tested with element sets within hours of the data.

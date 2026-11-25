@@ -2,15 +2,16 @@
   "entry_id": "ahi",
   "configurations": {
     "full_disk": {
-      "digest": "5d2ecc67bdbb68e12af30c19e66df0aaa5fcf3e4ff2b13907a799b4f1aeea633",
-      "standard_version": 2,
-      "tatc_version": "3.6.0",
+      "digest": "19014f7e41355f5437677195c21b8f8fea8936ebbe9eaa304da4ee0f9c99b1d7",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ahi.py",
       "reference": "AHI-CMSK cloud mask, every 8th pixel",
       "period": "2026-11-08T12:00Z",
       "platforms": [
         "himawari-9"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "imaged_pixels_observed",
@@ -28,15 +29,16 @@
       }
     },
     "cloud_top_height": {
-      "digest": "c8a8fcb28e64996bea02ea074e53c4519119687b7252385dd2a7eac09dffaff9",
-      "standard_version": 2,
-      "tatc_version": "3.6.0",
+      "digest": "05df7f70898a281fa00d84a2679cf3d52b0087a2b70d2dfd0d37f97e44225ddb",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ahi.py",
       "reference": "AHI-CHGT cloud top height, the greatest local zenith angle at which it is retrieved",
       "period": "2026-11-08T12:00Z",
       "platforms": [
         "himawari-9"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -50,6 +52,47 @@
       "transfers": {},
       "fixture_metrics": {
         "product_limit": 0.4968281089902149
+      }
+    },
+    "pixels": {
+      "digest": "1e2ec3c791b7c72b7043e6a863593e1a19d82e768b07586dbd6f4696112bbb3f",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_ahi.py",
+      "reference": "Resolution at the sub-satellite point of JMA's Himawari Standard Data User's Guide (not gated); pixel positions of AHI-L2-FLDK-Clouds (2 km)",
+      "period": "2026-11-08T12:00Z",
+      "platforms": [
+        "himawari-9"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.021460753665958343
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 0.5080290601384081
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 0.7774292155993041
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000131780639743
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000186836344453
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.021460753665958343,
+        "pixel_position_median": 0.5099502896334314,
+        "spacing_along_ratio_median": 1.000008015198937,
+        "spacing_cross_ratio_median": 1.0000171562831102
       }
     }
   }

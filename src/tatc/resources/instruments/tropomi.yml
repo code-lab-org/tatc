@@ -217,3 +217,125 @@ configurations:
       - Swept swaths were added after the configuration's first holdout, on 2026-11-05, where views far from nadir, tailored to a long time step, reached beyond the curved edges of the swath; the swath's intersection over union was 0.998 at 10 s and 0.994 at 30 s, but 0.937 at 120 s, failing the standard's 0.95. Rescored with swept swaths, it was 0.9992 at every time step, with the other results unchanged; the configuration was then tested on 2026-11-10, a day not used before, which its record holds.
       - TROPOMI's data products cover the sunlit part of each orbit, whereas these views observe whenever a target is in view, unless a solar limit is added.
       - The views were fitted to the pixels of the ultraviolet and visible bands, and do not represent the 5.5 km by 7 km pixels of the shortwave infrared bands.
+  pixels:
+    grade: sample_size
+    description: The pixels of the ultraviolet and visible bands, 450 across a line, in the parts of the line of the swath's views (one at a time, by instrument index; the part of pixels 128 to 304 by default), whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [sentinel-5p]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instrument_index: 4
+    instruments:
+      - type: pointed
+        parameters: &pixel_parameters
+          name: TROPOMI pixels 0 to 32
+          field_of_regard: 120
+          cross_track_field_of_view: 5.384
+          along_track_field_of_view: 0.382435
+          cross_track_pixels: 32
+          roll_angle: 51.4378
+          pitch_angle: -4.1966
+          is_rectangular: true
+          scan_period: 0.84
+        provenance: &pixel_provenance
+          field_of_regard: *regard
+          cross_track_field_of_view:
+            kind: derived
+            source: That of the part of the swath's view (between the ends of its pixels), without the overlap of 0.04 deg that the swath's views add so that they leave no gaps
+          along_track_field_of_view:
+            kind: derived
+            source: "The angle of the along-track pixel size at 824 km, the satellite's nominal altitude, from the TROPOMI L1b ATBD (S5P-KNMI-L01B-0009-SD, issue 10.0.0), section 13.2: \"the co-addition period can be set to either 1080 ms or 840 ms. This effectively results in a ground pixel size of approximately 7 km or 5.5 km along-track\" (https://sentiwiki.copernicus.eu/__attachments/a_0bcb1fd8d925cfdfd93460756bd49cc77774164053152e79eb1ff90dc299c790/S5P-KNMI-L01B-0009-SD%20-%20Sentinel-5P%20TROPOMI%20ATBD%20Level%2001B%20data%20processor%202022%20-%2010.0.0.pdf)"
+          cross_track_pixels:
+            kind: derived
+            source: The pixels of the part of the line
+          roll_angle: *fitted
+          pitch_angle: *fitted
+          is_rectangular: *rectangular
+          scan_period:
+            kind: nominal
+            source: "TROPOMI L1b ATBD, section 13.2: the co-addition period of 840 ms (since 6 August 2019)"
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 32 to 48
+          cross_track_field_of_view: 4.0814
+          cross_track_pixels: 16
+          roll_angle: 46.695
+          pitch_angle: -3.4414
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 48 to 80
+          cross_track_field_of_view: 8.1166
+          cross_track_pixels: 32
+          roll_angle: 40.5871
+          pitch_angle: -2.6026
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 80 to 128
+          cross_track_field_of_view: 12.0836
+          cross_track_pixels: 48
+          roll_angle: 30.481
+          pitch_angle: -1.4866
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 128 to 304
+          cross_track_field_of_view: 43.9207
+          cross_track_pixels: 176
+          roll_angle: 2.4757
+          pitch_angle: -0.7784
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 304 to 368
+          cross_track_field_of_view: 16.0455
+          cross_track_pixels: 64
+          roll_angle: -27.5081
+          pitch_angle: -1.2543
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 368 to 400
+          cross_track_field_of_view: 8.083
+          cross_track_pixels: 32
+          roll_angle: -39.5785
+          pitch_angle: -2.4598
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 400 to 416
+          cross_track_field_of_view: 4.0622
+          cross_track_pixels: 16
+          roll_angle: -45.6591
+          pitch_angle: -3.276
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 416 to 432
+          cross_track_field_of_view: 3.8229
+          cross_track_pixels: 16
+          roll_angle: -49.6092
+          pitch_angle: -3.8835
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: TROPOMI pixels 432 to 450
+          cross_track_field_of_view: 2.3012
+          cross_track_pixels: 18
+          roll_angle: -52.6794
+          pitch_angle: -4.3812
+        provenance: *pixel_provenance
+    limitations:
+      - Only the pixel at nadir is published, 5.5 km along by 3.5 km across track (and across track from 3.5 km at nadir to 15 km where the binning of rows changes, without an altitude), so the sample size gate is not applied.
+      - The pixels of a part of the line share its angle, whereas rows are binned in pairs in the middle of the swath and not at its edges, so the parts of pixels 0 to 32 and 416 to 432, which hold both, give a mean of their pixels.
+      - The along-track size is that of the satellite's motion over a co-addition period of 840 ms at nadir, given as the pixel's angle. Pixels are compared at the boundaries of every 16th row, the positions the reduced product holds, each the midpoint of its aft corners on a line and the next, as the views were fitted.
+      - On 2026-11-10, the boundaries lay 7.2 km from the product's (median), beyond the gate's 6 km. Within a part of the line the error is least at its ends and greatest at its middle (2.7 km and 6.3 km at the ends of the part of pixels 128 to 304, 11.7 km at row 224), as each part is a straight view between the ends of a curved line, within 2 s of it (about 14 km along track), and greatest where a part holds both binned and unbinned rows (38 km at row 16). Use the swath configuration for epochs.

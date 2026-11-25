@@ -192,7 +192,8 @@ class Reference(ScanLattice):
     the start of the day) time the passes by beam. A day reduced to some of the
     product's lines and samples gives the samples' indices in the product (`pixel`),
     their number (`pixels`), and the lines from one kept scan to the next
-    (`line_stride`).
+    (`line_stride`). A scan that images several lines at once gives the index along
+    track of the line it keeps (`line`, from the first, by default).
     """
 
     def __init__(
@@ -230,6 +231,7 @@ class Reference(ScanLattice):
         self.pixel = np.asarray(data.get("pixel", np.arange(self.beams)))
         self.pixels = int(data.get("pixels", self.beams))
         self.line_stride = int(data.get("line_stride", 1))
+        self.line = int(data.get("line", 0))
         self.unit = up(self.lon, self.lat)
         period = np.diff(self.seconds)
         self.is_next_contiguous = period < 1.5 * scan_period
@@ -592,9 +594,9 @@ def measure_pixels(reference: Reference, satellite, index: int, stride: int, fra
     """
     Gets rows of seconds from the start of the day, pixel index, position difference
     (km) from the beam center, and the beam's latitude and longitude, for the pixels
-    projected at the times of a sample of scans. TAT-C numbers pixels from the right
-    of the motion, so each scan's beams are ordered by their side, which changes when
-    the spacecraft flies backward.
+    (of the reference's line along track) projected at the times of a sample of
+    scans. TAT-C numbers pixels from the right of the motion, so each scan's beams
+    are ordered by their side, which changes when the spacecraft flies backward.
     """
     scans = np.arange(0, len(reference.time), stride)
     angles = reference.cross_track_angles(frame)[scans]
@@ -614,7 +616,9 @@ def measure_pixels(reference: Reference, satellite, index: int, stride: int, fra
             track = orbit.get_orbit_track(
                 list(reference.time[scans[subset]].to_pydatetime())
             )
-            position = instrument.compute_projected_pixel_position(track, int(value), 0)
+            position = instrument.compute_projected_pixel_position(
+                track, int(value), reference.line
+            )
             difference = np.linalg.norm(
                 np.atleast_2d(
                     ecef(position.longitude.degrees, position.latitude.degrees)
@@ -675,7 +679,10 @@ class Setup:
     """
     What a script validates on a platform: the configurations of its swath and
     beams (or samples), the instrument and published footprints of its sample
-    sizes, its references, its fixture, and the parameters of its tests.
+    sizes, its references, its fixture, and the parameters of its tests. Published
+    footprints too few to test the sample size gate (such as those only at nadir)
+    are compared without recording the gate's metric (`gate_published`), so that
+    the configuration stays partial.
     """
 
     swath: str
@@ -694,6 +701,7 @@ class Setup:
     fixture_passes: int = 60
     fixture_pixels: int = 200
     fixture_spacing: int = 200
+    gate_published: bool = True
 
 
 def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
@@ -710,9 +718,17 @@ def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
     )
     print(
         f"published dimensions: {within:.1f}% within 3%, largest error {largest:.2f}%"
+        + ("" if setup.gate_published else " (not gated)")
     )
+    # the published comparison, as gated or only as its largest error
+    published = {"sample_size_within_3pct": within} if setup.gate_published else {}
+    # the period of the day, for a configuration that schedules its attitude
     satellite = entry.build(
-        configuration=setup.beams, orbit=orbit, platform=run.platform
+        configuration=setup.beams,
+        orbit=orbit,
+        platform=run.platform,
+        start=run.day,
+        end=run.day + timedelta(days=1),
     ).to_satellite(orbit, name=entry.name)
     names = [instrument.name for instrument in satellite.instruments]
     index = names.index(setup.size_instrument)
@@ -746,13 +762,19 @@ def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
             "tle": np.array(tle),
             "day": np.array(run.day.isoformat()),
             "pixels": reduced,
+            # the line along track of the pixels, of a scan of several lines
+            **(
+                {"line": np.array(reference.line)}
+                if getattr(reference, "line", 0)
+                else {}
+            ),
             "spacing": rows[picks],
             "spacing_seconds": (times[picks] - pd.Timestamp(run.day))
             .total_seconds()
             .to_numpy(),
         }
         fixture_metrics = {
-            "sample_size_within_3pct": within,
+            **(published or {"sample_size_largest_error": largest}),
             "pixel_position_median": summarize(reduced[:, 2])["median"],
             "spacing_along_ratio_median": fixture_along,
             "spacing_cross_ratio_median": fixture_cross,
@@ -762,7 +784,7 @@ def validate_beams(setup: Setup, run, reference, orbit, tle) -> None:
         setup.beams,
         reference=setup.published_reference,
         metrics=[
-            {"name": "sample_size_within_3pct", "value": within},
+            *({"name": name, "value": value} for name, value in published.items()),
             {"name": "sample_size_largest_error", "value": largest},
             {"name": "pixel_position_median", "value": median},
             {"name": "pixel_position_p95", "value": p95},

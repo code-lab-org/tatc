@@ -63,6 +63,52 @@ configurations:
           is_rectangular:
             kind: derived
             source: Models a scanned swath as a rectangular view
+  fields_of_regard:
+    grade: sample_size
+    description: The centers of IASI-NG's 14 fields of regard, with footprints the size of one of the 16 pixels of each.
+    platforms: [metop-sga1]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: IASI-NG
+          field_of_regard: 102
+          cross_track_field_of_view: 100.432769
+          along_track_field_of_view: 7.173769
+          cross_track_pixels: 14
+          roll_angle: -0.1191
+          is_rectangular: true
+          cross_track_oversampling: -7.712393
+          along_track_oversampling: -7.712393
+          scan_period: 15.561
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Wider than the field of view, so that it does not clip the scan
+          cross_track_field_of_view: &measured_spacing
+            kind: derived
+            source: The 14 fields of regard at the spacing of the swath's measured field of view between their outermost centers (93.259 deg over 13 intervals, 7.1738 deg)
+          along_track_field_of_view: *measured_spacing
+          cross_track_pixels:
+            kind: nominal
+            source: "IASI-NG Science Plan v1.0 (EUMETSAT, 2018), Table 2.3: \"14 Earth views\" (https://www-cdn.eumetsat.int/files/2020-04/pdf_science_epssg_iasi_ng_plan.pdf)"
+          roll_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: "One minus the spacing of fields of regard divided by a pixel width of 0.8234 deg, from the IASI-NG Science Plan, Table 2.1: \"Equivalent to circle of d = 12 km at nadir\", at the reference altitude of 835 km (the Science Plan states none)"
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: measured
+            source: The median period between the scans of the product (\"duration ≈ 15.6 s\" in the IASI-NG Science Plan, Table 2.3)
+            platforms: [metop-sga1]
+            period: "2026-11-18"
+    limitations:
+      - Only the pixel at nadir is published, without an altitude, and the pixel width comes from it, so the sample size gate is not applied.
+      - Each pixel of this configuration is a field of regard, which holds 16 of IASI-NG's pixels in an array of four by four (23.83 km apart at nadir, in the Science Plan). The array is not represented, so positions are those of its center, and the spacing is not that of IASI-NG's pixels.
+      - Pixels are projected at the middle time of a scan, whereas IASI-NG samples its fields of regard about 0.82 s apart, so those near the edges of the swath are displaced along track by up to about 35 km. On 2026-11-18, the pixels lay 19.1 km from the centers of the fields of regard (median), as that displacement predicts, beyond the gate's 6 km. Unlike IASI's, the configuration has no yaw fitted to place them where IASI-NG samples them; use the swath configuration, which times each field of regard, for epochs.
 limitations:
   - The product does not record the satellite's position, so the fit used positions from an element set of 2026-10-17, two days before the data, whose error enters the fitted angles.
   - Each field of regard holds 16 pixels in an array of four by four, which is not represented; positions are those of its center.

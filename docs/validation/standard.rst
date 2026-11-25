@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 7 of the standard. The thresholds of version 1 were drafted from
+This is version 11 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -72,6 +72,52 @@ Versions
        geolocation; :doc:`limb_and_space/ValidateROCOSMIC2`: every recorded
        occultation predicted, with tangent points within about 0.4 km), and
        frozen before any data were analyzed for the catalog.
+   * - 8
+     - Adds the sample size grade to the pushbroom class, with the gates of
+       cross-track scanners: at least 90% of published footprint dimensions within
+       3%, and pixels projected within 6 km of the product's (median). The grade is
+       optional: a pushbroom entry does not need it to be validated, and its sample
+       size configurations have their own tiers, which do not set the entry's, as
+       the pixel sizes of pushbroom imagers are rarely published away from nadir
+       (of the eleven entries of the class, only BBR's footprints are published at
+       more than one viewing angle). No threshold of earlier versions changed, so
+       their results still apply; results of the pushbroom sample size grade apply
+       from version 8. The gates were adopted before any pushbroom sample sizes
+       were analyzed. The pixel position gate is loose for imagers of tens of
+       meters, and is kept the same as that of scanners so that one threshold
+       serves both.
+   * - 9
+     - Adds the sample size grade to the lidar, profiler, and altimeter classes,
+       whose beams point near nadir: at least 90% of published footprint
+       dimensions within 3%, and the median ratio of predicted to measured spacing
+       of samples along track within 3% of one. Their positions are tested at the
+       coverage grade (beam spacing and track offset), so the grade tests
+       spacing rather than pixel positions, which would test footprints of 10 m
+       to a few kilometers against 6 km. As for the pushbroom class, the grade is
+       optional, and its configurations have their own tiers. No threshold of
+       earlier versions changed, so their results still apply; results of these
+       grades apply from version 9. The gates were adopted before any of their
+       sample sizes were analyzed.
+   * - 10
+     - Adds the sample size grade to the geostationary class, whose imagers sample
+       fixed grids of scan angles, with the gates of cross-track scanners: at
+       least 90% of published pixel dimensions within 3%, and pixels projected
+       within 6 km of the product's (median). As for the other classes added
+       since version 8, the grade is optional, and its configurations have their
+       own tiers. No threshold of earlier versions changed, so their results
+       still apply; results of this grade apply from version 10. The gates were
+       adopted before any geostationary sample sizes were analyzed.
+   * - 11
+     - Adds the sample size grade to the SAR and scatterometer classes, whose
+       samples are resolution cells (a resolution in range, projected to the
+       ground by the incidence angle, and in azimuth) rather than angular pixels:
+       at least 90% of published resolutions within 3%. Their products locate
+       resolution cells only through published tables, so the grade has no gate of
+       positions or spacing. As for the other classes added since version 8, the
+       grade is optional, and its configurations have their own tiers. No
+       threshold of earlier versions changed, so their results still apply;
+       results of these grades apply from version 11. The gate was adopted before
+       any resolutions were analyzed.
 
 Rules
 =====
@@ -109,8 +155,10 @@ Tiers
      - Meaning
    * - `validated`
      - All applicable gates pass under the rules above. An entry is validated only
-       if every configuration is, and it has configurations at the grades its
-       class requires.
+       if every configuration at a grade its class requires is, and it has
+       configurations at those grades. Configurations at an optional grade (the
+       sample size grade of every class but cross-track and conical) have their own
+       tiers, which do not set the entry's; their gaps are listed with the entry's.
    * - `partial`
      - Some gates are unmet or untested, or the evidence is incomplete. The entry
        lists each gap.
@@ -122,7 +170,10 @@ Gates
 
 A configuration's grade states its use. Coverage and timing differ only in the
 epoch gate. Cross-track and conical instruments also need a configuration at the
-sample size grade. Orbit error against recorded positions is reported but not
+sample size grade. The sample size grades of the other classes (versions 8 to 11)
+are optional: their configurations are gated, but an entry does not need them to
+be validated, as published sample sizes of these instruments are rarely given
+away from nadir, or only as approximate values of their products. Orbit error against recorded positions is reported but not
 gated, because it grades the element set rather than the instrument. What each
 metric measures, and how, is stated under `Metrics`_.
 
@@ -157,6 +208,12 @@ observes a track displaced from the ground track by the Earth's rotation:
    * - Epoch, 95th percentile (timing)
      - ≤ 1 s
      - ≤ 1 s
+   * - Dimensions within 3% (sample size, optional)
+     - ≥ 90%
+     - ≥ 90%
+   * - Spacing along track, error of the median (sample size, optional)
+     - ≤ 3%
+     - ≤ 3%
 
 .. list-table::
    :header-rows: 1
@@ -216,18 +273,19 @@ observes a track displaced from the ground track by the Earth's rotation:
      -
      - ≥ 0.90
      -
-   * - Pixel position, median (sample size)
+   * - Pixel position, median (sample size; optional but for cross-track)
+     - ≤ 6 km
      - ≤ 6 km
      -
      -
-     -
-     -
-   * - Dimensions within 3% (sample size)
+     - ≤ 6 km
+   * - Dimensions within 3% (sample size; optional but for cross-track and
+       conical)
      - ≥ 90%
-     -
      - ≥ 90%
-     -
-     -
+     - ≥ 90%
+     - ≥ 90%
+     - ≥ 90%
    * - Product limit of local zenith angle
      -
      -
@@ -454,13 +512,31 @@ Sample size
 Published footprint dimensions, along and across track at stated scan angles, are
 compared with the sample sizes that `compute_sample_sizes` predicts for a satellite
 in a circular orbit at the published altitude and inclination, observing at those
-scan angles. Each footprint gives two dimensions, and the metric is the share whose
-relative error is within 3%.
+scan angles (and, for a view pointed fore or aft, at its angle along track). Each
+footprint gives two dimensions, and the metric is the share whose relative error is
+within 3%. For a radar, the sizes are its resolutions (`range_resolution` and
+`azimuth_resolution`), compared with published resolutions. Published dimensions
+that cannot test a configuration are compared without the gate: those from which
+its values come (such as a footprint at nadir from which a pixel's angle is
+derived, or a geostationary grid's sampling distance at the sub-satellite point),
+those whose definitions differ from the configuration's, or those only at nadir or
+only approximate. Their record gives the largest error
+(`sample_size_largest_error`) rather than the share within 3%, so the gate is
+untested and the configuration partial, as its limitations state.
 
 **Pixel position, median** tests where samples fall within the swath. At a sample of
 scans, the position that the instrument projects for each pixel at the middle of
 the scan (`compute_projected_pixel_position`) is compared with the geolocated center
-of the same sample in the product. The gate takes the median distance, in km.
+of the same sample in the product. The gate takes the median distance, in km. The
+pixels of a geostationary imager's fixed grid are projected from the grid's nominal
+position (a geosynchronous orbit at its longitude), to which the products are
+navigated, and compared with the grid's positions.
+
+**Spacing along track, error of the median** tests the spacing of a beam's samples
+(shots or profiles) along its track: the median ratio of the spacing that
+`compute_sample_sizes` predicts to that measured between consecutive samples in the
+product, whose error from one is gated, in percent. The positions of the beams
+are tested at the coverage grade.
 
 Back-Test
 =========

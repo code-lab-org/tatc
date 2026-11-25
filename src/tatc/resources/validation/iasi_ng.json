@@ -11,6 +11,7 @@
       "platforms": [
         "metop-sga1"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -37,6 +38,47 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.44443466504999996
+      }
+    },
+    "fields_of_regard": {
+      "digest": "79d576827ece65a1f812bc68526bacecf8dbdca93e3540b6e184d1dfd7476f37",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_iasi_ng.py",
+      "reference": "Nadir pixel of the IASI-NG Science Plan (not gated); centers of the fields of regard of the IASI-NG Level 1c (EO:EUM:DAT:0892, BUFR), first 3.5 hours of the day",
+      "period": "2026-11-18",
+      "platforms": [
+        "metop-sga1"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.29643057690464936
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 19.0699770642984
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 37.08649649769933
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000311909463666
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9918280762246459
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.29643057690464936,
+        "pixel_position_median": 19.058824450552123,
+        "spacing_along_ratio_median": 1.0002864900056312,
+        "spacing_cross_ratio_median": 0.9905847328746542
       }
     }
   }

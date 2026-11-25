@@ -11,6 +11,7 @@
       "platforms": [
         "earthcare"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "segment_recall",
@@ -33,6 +34,37 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.4574536675499999
+      }
+    },
+    "footprints": {
+      "digest": "404afb598b7fb35010c1f6fe946f61eea0b5d8d28e94022f6668140309b7ae5c",
+      "standard_version": 9,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_cpr.py",
+      "reference": "Footprint on eoPortal (not gated); profile spacing of CPR_NOM_1B",
+      "period": "2026-11-07",
+      "platforms": [
+        "earthcare"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 35.07594502414527
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0155191328999873
+        },
+        {
+          "name": "spacing_along_error",
+          "value": 1.5519132899987298
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 35.07594502414527,
+        "spacing_along_ratio_median": 1.015327948330955
       }
     }
   }

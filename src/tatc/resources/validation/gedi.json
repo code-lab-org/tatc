@@ -11,6 +11,7 @@
       "platforms": [
         "iss"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "segment_recall",
@@ -66,6 +67,37 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.5583851070999999
+      }
+    },
+    "footprints": {
+      "digest": "8b78691c4ab8ee62ff0e65599bb06a89111f21865666ab8fdcf4bc485ab9ad0b",
+      "standard_version": 9,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_gedi.py",
+      "reference": "Footprint of Dubayah et al. (2020) (not gated); shot spacing of GEDI01_B version 003 (every 200th shot of each beam)",
+      "period": "2026-06-08",
+      "platforms": [
+        "iss"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 1.388391001280631
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9917778510294765
+        },
+        {
+          "name": "spacing_along_error",
+          "value": 0.8222148970523535
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 1.388391001280631,
+        "spacing_along_ratio_median": 0.9909130924202582
       }
     }
   }

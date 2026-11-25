@@ -21,6 +21,12 @@ line), with range requests:
     python validation/catalog/validate_catalog_bbr.py <data directory> 2026-09-27 --fit-view
     python validation/catalog/validate_catalog_bbr.py <data directory> 2026-11-07
 
+It also validates the entry's sample size configuration (`pixels`), following
+`ValidateSampleSizes`: sizes are compared with the footprints of the nadir and
+slanted views published in Wehr et al. (2023), which the gate tests, and the
+projected pixels of the nadir view with the product's, and their spacing with that
+measured.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit;
 `--fit-view` needs its day). The element set is the one nearest the middle of the day
 in `elements/earthcare_2026-09-27.3le` (or in a file given with `--elements`). With
@@ -42,13 +48,16 @@ from earthcare_io import check_time_scale, load_day, to_seconds
 from scanner import (
     GATED,
     Reference,
+    Setup,
     fit,
     fit_view,
     fit_yaw,
     observe_orbit,
     score_swath_width,
+    validate_beams,
 )
 from validation_io import (
+    FIXTURES,
     build_grid,
     parse_run,
     pick_passes,
@@ -72,6 +81,29 @@ PASS_RADIUS = 15  # km
 GAP_THRESHOLD = 1.0  # s
 FIXTURE_PASSES = 60
 WIDTH_STRIDE = 50
+# published footprints: instrument, altitude (km), inclination (deg), scan angle
+# (deg), sizes along and across track (km), and angle along track (deg), from
+# section 5.4 of Wehr et al. (2023), at the mission's nominal mean spherical
+# altitude, for the slanted views at their nominal 50 deg
+PUBLISHED_FOOTPRINTS = (
+    ("BBR nadir", 393, 97.05, 0, 0.64, 0.64),
+    ("BBR aft", 393, 97.05, 0, 1.876, 1.069, -50.3554),
+    ("BBR fore", 393, 97.05, 0, 1.876, 1.069, 50.1645),
+)
+PIXELS_SETUP = Setup(
+    swath=CONFIGURATION,
+    beams="pixels",
+    size_instrument="BBR nadir",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    fixture_path=FIXTURES / "bbr.npz",
+    reference=f"{PRODUCT} (pixel positions of the shortwave band)",
+    published_reference="Footprints of Wehr et al. (2023); pixel positions of the "
+    f"nadir view of {PRODUCT} (shortwave band, every {LINE_STRIDE}nd line)",
+    time_steps=TIME_STEPS,
+    pass_radius=PASS_RADIUS,
+    pixel_stride=20,
+    spacing_stride=40,
+)
 
 
 def read_bbr(f, day: datetime) -> dict:
@@ -107,6 +139,7 @@ def load_references(day: datetime, directory: pathlib.Path) -> dict[str, Referen
             "sc_lat": data[f"sc_lat_{view}"][keep],
             "sc_lon": data[f"sc_lon_{view}"][keep],
             "sc_alt": data[f"sc_alt_{view}"][keep],
+            "line_stride": LINE_STRIDE,
         }
         period = float(np.median(np.diff(part["time"])))
         references[view] = Reference(day, part, period, GAP_THRESHOLD)
@@ -216,7 +249,10 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate(run, orbit, tle, references)
+    if PIXELS_SETUP.beams in run.configurations:
+        validate_beams(PIXELS_SETUP, run, references["NADIR"], orbit, tle)
+    if CONFIGURATION in run.configurations:
+        validate(run, orbit, tle, references)
 
 
 if __name__ == "__main__":

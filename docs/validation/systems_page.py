@@ -262,7 +262,9 @@ documentation is built.
 A system's tier is computed from its results and the thresholds of the
 :ref:`system standard <system-standard>` (version {SYSTEM_STANDARD_VERSION}),
 and cannot be declared. Values fitted to reference data are tested on data at
-least {MIN_HOLDOUT_GAP_DAYS} days from their fitting data.
+least {MIN_HOLDOUT_GAP_DAYS} days from their fitting data. A system's tier for a
+use is that of its weakest configuration at the use's grade (`get_tier`), by
+which systems can be listed.
 
 .. code-block:: python
 
@@ -270,6 +272,7 @@ least {MIN_HOLDOUT_GAP_DAYS} days from their fitting data.
 
     jpss = get_system("jpss")
     jpss.validation  # tier, gate results, and gaps of each configuration
+    list_systems(tier="validated", grade="ground_track")  # validated for tracks
     # the planes of the orbits, at an epoch, with their cataloged instruments
     satellites = jpss.build(epoch=start, time_step=10)
     # orbits maintained on JPSS's repeat ground track, at any epoch

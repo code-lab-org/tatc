@@ -17,6 +17,11 @@ between them:
     python validation/catalog/validate_catalog_emit.py <data directory> 2026-10-04 --fit --fit-view
     python validation/catalog/validate_catalog_emit.py <data directory> 2026-11-08
 
+It also validates the entry's sample size configuration (`pixels`), following
+`ValidateSampleSizes`: the projected pixels are compared with the product's, and
+their spacing with that measured. The only published pixel, at nadir in the EMIT L1B
+ATBD, is compared without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 With `--fit-view`, it centers the view in TAT-C's frame, with the entry's yaw and
 pitch, instead of fitting the view's angles.
@@ -46,10 +51,20 @@ import numpy as np
 from tatc.analysis import compute_ground_track
 from tatc.catalog.metrics import summarize
 from tatc.schemas import GeneralPerturbationsOrbit
-from scanner import Product, Reference, find_granules, fit, fit_view, fit_yaw
+from scanner import (
+    Product,
+    Reference,
+    Setup,
+    find_granules,
+    fit,
+    fit_view,
+    fit_yaw,
+    validate_beams,
+)
 from validate_catalog_ecostress import read_ephemeris
 from validate_catalog_oco2 import area, find_epochs, observed_strip, score_width
 from validation_io import (
+    FIXTURES,
     TO_GEODETIC,
     RemoteFile,
     login_earthdata,
@@ -71,6 +86,24 @@ FIXTURE_PASSES = 60
 # segments of the runs of scenes (s, a multiple of the time steps), and the lines of
 # a segment's strip (every 4th line read, about 0.6 s apart)
 SEGMENT, SEGMENT_LINE_STRIDE = 120, 4
+# the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), sizes along and across track (km), and angle along track (deg), from
+# the EMIT L1B ATBD, compared without the gate, as no other is published; at the
+# center of the line, which the body's pitch places behind nadir
+PUBLISHED_FOOTPRINTS = (("EMIT", 400, 51.6, 0, 0.068, 0.062, -7.5608),)
+PIXELS_SETUP = Setup(
+    swath=CONFIGURATION,
+    beams="pixels",
+    size_instrument="EMIT",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    fixture_path=FIXTURES / "emit.npz",
+    reference="EMITL1BRAD version 002 (pixel positions and times)",
+    published_reference="Nadir pixel of the EMIT L1B ATBD (not gated); pixel "
+    "positions of EMITL1BRAD version 002 (every 16th line and 25th pixel)",
+    time_steps=TIME_STEPS,
+    pass_radius=20,
+    gate_published=False,
+)
 
 
 def read_scene(url: str, session, day: datetime) -> dict:
@@ -310,7 +343,10 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate(run, tle, orbit, reference)
+    if PIXELS_SETUP.beams in run.configurations:
+        validate_beams(PIXELS_SETUP, run, reference, orbit, tle)
+    if CONFIGURATION in run.configurations:
+        validate(run, tle, orbit, reference)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@
       "platforms": [
         "sentinel-5p"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -37,6 +38,47 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 2.0062314133499988
+      }
+    },
+    "pixels": {
+      "digest": "01f46100e13cf7ba51a627432b428e1f666f838e57907e61667468c6769098c8",
+      "standard_version": 8,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_tropomi.py",
+      "reference": "Nadir pixel of the TROPOMI L1b ATBD (not gated); pixel bounds of S5P L2__AER_AI (boundaries of every 16th row, midway between lines)",
+      "period": "2026-11-10",
+      "platforms": [
+        "sentinel-5p"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.2338145857349945
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 7.220636507772809
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 13.18650779088381
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000174987742718
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9980462366244602
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 2.2338145857349945,
+        "pixel_position_median": 8.095148250235445,
+        "spacing_along_ratio_median": 0.9999790608242936,
+        "spacing_cross_ratio_median": 0.9981796972817567
       }
     }
   }

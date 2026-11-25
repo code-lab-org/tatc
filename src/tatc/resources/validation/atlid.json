@@ -11,6 +11,7 @@
       "platforms": [
         "earthcare"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "segment_recall",
@@ -33,6 +34,37 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.4253327837999999
+      }
+    },
+    "footprints": {
+      "digest": "a68aebe2fbb8a2fbae86c0e00ce7aec0c563af686124b92e30c5906b7dacaf3a",
+      "standard_version": 9,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_atlid.py",
+      "reference": "Laser footprint of ESA's ATLID page (not gated); profile spacing of ATL_NOM_1B",
+      "period": "2026-11-07",
+      "platforms": [
+        "earthcare"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 6.041753049088849
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999955889642215
+        },
+        {
+          "name": "spacing_along_error",
+          "value": 0.0004411035778528749
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 6.041753049088849,
+        "spacing_along_ratio_median": 0.9999695801039715
       }
     }
   }

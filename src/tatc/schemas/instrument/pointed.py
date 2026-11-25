@@ -24,6 +24,7 @@ from ...utils.projection import (
     compute_swept_footprints,
     compute_ground_advance,
     compute_ground_sample_size,
+    compute_incidence_angle,
     compute_projected_ray_position,
     compute_view_angles,
     compute_view_tangents,
@@ -113,7 +114,10 @@ class PointedInstrument(Instrument):
         + "in a plane perpendicular to the boresight (`frame`, as for a framing "
         + "camera or a pushbroom array), or in cross-track and along-track angles "
         + "(`scan`, as for a cross-track scanner, whose along-track angular extent "
-        + "is constant across the scan).",
+        + "is constant across the scan), or in the same angles with the along-track "
+        + "angle first (`scan_along_first`, whose cross-track angular extent is "
+        + "constant along track, as for the fixed grid of a geostationary imager "
+        + "that sweeps about the y axis).",
     )
     is_rectangular: bool = Field(
         default=False,
@@ -161,6 +165,28 @@ class PointedInstrument(Instrument):
         + "`compute_sample_spacing`), or `None` if not modeled.",
         gt=0,
     )
+    range_resolution: float | None = Field(
+        default=None,
+        description="Resolution (meters) of a radar's sample in range: in slant "
+        + "range (as set by its bandwidth and processing), whose size on the ground "
+        + "across track is divided by the sine of the incidence angle at the target, "
+        + "or on the ground (see `range_resolution_frame`), or `None` for the "
+        + "instantaneous field of view of a pixel (see `compute_sample_size`).",
+        gt=0,
+    )
+    range_resolution_frame: Literal["slant", "ground"] = Field(
+        default="slant",
+        description="Frame of `range_resolution`: in slant range (`slant`), or a "
+        + "size on the ground across track (`ground`, as of a product on a grid of "
+        + "constant resolution).",
+    )
+    azimuth_resolution: float | None = Field(
+        default=None,
+        description="Resolution (meters) of a radar's sample in azimuth, a size on "
+        + "the ground along track, or `None` for the instantaneous field of view of "
+        + "a pixel (see `compute_sample_size`).",
+        gt=0,
+    )
     velocity_frame: VelocityFrame = Field(
         default=VelocityFrame.EARTH_FIXED,
         description="Reference frame of the velocity vector that defines the "
@@ -198,7 +224,11 @@ class PointedInstrument(Instrument):
         track, centered on the line of sight to the target (see
         `tatc.utils.compute_ground_sample_size`). The sizes grow with the
         slant range and, in the direction of a view off nadir, with the
-        obliquity of the view.
+        obliquity of the view. A radar's resolutions replace them, if given:
+        the `azimuth_resolution` along track, and the `range_resolution`
+        across track (in slant range, divided by the sine of the incidence
+        angle at the target, see `tatc.utils.compute_incidence_angle`; or on
+        the ground).
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
@@ -209,12 +239,27 @@ class PointedInstrument(Instrument):
             tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
                 and cross-track sizes (meters).
         """
-        return self._compute_ground_extent(
+        along, cross = self._compute_ground_extent(
             orbit_track,
             target,
             self.get_along_track_instantaneous_field_of_view(),
             self.get_cross_track_instantaneous_field_of_view(),
         )
+        # a radar's resolutions, where its pixel's rays meet the Earth
+        if self.azimuth_resolution is not None:
+            along = np.where(np.isnan(along), np.nan, self.azimuth_resolution)
+        if self.range_resolution is not None:
+            if self.range_resolution_frame == "ground":
+                size = self.range_resolution
+            else:
+                incidence = np.radians(compute_incidence_angle(orbit_track, target))
+                # infinite at zero incidence, where a slant range has no extent
+                with np.errstate(divide="ignore"):
+                    size = np.reshape(
+                        self.range_resolution / np.sin(incidence), np.shape(cross)
+                    )
+            cross = np.where(np.isnan(cross), np.nan, size)
+        return along, cross
 
     def compute_sample_spacing(
         self, orbit_track: Geocentric, target: GeographicPosition
@@ -222,7 +267,10 @@ class PointedInstrument(Instrument):
         """
         Computes the spacing on the ground (meters) between the centers of
         neighboring pixels viewing a target, along track and across track
-        (see `compute_sample_size`). A pixel smaller than the spacing (a
+        (see `compute_sample_size`). The spacing of a radar's samples is not
+        modeled: it is `NaN` in the directions whose resolutions are given
+        (`azimuth_resolution` along track, `range_resolution` across track),
+        whose samples are cells of its products rather than pixels of its view. A pixel smaller than the spacing (a
         negative oversampling) leaves gaps between pixels, and a sensor
         cannot resolve detail finer than the larger of the two.
 
@@ -255,7 +303,7 @@ class PointedInstrument(Instrument):
             self.get_cross_track_sample_spacing(),
         )
         if self.scan_period is None:
-            return along, cross
+            return self._without_radar_spacing(along, cross)
         advance = compute_ground_advance(
             orbit_track,
             target,
@@ -265,7 +313,21 @@ class PointedInstrument(Instrument):
             self._attitude,
         )
         within_scan = along if self.along_track_pixels > 1 else 0
-        return np.maximum(within_scan, advance / self.along_track_pixels), cross
+        along = np.maximum(within_scan, advance / self.along_track_pixels)
+        return self._without_radar_spacing(along, cross)
+
+    def _without_radar_spacing(
+        self, along: npt.NDArray, cross: npt.NDArray
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """
+        Gets spacings with `NaN` in the directions of a radar's resolutions, whose
+        spacing is not modeled.
+        """
+        if self.azimuth_resolution is not None:
+            along = np.full(np.shape(along), np.nan)
+        if self.range_resolution is not None:
+            cross = np.full(np.shape(cross), np.nan)
+        return along, cross
 
     def _compute_ground_extent(
         self,
@@ -277,16 +339,59 @@ class PointedInstrument(Instrument):
         """
         Computes the size on the ground (meters) of angular extents centered
         on the line of sight to a target, along this instrument's view axes:
-        those of the rolled and pitched view, or, for a `ViewGeometry.SCAN`
-        view, of the scan plane tilted by the pitch angle.
+        those of the rolled and pitched view, or, for a `ViewGeometry.SCAN` view,
+        of the scan plane tilted by the pitch angle, rotated to the target (its
+        cross-track and along-track angles), in which a step of the cross-track
+        angle moves the line of sight by its cosine of the target's along-track
+        angle from the plane. Along track first
+        (`ViewGeometry.SCAN_ALONG_FIRST`), they are those of the plane tilted to
+        the target's along-track angle, in which a step of the along-track angle
+        (about the cross-track axis) moves the line of sight by its cosine of the
+        target's cross-track angle.
         """
-        if self.view_geometry == ViewGeometry.SCAN:
+        if self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST:
+            roll, pitch = compute_view_angles(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
+                attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
+                along_first=True,
+            )
+            return compute_ground_sample_size(
+                orbit_track,
+                target,
+                along_track_angle * np.cos(np.radians(roll)),
+                cross_track_angle,
+                self.velocity_frame,
+                nadir_reference=self.nadir_reference,
+                tilt_angle=pitch,
+                attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
+            )
+        if ViewGeometry(self.view_geometry).is_scan:
+            # the axes of the view rolled and pitched to the target, in the scan
+            # plane, along which a step of the cross-track angle (about the tilted
+            # along-track axis) moves the line of sight by its cosine of the
+            # target's along-track angle from the plane
+            roll, pitch = compute_view_angles(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
+                self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
+            )
             return compute_ground_sample_size(
                 orbit_track,
                 target,
                 along_track_angle,
-                cross_track_angle,
+                cross_track_angle * np.cos(np.radians(pitch)),
                 self.velocity_frame,
+                roll,
+                pitch,
                 nadir_reference=self.nadir_reference,
                 tilt_angle=self.get_pitch_angle(orbit_track),
                 attitude=self._attitude,
@@ -491,8 +596,10 @@ class PointedInstrument(Instrument):
         Returns:
             numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
         """
-        if self.view_geometry == ViewGeometry.SCAN:
-            # angles in the scan plane, tilted by the pitch angle
+        if ViewGeometry(self.view_geometry).is_scan:
+            along_first = self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST
+            # angles in the scan plane, tilted by the pitch angle (or, along
+            # track first, the pitch angle from nadir and the roll angle)
             roll, pitch = compute_view_angles(
                 orbit_track,
                 target,
@@ -501,6 +608,7 @@ class PointedInstrument(Instrument):
                 self.get_pitch_angle(orbit_track),
                 attitude=self._attitude,
                 yaw_angle=self.yaw_angle,
+                along_first=along_first,
             )
             # angular offsets from the view center, normalized by the half widths
             cross_offset = (
@@ -589,20 +697,23 @@ class PointedInstrument(Instrument):
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
         """
-        if self.view_geometry == ViewGeometry.SCAN:
+        if ViewGeometry(self.view_geometry).is_scan:
             cross_offset, along_offset = self._get_pixel_offsets(
                 cross_track_index, along_track_index
             )
+            # along track first, the along-track offset tilts with the pitch
+            along_first = self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST
             return compute_projected_ray_position(
                 orbit_track=orbit_track,
                 cross_track_field_of_view=0,
                 along_track_field_of_view=0,
                 roll_angle=self.get_roll_angle(orbit_track) + cross_offset,
-                pitch_angle=along_offset,
+                pitch_angle=0 if along_first else along_offset,
                 elevation=elevation,
                 velocity_frame=self.velocity_frame,
                 nadir_reference=self.nadir_reference,
-                tilt_angle=self.get_pitch_angle(orbit_track),
+                tilt_angle=self.get_pitch_angle(orbit_track)
+                + (along_offset if along_first else 0),
                 ground_elevation=ground_elevation,
                 attitude=self._attitude,
                 yaw_angle=self.yaw_angle,

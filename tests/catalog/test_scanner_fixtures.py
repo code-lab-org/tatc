@@ -100,12 +100,16 @@ class _SwathFixture:
         """
         Test that the recorded passes are predicted, and that this does not move.
         """
-        satellite = self.entry.to_satellite(
-            self.orbit,
+        # the day is the period of the analysis, for a schedule of the attitude; a
+        # union of views is analyzed together (instrument_index=None)
+        satellite = self.entry.build(
             configuration=self.swath_key,
+            orbit=self.orbit,
             time_step=self.time_step(),
             platform=self.platform,
-        )
+            start=self.day,
+            end=self.day + timedelta(days=1),
+        ).to_satellite(self.orbit, name=self.entry.name)
         differences = find_pass_differences(
             satellite, self.instrument_index, self.day, self.data["passes"]
         )
@@ -128,12 +132,18 @@ class _ScannerFixture(_SwathFixture):
     footprints: tuple
     meets_published_gate = True
     meets_pixel_gate = True
+    # whether the published footprints are gated, or too few (as only at nadir)
+    gates_published = True
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.satellite = cls.entry.build(
-            configuration=cls.sizes_key, orbit=cls.orbit, platform=cls.platform
+            configuration=cls.sizes_key,
+            orbit=cls.orbit,
+            platform=cls.platform,
+            start=cls.day,
+            end=cls.day + timedelta(days=1),
         ).to_satellite(cls.orbit, name=cls.entry.name)
         cls.names = np.array([i.name for i in cls.satellite.instruments])
         cls.recorded = cls.entry.record.configurations[cls.sizes_key].fixture_metrics
@@ -152,15 +162,20 @@ class _ScannerFixture(_SwathFixture):
 
     def test_published_dimensions(self):
         """
-        Test that published footprint dimensions meet the gate and do not move.
+        Test that published footprint dimensions meet the gate (if they are gated)
+        and do not move.
         """
         errors = []
-        for name, altitude, inclination, angle, along, cross in self.footprints:
+        for name, altitude, inclination, angle, along, cross, *rest in self.footprints:
+            pitch = rest[0] if rest else 0
             orbit = CircularOrbit(
                 altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
             )
             satellite = self.entry.build(
-                configuration=self.sizes_key, orbit=orbit
+                configuration=self.sizes_key,
+                orbit=orbit,
+                start=PUBLISHED_EPOCH,
+                end=PUBLISHED_EPOCH + timedelta(days=1),
             ).to_satellite(orbit, name=self.entry.name)
             time = PUBLISHED_EPOCH + timedelta(minutes=10)
             target = compute_projected_ray_position(
@@ -168,7 +183,7 @@ class _ScannerFixture(_SwathFixture):
                 0,
                 0,
                 angle,
-                0,
+                pitch,
                 velocity_frame=VelocityFrame.INERTIAL,
             )
             sizes = compute_sample_sizes(
@@ -185,6 +200,12 @@ class _ScannerFixture(_SwathFixture):
                 abs(sizes.sample_along.iloc[0] / 1e3 / along - 1),
                 abs(sizes.sample_cross.iloc[0] / 1e3 / cross - 1),
             ]
+        if not self.gates_published:
+            self.assertNotIn("sample_size_within_3pct", self.recorded)
+            self.assertAlmostEqual(
+                100 * max(errors), self.recorded["sample_size_largest_error"], places=6
+            )
+            return
         within = 100 * float(np.mean(np.array(errors) <= SIZE_TOLERANCE))
         configuration = self.entry.configurations[self.sizes_key]
         gates = get_gates(self.entry.instrument_class, configuration.grade)
@@ -440,18 +461,34 @@ class _BeamScannerFixture(_ScannerFixture):
         return np.full(len(rows), self.size_instrument)
 
     def recompute_pixel_differences(self) -> np.ndarray:
-        instrument = self.satellite.get_instrument(0)
+        instrument = self.satellite.get_instrument(
+            int(np.flatnonzero(self.names == self.size_instrument)[0])
+        )
         orbit = self.satellite.orbit.to_gp_orbit()
+        # the line along track of the pixels, of a scan of several lines
+        line = int(self.data.get("line", 0))
         differences = []
         for seconds, pixel, _, lat, lon in self.data["pixels"]:
             position = instrument.compute_projected_pixel_position(
                 orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
                 int(pixel),
-                0,
+                line,
             )
             predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
             differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
         return np.array(differences)
+
+
+class _StepBeamScannerFixture(_BeamScannerFixture):
+    """
+    Tests of entries with a sample size configuration whose fixture passes were
+    recomputed at a fixed time step.
+    """
+
+    step: float = 10
+
+    def time_step(self) -> float:
+        return self.step
 
 
 class TestDprFixture(_BeamScannerFixture, unittest.TestCase):
@@ -717,23 +754,32 @@ class TestOmpsNmSuomiNppFixture(_StepSwathFixture, unittest.TestCase):
     platform = "suomi-npp"
 
 
-class TestCeresFixture(_StepSwathFixture, unittest.TestCase):
+class TestCeresFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the CERES entry, at the period of its records (6.6 s).
+    Regression tests of the CERES entry, at the period of its records (6.6 s), whose
+    published footprints (only at nadir) are not gated.
     """
 
     entry_id = "ceres"
     swath_key = "swath_noaa_20"
+    sizes_key = "beams_noaa_20"
+    size_instrument = "CERES"
+    gates_published = False
+    footprints = (
+        ("CERES", 350, 35, 0, 16, 8),
+        ("CERES", 705, 98.2, 0, 32, 16),
+    )
     step = 6.6
 
 
 class TestCeresSuomiNppFixture(TestCeresFixture):
     """
-    Regression tests of the CERES entry's configuration of Suomi NPP (FM5).
+    Regression tests of the CERES entry's configurations of Suomi NPP (FM5).
     """
 
     fixture_name = "ceres_suomi_npp"
     swath_key = "swath_suomi_npp"
+    sizes_key = "beams_suomi_npp"
     platform = "suomi-npp"
 
 
@@ -778,22 +824,92 @@ class TestOco2GlintFixture(_StepSwathFixture, unittest.TestCase):
     platform = "oco-2"
 
 
-class TestEcostressFixture(_StepSwathFixture, unittest.TestCase):
+class TestEcostressFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the ECOSTRESS entry, on the International Space Station.
+    Regression tests of the ECOSTRESS entry, on the International Space Station,
+    whose published pixel (only at nadir) is not gated.
     """
 
     entry_id = "ecostress"
     platform = "iss"
+    sizes_key = "beams"
+    size_instrument = "ECOSTRESS"
+    gates_published = False
+    footprints = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851, -7.2427),)
 
 
-class TestEmitFixture(_StepSwathFixture, unittest.TestCase):
+class TestOciFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the EMIT entry, on the International Space Station.
+    Regression tests of the OCI entry, a cross-track scanner whose tilt follows a
+    pitch profile scheduled by day, and whose published pixel (only at nadir) is not
+    gated.
+    """
+
+    entry_id = "oci"
+    platform = "pace"
+    sizes_key = "beams"
+    size_instrument = "OCI"
+    gates_published = False
+    footprints = (("OCI", 675, 98.0, 0, 1.05, 1.05),)
+
+
+class TestEmitFixture(_StepBeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the EMIT entry, on the International Space Station, whose
+    published pixel (only at nadir) is not gated.
     """
 
     entry_id = "emit"
     platform = "iss"
+    sizes_key = "pixels"
+    size_instrument = "EMIT"
+    gates_published = False
+    footprints = (("EMIT", 400, 51.6, 0, 0.068, 0.062, -7.5608),)
+
+
+class TestTropomiFixture(_StepBeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the TROPOMI entry, whose views are analyzed as a union, and
+    whose pixels, of parts of a curved line, miss the gate; its published pixel (only
+    at nadir) is not gated.
+    """
+
+    entry_id = "tropomi"
+    platform = "sentinel-5p"
+    instrument_index = None
+    sizes_key = "pixels"
+    size_instrument = "TROPOMI pixels 128 to 304"
+    gates_published = False
+    meets_pixel_gate = False
+    footprints = (("TROPOMI pixels 128 to 304", 824, 98.74, 0, 5.5, 3.5),)
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        # each row is the boundary at the start of a row of the product (or the end
+        # of its last), in the part of the line that holds it, half a pixel to the
+        # left of its pixel in TAT-C's numbering from the right
+        parts = [
+            tuple(int(n) for n in name.split("pixels ")[1].split(" to "))
+            for name in self.names
+        ]
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, row, _, lat, lon in self.data["pixels"]:
+            index = next(
+                i
+                for i, (first, last) in enumerate(parts)
+                if first <= row < last or row == last == parts[-1][1]
+            )
+            first, last = parts[index]
+            position = self.satellite.get_instrument(
+                index
+            ).compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                (last - first) - 0.5 - (row - first),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
 
 
 class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
@@ -835,68 +951,111 @@ class TestCprFixture(_StepSwathFixture, unittest.TestCase):
     platform = "earthcare"
 
 
-class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
+class TestBbrFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the BBR entry's nadir view (instrument index 1).
+    Regression tests of the BBR entry's nadir view (instrument index 1), whose
+    published footprints of the slanted views miss the gate.
     """
 
     entry_id = "bbr"
     swath_key = "views"
     platform = "earthcare"
     instrument_index = 1
+    sizes_key = "pixels"
+    size_instrument = "BBR nadir"
+    meets_published_gate = False
+    footprints = (
+        ("BBR nadir", 393, 97.05, 0, 0.64, 0.64),
+        ("BBR aft", 393, 97.05, 0, 1.876, 1.069, -50.3554),
+        ("BBR fore", 393, 97.05, 0, 1.876, 1.069, 50.1645),
+    )
 
 
-class TestTropics03Fixture(_StepSwathFixture, unittest.TestCase):
+class TestTropics03Fixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the TROPICS entry's configuration of TROPICS-03, at the
+    Regression tests of the TROPICS entry's configurations of TROPICS-03, at the
     period of its scans.
     """
 
     entry_id = "tropics"
     fixture_name = "tropics_03"
     swath_key = "swath_tropics_03"
+    sizes_key = "beams_tropics_03"
+    size_instrument = "TROPICS 118 GHz"
     platform = "tropics-03"
+    footprints = tuple(
+        ("TROPICS 118 GHz", 550, 33, angle, along, cross)
+        for angle, along, cross in (
+            (0, 23.0, 25.2),
+            (6, 23.2, 25.5),
+            (31.5, 27.5, 36.5),
+            (45, 34.1, 58.3),
+            (60, 54.5, 177.1),
+        )
+    )
     step = 2.0
 
 
 class TestTropics05Fixture(TestTropics03Fixture):
     """
-    Regression tests of the TROPICS entry's configuration of TROPICS-05.
+    Regression tests of the TROPICS entry's configurations of TROPICS-05.
     """
 
     fixture_name = "tropics_05"
     swath_key = "swath_tropics_05"
+    sizes_key = "beams_tropics_05"
     platform = "tropics-05"
 
 
 class TestTropics06Fixture(TestTropics03Fixture):
     """
-    Regression tests of the TROPICS entry's configuration of TROPICS-06.
+    Regression tests of the TROPICS entry's configurations of TROPICS-06, whose
+    pixels miss the gate on the day tested.
     """
 
     fixture_name = "tropics_06"
     swath_key = "swath_tropics_06"
+    sizes_key = "beams_tropics_06"
     platform = "tropics-06"
+    meets_pixel_gate = False
 
 
-class TestIasiNgFixture(_StepSwathFixture, unittest.TestCase):
+class TestIasiNgFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the IASI-NG entry's configuration, at the period of its
-    scans.
+    Regression tests of the IASI-NG entry's configurations, at the period of its
+    scans, whose published pixel (only at nadir) is not gated, and whose pixels,
+    projected at the middle of a scan, miss the gate.
     """
 
     entry_id = "iasi_ng"
     platform = "metop-sga1"
+    sizes_key = "fields_of_regard"
+    size_instrument = "IASI-NG"
+    gates_published = False
+    meets_pixel_gate = False
+    footprints = (("IASI-NG", 835, 98.7, 0, 12, 12),)
     step = 15.561
 
 
-class TestMwsFixture(_StepSwathFixture, unittest.TestCase):
+class TestMwsFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the MWS entry's configuration, at the period of its scans.
+    Regression tests of the MWS entry's configurations, at the period of its scans,
+    whose pixels, projected at the time the product gives a scan, miss the gate.
     """
 
     entry_id = "mws"
     platform = "metop-sga1"
+    sizes_key = "beams"
+    size_instrument = "MWS 50.3-57.3 GHz"
+    meets_pixel_gate = False
+    footprints = (
+        ("MWS 23.8-31.4 GHz", 827, 98.7, 0, 39.6, 39.6),
+        ("MWS 23.8-31.4 GHz", 827, 98.7, 49.312, 67.6, 132.6),
+        ("MWS 50.3-57.3 GHz", 827, 98.7, 0, 20.0, 20.0),
+        ("MWS 50.3-57.3 GHz", 827, 98.7, 49.312, 34.2, 66.9),
+        ("MWS 89-229 GHz", 827, 98.7, 0, 17.0, 17.0),
+        ("MWS 89-229 GHz", 827, 98.7, 49.312, 29.0, 56.7),
+    )
     step = 2.254
 
 

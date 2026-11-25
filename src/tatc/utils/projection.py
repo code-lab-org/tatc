@@ -89,8 +89,29 @@ class ViewGeometry(str, Enum):
     by an along-track angle about the rotated cross-track axis, with the
     fields of view as the ranges of these angles about the roll angle and
     the scan plane. The angular extent along track is constant across the
-    scan, so the footprint widens along track away from nadir.
+    scan, so the footprint widens along track away from nadir. A geostationary
+    imager's fixed grid of scan angles whose sweep is about the x axis (that of
+    GOES-R's ABI) is a `SCAN` view in the inertial frame, whose along-track
+    direction is east.
     """
+    SCAN_ALONG_FIRST = "scan_along_first"
+    """
+    In angles, as `SCAN`, but with the along-track angle first: each direction
+    is nadir rotated by the along-track angle (with the pitch angle) about the
+    cross-track axis, and then by the cross-track angle (with the roll angle)
+    about the rotated along-track axis. The angular extent across track is
+    constant along track. A geostationary imager's fixed grid of scan angles
+    whose sweep is about the y axis (the convention of CGMS, as of Himawari's AHI
+    and MTG's FCI) is a `SCAN_ALONG_FIRST` view in the inertial frame. Along
+    track at the view's center (the scan line), it is the same as `SCAN`.
+    """
+
+    @property
+    def is_scan(self) -> bool:
+        """
+        Whether the view is defined in angles (`SCAN` or `SCAN_ALONG_FIRST`).
+        """
+        return self in (ViewGeometry.SCAN, ViewGeometry.SCAN_ALONG_FIRST)
 
 
 class NadirReference(str, Enum):
@@ -195,6 +216,41 @@ def _compute_line_of_sight(
     if xyz.ndim == 1:
         xyz = np.reshape(xyz, (3,) + (1,) * (p_m.ndim - 1))
     return xyz - p_m
+
+
+def compute_incidence_angle(
+    orbit_track: Geocentric, target: GeographicPosition
+) -> npt.NDArray:
+    """
+    Compute the incidence angle (degrees) at a target of the line of sight from a
+    satellite: the angle between the line of sight to the satellite and the
+    normal to the WGS 84 ellipsoid at the target, 90 degrees less the
+    satellite's elevation angle (see `compute_local_incidence_angle` for sloped
+    terrain).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+
+    Returns:
+        numpy.typing.NDArray: the incidence angle(s) (degrees).
+    """
+    p_m = np.asarray(orbit_track.frame_xyz(itrs).m)
+    up = -_compute_line_of_sight(target, p_m)
+    latitude = np.radians(target.latitude.degrees)
+    longitude = np.radians(target.longitude.degrees)
+    normal = np.stack(
+        [
+            np.cos(latitude) * np.cos(longitude),
+            np.cos(latitude) * np.sin(longitude),
+            np.sin(latitude) * np.ones_like(longitude),
+        ]
+    )
+    if normal.ndim < up.ndim:
+        normal = np.reshape(normal, (3,) + (1,) * (up.ndim - 1))
+    cosine = np.sum(up * normal, axis=0) / np.linalg.norm(up, axis=0)
+    return np.degrees(np.arccos(np.clip(cosine, -1, 1)))
 
 
 def _compute_view_frame(
@@ -612,6 +668,7 @@ def compute_view_angles(
     tilt_angle: float = 0,
     attitude: Any = None,
     yaw_angle: float = 0,
+    along_first: bool = False,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Compute the roll and pitch angles (degrees) that point a view's center at
@@ -641,10 +698,33 @@ def compute_view_angles(
             nadir frame (in `velocity_frame`).
         yaw_angle (float): the yaw angle (degrees) of the view about the
             nadir axis, applied before the tilt angle.
+        along_first (bool): `True` for the angles in the other order, of a
+            `ViewGeometry.SCAN_ALONG_FIRST` view: the pitch angle about the
+            cross-track axis (from the tilt angle, as the tilt and the pitch
+            rotate about the same axis), then the roll angle about the pitched
+            along-track axis.
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
             left) and pitch (positive forward) angles (degrees).
     """
+    if along_first:
+        p_m, nadir, along, cross = _compute_view_frame(
+            orbit_track,
+            0,
+            0,
+            velocity_frame,
+            nadir_reference,
+            0,
+            attitude,
+            yaw_angle,
+        )
+        los = _compute_line_of_sight(target, p_m)
+        los = los / np.linalg.norm(los, axis=0)
+        pitch = np.degrees(
+            np.arctan2(np.sum(los * along, axis=0), np.sum(los * nadir, axis=0))
+        )
+        roll = np.degrees(np.arcsin(np.clip(np.sum(los * cross, axis=0), -1, 1)))
+        return roll, pitch - tilt_angle
     p_m, nadir, along, cross = _compute_view_frame(
         orbit_track,
         0,
@@ -1381,7 +1461,8 @@ def compute_footprint(
         angles = np.where(angles < -theta, angles + 360, angles)
     else:
         angles = np.linspace(0, 360, number_points)
-    if view_geometry == ViewGeometry.SCAN:
+    view_geometry = ViewGeometry(view_geometry)
+    if view_geometry.is_scan:
         # perimeter in (cross-track, along-track) angles, counterclockwise from
         # the left side as for the clock angles above, with points evenly
         # spaced in angle along each side
@@ -1400,18 +1481,20 @@ def compute_footprint(
             theta = np.radians(np.linspace(0, 360, number_points))
             offsets = np.stack([half_c * np.cos(theta), half_a * np.sin(theta)], axis=1)
         # rays at the angular offsets from the roll angle and the scan plane,
-        # which the pitch angle tilts about the cross-track axis
+        # which the pitch angle tilts about the cross-track axis (or, along
+        # track first, tilted by the pitch angle and the along-track offset)
+        along_first = view_geometry == ViewGeometry.SCAN_ALONG_FIRST
         *rays, _ = _compute_rays(
             orbit_track,
             0,
             0,
             roll_angle + offsets[:, :1],
-            offsets[:, 1:],
+            0 if along_first else offsets[:, 1:],
             False,
             np.zeros(len(offsets)),
             velocity_frame,
             nadir_reference,
-            pitch_angle,
+            pitch_angle + offsets[:, 1:] if along_first else pitch_angle,
             attitude,
             yaw_angle,
         )
@@ -1444,7 +1527,7 @@ def compute_footprint(
         # clip views toward a target above the instrument to the horizon
         # (including views about nadir, whose boundaries may be visible),
         # given the center of each view (its ray before adding its extent)
-        is_scan = view_geometry == ViewGeometry.SCAN
+        is_scan = view_geometry.is_scan
         _, center, *_ = _compute_rays(
             orbit_track,
             0,
@@ -1547,7 +1630,7 @@ def compute_swept_footprints(
     number_points = max(2, number_points)
     # positions across the line, from its left end (1) to its right end (-1)
     s = np.linspace(1, -1, number_points)
-    if view_geometry == ViewGeometry.SCAN:
+    if ViewGeometry(view_geometry).is_scan:
         # rays at cross-track angles from the roll angle, in the scan plane
         # that the pitch angle tilts about the cross-track axis
         *rays, _ = _compute_rays(

@@ -45,23 +45,29 @@ def compute_published_errors(entry, key: str, footprints) -> np.ndarray:
     """
     Gets the relative errors of sample sizes against published footprints, given as
     rows of instrument name, altitude (km), inclination (deg), scan angle (deg), and
-    the sizes (km) along and across track. Gives two errors for each row.
+    the sizes (km) along and across track, and optionally the angle (deg) along track
+    of a view pointed fore or aft. Gives two errors for each row.
     """
     errors = []
-    for name, altitude, inclination, angle, along, cross in footprints:
+    for name, altitude, inclination, angle, along, cross, *rest in footprints:
+        pitch = rest[0] if rest else 0
         orbit = CircularOrbit(
             altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
         )
-        satellite = entry.build(configuration=key, orbit=orbit).to_satellite(
-            orbit, name=entry.name
-        )
+        # a day, for a configuration that schedules its attitude
+        satellite = entry.build(
+            configuration=key,
+            orbit=orbit,
+            start=PUBLISHED_EPOCH,
+            end=PUBLISHED_EPOCH + timedelta(days=1),
+        ).to_satellite(orbit, name=entry.name)
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
         target = compute_projected_ray_position(
             orbit.to_gp_orbit().get_orbit_track(time),
             0,
             0,
             angle,
-            0,
+            pitch,
             velocity_frame=VelocityFrame.INERTIAL,
         )
         sizes = compute_sample_sizes(
@@ -78,7 +84,8 @@ def compute_published_errors(entry, key: str, footprints) -> np.ndarray:
             sizes.sample_along.iloc[0] / 1e3 / along - 1,
             sizes.sample_cross.iloc[0] / 1e3 / cross - 1,
         ]
-        print(f"{name}, {angle} deg: {errors[-2]:+.2%} along, {errors[-1]:+.2%} across")
+        where = f"{angle} deg" + (f", {pitch} deg along track" if pitch else "")
+        print(f"{name}, {where}: {errors[-2]:+.2%} along, {errors[-1]:+.2%} across")
     return np.array(errors)
 
 

@@ -11,6 +11,7 @@
       "platforms": [
         "metop-sga1"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -37,6 +38,51 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.6819902477
+      }
+    },
+    "beams": {
+      "digest": "6f86d4ef389241756ce4d9281cbd4472b563036273f847f2c4f03b65b4607345",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_mws.py",
+      "reference": "Footprints of the EPS-SG MWS Science Plan; positions of the fields of view of the MWS Level 1b (EO:EUM:DAT:0892, BUFR)",
+      "period": "2026-11-18",
+      "platforms": [
+        "metop-sga1"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 2.1396204070691205
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 7.325444557587326
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 11.211064072057994
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9998913352490355
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9999457290440549
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 100.0,
+        "pixel_position_median": 7.275049081836256,
+        "spacing_along_ratio_median": 1.0000336290193765,
+        "spacing_cross_ratio_median": 0.9999328196337314
       }
     }
   }

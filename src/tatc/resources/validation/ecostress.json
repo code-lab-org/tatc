@@ -11,6 +11,7 @@
       "platforms": [
         "iss"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -37,6 +38,47 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.7579137259
+      }
+    },
+    "beams": {
+      "digest": "252084a63d2050a377608d809fb626cd9a900ce505acf04811c96811dee90d7c",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_ecostress.py",
+      "reference": "Nadir pixel of the ECOSTRESS L1 Calibration ATBD (not gated); sample positions of ECO_L1B_GEO version 002 (the middle line of every fourth sweep)",
+      "period": "2026-11-08",
+      "platforms": [
+        "iss"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.552059244258507
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 4.1096972737271615
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 6.049062878837322
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.3145117206003623
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9986989330565286
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.552059244258507,
+        "pixel_position_median": 3.4825955098499994,
+        "spacing_along_ratio_median": 1.307362394170645,
+        "spacing_cross_ratio_median": 0.9986498585361929
       }
     }
   }

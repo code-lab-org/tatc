@@ -11,6 +11,7 @@
       "platforms": [
         "sentinel-1c"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -131,6 +132,7 @@
       "platforms": [
         "sentinel-1c"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -240,6 +242,30 @@
         "passes_found": 100.0,
         "epoch_p95": 0.32735908755
       }
+    },
+    "resolution_iw": {
+      "digest": "33721fa2a82ba8de326988612c240b5755f8890262d3bdae5519820734eb7359",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_csar.py",
+      "reference": "Resolutions of the Sentinel-1 Product Definition (S1-RS-MDA-52-7440 v2.13), Table 7-6 (IW GRDH)",
+      "period": "2026-08-12",
+      "platforms": [
+        "sentinel-1c"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 100.0
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.3770729450936816
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {}
     }
   }
 }

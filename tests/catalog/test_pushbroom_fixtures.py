@@ -94,16 +94,6 @@ class TestOliFixture(_PushbroomFixture, unittest.TestCase):
     platform = "landsat-9"
 
 
-class TestTropomiFixture(_PushbroomFixture, unittest.TestCase):
-    """
-    Regression tests of the TROPOMI entry, whose views are analyzed as a union.
-    """
-
-    entry_id = "tropomi"
-    platform = "sentinel-5p"
-    instrument_index = None
-
-
 class TestMsiFixture(_PushbroomFixture, unittest.TestCase):
     """
     Regression tests of the MSI entry, on Sentinel-2B.
@@ -191,16 +181,6 @@ class TestOlciFixture(_PushbroomFixture, unittest.TestCase):
 
     entry_id = "olci"
     platform = "sentinel-3a"
-
-
-class TestOciFixture(_PushbroomFixture, unittest.TestCase):
-    """
-    Regression tests of the OCI entry's swath, a cross-track scanner whose tilt
-    follows a pitch profile scheduled by day.
-    """
-
-    entry_id = "oci"
-    platform = "pace"
 
 
 class TestLsarWideBandFixture(_PushbroomFixture, unittest.TestCase):

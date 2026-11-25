@@ -5,19 +5,29 @@ Unit tests for the PointedInstrument schema.
 """
 
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from pydantic import ValidationError
+from pyproj import Proj
+from shapely.geometry import Point
 from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
-from tatc.schemas import Attitude, CircularOrbit, PointedInstrument
+from tatc.schemas import (
+    Attitude,
+    CircularOrbit,
+    GeosynchronousOrbit,
+    PointedInstrument,
+    Satellite,
+)
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
 from tatc.utils.projection import (
     VelocityFrame,
     ViewGeometry,
     compute_ground_advance,
+    compute_incidence_angle,
     compute_projected_ray_position,
     compute_view_angles,
 )
@@ -1163,6 +1173,303 @@ class TestScanViewGeometry(unittest.TestCase):
             self.assertAlmostEqual(
                 pixel.longitude.degrees, ray.longitude.degrees, places=8
             )
+
+
+class TestScanAlongFirst(unittest.TestCase):
+    """
+    Unit tests for views in angles with the along-track angle first
+    (`ViewGeometry.SCAN_ALONG_FIRST`), as of the fixed grids of geostationary
+    imagers, against the geostationary projection of PROJ.
+    """
+
+    def setUp(self):
+        self.epoch = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+        orbit = GeosynchronousOrbit(longitude=140.7, epoch=self.epoch, inclination=0)
+        self.satellite = Satellite(name="geo", orbit=orbit)
+        self.track = orbit.to_gp_orbit().get_orbit_track(self.epoch)
+        # the projection seen from the satellite's position
+        subpoint = wgs84.subpoint_of(self.track)
+        self.height = float(wgs84.height_of(self.track).m)
+        self.longitude = float(subpoint.longitude.degrees)
+        # a coarse grid of 11 by 11 pixels of 1 deg, within the Earth's disk (whose
+        # edge is about 8.7 deg from nadir) to its corners
+        self.pixels, self.angle = 11, 1.0
+
+    def grid(self, view_geometry: ViewGeometry):
+        """Gets the grid as a pointed instrument bound to the satellite."""
+        field_of_view = self.pixels * self.angle
+        instrument = PointedInstrument(
+            name="grid",
+            field_of_regard=20,
+            cross_track_field_of_view=field_of_view,
+            along_track_field_of_view=field_of_view,
+            cross_track_pixels=self.pixels,
+            along_track_pixels=self.pixels,
+            is_rectangular=True,
+            view_geometry=view_geometry,
+            velocity_frame=VelocityFrame.INERTIAL,
+        )
+        return self.satellite.model_copy(
+            update={"instruments": [instrument]}
+        ).get_instrument(0)
+
+    def distance(self, instrument, sweep: str, row: int, column: int) -> float:
+        """
+        Gets the distance (km) between a pixel (rows from the north, columns from
+        the west) and the point of its scan angles in the geostationary
+        projection with a sweep axis.
+        """
+        geos = Proj(
+            proj="geos", h=self.height, lon_0=self.longitude, sweep=sweep, ellps="WGS84"
+        )
+        center = (self.pixels - 1) / 2
+        x = np.radians((column - center) * self.angle) * self.height
+        y = np.radians((center - row) * self.angle) * self.height
+        longitude, latitude = geos(x, y, inverse=True)
+        # TAT-C numbers pixels from the right of the motion (east): from the south,
+        # and from the east
+        pixel = instrument.compute_projected_pixel_position(
+            self.track, self.pixels - 1 - row, self.pixels - 1 - column
+        )
+        return (
+            geodesic_distance(
+                pixel.longitude.degrees, pixel.latitude.degrees, longitude, latitude
+            )
+            / 1e3
+        )
+
+    def test_fixed_grids(self):
+        """
+        Test that pixels in scan geometry lie at the points of a grid that sweeps
+        about the x axis (as GOES-R's), and along track first at those of a grid
+        that sweeps about the y axis (as CGMS's), within about a kilometer, whereas
+        4 deg from nadir in both directions the two orders differ by about 9 km.
+        """
+        scan = self.grid(ViewGeometry.SCAN)
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        for row, column in [(5, 5), (0, 5), (5, 10), (1, 1), (9, 2)]:
+            self.assertLess(self.distance(scan, "x", row, column), 1.0)
+            self.assertLess(self.distance(along_first, "y", row, column), 1.0)
+        self.assertGreater(self.distance(scan, "y", 1, 1), 5)
+        self.assertGreater(self.distance(along_first, "x", 1, 1), 5)
+
+    def test_scan_line(self):
+        """
+        Test that the two orders give the same pixels on the scan line (where the
+        along-track angle is zero).
+        """
+        scan = self.grid(ViewGeometry.SCAN)
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        for index in (0, 3, 10):
+            a = scan.compute_projected_pixel_position(self.track, index, 5)
+            b = along_first.compute_projected_pixel_position(self.track, index, 5)
+            self.assertAlmostEqual(a.latitude.degrees, b.latitude.degrees, places=8)
+            self.assertAlmostEqual(a.longitude.degrees, b.longitude.degrees, places=8)
+
+    def test_field_of_view(self):
+        """
+        Test that a pixel at a corner of the grid is in the field of view along
+        track first, and that one beyond its edge is not.
+        """
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        corner = along_first.compute_projected_pixel_position(self.track, 1, 1)
+        beyond = along_first.compute_projected_pixel_position(self.track, -1, 1)
+        for pixel, inside in [(corner, True), (beyond, False)]:
+            target = wgs84.latlon(pixel.latitude.degrees, pixel.longitude.degrees)
+            self.assertEqual(
+                along_first.is_in_field_of_view(self.track, target)[0], inside
+            )
+
+    def test_sample_spacing_follows_order(self):
+        """
+        Test that, off the scan line and off nadir across track, the spacing that
+        each order predicts is that of its projected pixels (half the distance
+        between a pixel's neighbors), along and across track, on a grid as fine as
+        a geostationary imager's (whose steps are nearly linear on the ground).
+        """
+        pixels, angle = 5500, np.degrees(55.888e-6)
+        for geometry in (ViewGeometry.SCAN, ViewGeometry.SCAN_ALONG_FIRST):
+            instrument = PointedInstrument(
+                name="grid",
+                field_of_regard=20,
+                cross_track_field_of_view=pixels * angle,
+                along_track_field_of_view=pixels * angle,
+                cross_track_pixels=pixels,
+                along_track_pixels=pixels,
+                is_rectangular=True,
+                view_geometry=geometry,
+                velocity_frame=VelocityFrame.INERTIAL,
+            )
+            grid = self.satellite.model_copy(
+                update={"instruments": [instrument]}
+            ).get_instrument(0)
+
+            def step(a, b):
+                p, q = (
+                    grid.compute_projected_pixel_position(self.track, *x)
+                    for x in (a, b)
+                )
+                return (
+                    geodesic_distance(
+                        p.longitude.degrees,
+                        p.latitude.degrees,
+                        q.longitude.degrees,
+                        q.latitude.degrees,
+                    )
+                    / 2
+                )
+
+            for i, j in [(1500, 1500), (2750, 1200), (1200, 2750)]:
+                center = grid.compute_projected_pixel_position(self.track, i, j)
+                target = wgs84.latlon(center.latitude.degrees, center.longitude.degrees)
+                along, cross = grid.compute_sample_spacing(self.track, target)
+                self.assertAlmostEqual(
+                    float(along) / step((i, j - 1), (i, j + 1)), 1, delta=2e-4
+                )
+                self.assertAlmostEqual(
+                    float(cross) / step((i - 1, j), (i + 1, j)), 1, delta=2e-4
+                )
+
+    def test_view_angles_along_first_from_tilt(self):
+        """
+        Test that the along-track angle along track first is measured from the
+        tilt, as in the other order.
+        """
+        target = wgs84.subpoint_of(self.track)
+        _, untilted = compute_view_angles(
+            self.track, target, VelocityFrame.INERTIAL, along_first=True
+        )
+        _, tilted = compute_view_angles(
+            self.track, target, VelocityFrame.INERTIAL, tilt_angle=5, along_first=True
+        )
+        self.assertAlmostEqual(float(tilted), float(untilted) - 5, places=9)
+
+    def test_footprint_contains_pixels(self):
+        """
+        Test that the footprint along track first contains the grid's corner
+        pixels.
+        """
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        footprint = along_first.compute_footprint(self.track)
+        footprint = footprint[0] if isinstance(footprint, list) else footprint
+        for i, j in [(0, 0), (0, 10), (10, 0), (10, 10)]:
+            pixel = along_first.compute_projected_pixel_position(self.track, i, j)
+            self.assertTrue(
+                footprint.contains(
+                    Point(pixel.longitude.degrees, pixel.latitude.degrees)
+                )
+            )
+
+
+class TestRadarResolution(unittest.TestCase):
+    """
+    Unit tests for the resolutions of a radar's samples (`range_resolution` and
+    `azimuth_resolution`), which replace the sizes of a pixel's angles, and for the
+    incidence angle at a target.
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=693e3, inclination=98.18, epoch=epoch)
+        self.track = orbit.to_gp_orbit().get_orbit_track(epoch)
+        self.base = dict(
+            name="sar",
+            field_of_regard=90,
+            cross_track_field_of_view=5,
+            along_track_field_of_view=1,
+            roll_angle=-34,
+            is_rectangular=True,
+        )
+        ray = compute_projected_ray_position(self.track, 0, 0, -34, 0)
+        self.target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+
+    def test_incidence_angle(self):
+        """
+        Test that the incidence angle is about zero at nadir, and that, off nadir,
+        it is that of the look angle on a sphere (within the ellipsoid's
+        difference).
+        """
+        nadir = wgs84.subpoint_of(self.track)
+        self.assertAlmostEqual(
+            float(compute_incidence_angle(self.track, nadir)), 0, delta=0.01
+        )
+        radius = 6371e3
+        height = float(wgs84.height_of(self.track).m)
+        expected = np.degrees(
+            np.arcsin((radius + height) / radius * np.sin(np.radians(34)))
+        )
+        self.assertAlmostEqual(
+            float(compute_incidence_angle(self.track, self.target)),
+            expected,
+            delta=0.3,
+        )
+
+    def test_slant_range_resolution(self):
+        """
+        Test that a slant range resolution is divided by the sine of the incidence
+        angle across track, and that the azimuth resolution is the size along track.
+        """
+        instrument = PointedInstrument(
+            **self.base, range_resolution=12.6, azimuth_resolution=22.5
+        )
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        incidence = np.radians(compute_incidence_angle(self.track, self.target))
+        self.assertAlmostEqual(float(along), 22.5)
+        self.assertAlmostEqual(float(cross), 12.6 / float(np.sin(incidence)), places=6)
+
+    def test_ground_range_resolution(self):
+        """
+        Test that a ground range resolution is the size across track wherever the
+        target is.
+        """
+        instrument = PointedInstrument(
+            **self.base,
+            range_resolution=2000,
+            range_resolution_frame="ground",
+            azimuth_resolution=2000,
+        )
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        self.assertEqual((float(along), float(cross)), (2000.0, 2000.0))
+
+    def test_resolutions_spacing_and_visibility(self):
+        """
+        Test that the spacing of a radar's samples is not modeled (`NaN` in the
+        directions of its resolutions), that a target whose pixel's rays miss the
+        Earth has no size, and that a slant range resolution at nadir is infinite,
+        without a warning.
+        """
+        instrument = PointedInstrument(
+            **self.base, range_resolution=12.6, azimuth_resolution=22.5
+        )
+        along, cross = instrument.compute_sample_spacing(self.track, self.target)
+        self.assertTrue(np.isnan(along) and np.isnan(cross))
+        # near the limb (about 64.4 deg from nadir), where half the pixel's 5 deg
+        # across track misses the Earth
+        ray = compute_projected_ray_position(self.track, 0, 0, -63.5, 0)
+        near_limb = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+        _, cross = instrument.compute_sample_size(self.track, near_limb)
+        self.assertTrue(np.isnan(cross))
+        subpoint = wgs84.subpoint_of(self.track)
+        nadir = wgs84.latlon(subpoint.latitude.degrees, subpoint.longitude.degrees)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _, cross = PointedInstrument(
+                **{**self.base, "roll_angle": 0}, range_resolution=12.6
+            ).compute_sample_size(self.track, nadir)
+        self.assertGreater(float(cross), 1e6)
+
+    def test_without_resolutions(self):
+        """
+        Test that, without resolutions, the sizes are those of the pixel's angles,
+        and that a resolution replaces only its own direction.
+        """
+        instrument = PointedInstrument(**self.base)
+        with_azimuth = PointedInstrument(**self.base, azimuth_resolution=10)
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        along_r, cross_r = with_azimuth.compute_sample_size(self.track, self.target)
+        self.assertGreater(float(along), 1000)
+        self.assertEqual(float(along_r), 10)
+        self.assertAlmostEqual(float(cross_r), float(cross))
 
 
 class TestInstrumentYaw(unittest.TestCase):

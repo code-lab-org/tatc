@@ -2,15 +2,16 @@
   "entry_id": "abi",
   "configurations": {
     "full_disk": {
-      "digest": "0f24250ef8d0f2c98436fe13b243610e5617b920edc31c6c4ea794c3b1326e73",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "24161a7680309cc73a692c947966db61105310a9021b648a064cd389fe5be424",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-ACMF clear sky mask, every 8th pixel",
       "period": "2026-10-03T12:00Z",
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "imaged_pixels_observed",
@@ -18,7 +19,7 @@
         },
         {
           "name": "elevation_error_max",
-          "value": 0.00037989186479592263
+          "value": 0.00037989186472486836
         }
       ],
       "transfers": {
@@ -38,19 +39,20 @@
       },
       "fixture_metrics": {
         "imaged_pixels_observed": 100.0,
-        "elevation_error_max": 0.00037431447341873536
+        "elevation_error_max": 0.0003743144734329462
       }
     },
     "sst_good_quality": {
-      "digest": "61f9d59e6d03c56b386b70e62a6f025e9f21eacfcd6bec545120e5d067823023",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "748354c2ce29dc281316954b6707255e4460bc98471315c163dab317e46913ef",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-SSTF SST and quality flags",
       "period": "2026-10-03T12:00Z",
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -81,15 +83,16 @@
       }
     },
     "lst_good_quality": {
-      "digest": "3c44900855e1fb4542e9f2948171c27c9cec3723ff52a082ecc9d919bf13ffb9",
-      "standard_version": 1,
-      "tatc_version": "3.6.0",
+      "digest": "d5ae3d7caea6bbbabab4317e47c6e363a016ae69e5c7fe4b75041eff9feef08b",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "ABI-L2-LSTF LST and quality flags",
       "period": "2026-10-03T12:00Z",
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -116,7 +119,48 @@
         }
       },
       "fixture_metrics": {
-        "product_limit": 0.2588730783312698
+        "product_limit": 0.2588730783312627
+      }
+    },
+    "pixels": {
+      "digest": "74b526ef4291df066bd96ab7446ca3152b11f988b708139b745a65a4e3e0e7dc",
+      "standard_version": 11,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_abi.py",
+      "reference": "Nadir resolution of the GOES-R Product Definition and Users' Guide (not gated); fixed grid of ABI-L2-ACMF (2 km)",
+      "period": "2026-10-03T12:00Z",
+      "platforms": [
+        "goes-19"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.1793600330402878
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 0.4250532609992156
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 0.6170758844133434
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0000421737353764
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.000040383826304
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.1793600330402878,
+        "pixel_position_median": 0.4114651032161978,
+        "spacing_along_ratio_median": 1.0000482436052662,
+        "spacing_cross_ratio_median": 1.0000436786711198
       }
     }
   }

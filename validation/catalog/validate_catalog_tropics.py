@@ -18,6 +18,11 @@ needed fields of the product's files are read, with range requests:
     python validation/catalog/validate_catalog_tropics.py <data directory> 2024-08-15 --fit --platform tropics-03
     python validation/catalog/validate_catalog_tropics.py <data directory> 2024-10-01 --platform tropics-03
 
+It also validates each satellite's sample size configuration (`beams_tropics_0n`),
+following `ValidateSampleSizes`: sizes are compared with the footprints of the 118
+GHz band published in the TROPICS L1 Radiance ATBD, which the gate tests, the
+projected pixels with the spots' positions, and their spacing with that measured.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 The satellites' element sets are read from the file of their history in `elements/`
 (or from a file given with `--elements`). With `--write`, it writes the entry's
@@ -40,7 +45,15 @@ from skyfield.positionlib import Geocentric
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
 from tatc.utils import compute_projected_ray_position
-from scanner import Product, Reference, Setup, fit, load_day, validate_swath
+from scanner import (
+    Product,
+    Reference,
+    Setup,
+    fit,
+    load_day,
+    validate_beams,
+    validate_swath,
+)
 from validation_io import FIXTURES, TO_GEODETIC, RemoteFile, parse_run
 
 SCAN_PERIOD = 2.0
@@ -182,6 +195,20 @@ def product(number: str) -> Product:
 
 
 PLATFORMS = {f"tropics-{n}": n for n in ("03", "05", "06")}
+# published footprints of the 118 GHz band (F): instrument, altitude (km),
+# inclination (deg), scan angle (deg), and sizes along and across track (km), from
+# Appendix C of the TROPICS L1 Radiance ATBD (beam positions 41, 37, 20, 11, and 1),
+# at the nominal altitude of its Table 1
+PUBLISHED_FOOTPRINTS = tuple(
+    ("TROPICS 118 GHz", 550, 33, angle, along, cross)
+    for angle, along, cross in (
+        (0, 23.0, 25.2),
+        (6, 23.2, 25.5),
+        (31.5, 27.5, 36.5),
+        (45, 34.1, 58.3),
+        (60, 54.5, 177.1),
+    )
+)
 
 
 def setup(platform: str) -> Setup:
@@ -190,12 +217,13 @@ def setup(platform: str) -> Setup:
     name = product(number).short_name
     return Setup(
         swath=f"swath_tropics_{number}",
-        beams=None,
-        size_instrument=None,
-        published_footprints=(),
+        beams=f"beams_tropics_{number}",
+        size_instrument="TROPICS 118 GHz",
+        published_footprints=PUBLISHED_FOOTPRINTS,
         fixture_path=FIXTURES / f"tropics_{number}.npz",
         reference=f"{name} (118 GHz spot positions and times)",
-        published_reference="",
+        published_reference="Footprints of the TROPICS L1 Radiance ATBD; 118 GHz "
+        f"spot positions of {name}",
         time_steps=(SCAN_PERIOD, 32, 128),
         pass_radius=60,
         point_spacing=500e3,
@@ -224,14 +252,11 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(
-        setup(run.platform),
-        run,
-        reference,
-        orbit,
-        tle,
-        fixture_extras=None,
-    )
+    satellite_setup = setup(run.platform)
+    if satellite_setup.beams in run.configurations:
+        validate_beams(satellite_setup, run, reference, orbit, tle)
+    if satellite_setup.swath in run.configurations:
+        validate_swath(satellite_setup, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

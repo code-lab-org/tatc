@@ -71,6 +71,38 @@ configurations:
       - The view is centered on nadir. The edges of scenes measure 7.51 deg to the left and 7.52 deg to the right, varying by about 0.05 deg with latitude.
       - OLI's detector modules are staggered along track, which a single view does not represent, so epochs differ from imaging times by about +0.6 s or -1.2 s, depending on the module. Those times are of the red band, for scenes with Level-2 products in a UTM projection.
       - The ends of scenes are within 0.1 deg of perpendicular to the Earth-fixed velocity, and 2.4 deg from the inertial velocity (median), so a user-supplied attitude should keep the Earth-fixed frame.
+  pixels:
+    grade: sample_size
+    description: The pixels of the 30 m multispectral bands across the swath, whose sizes and spacing `compute_sample_sizes` gives, from published values; not compared with reference data.
+    platforms: [landsat-9]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: OLI
+          field_of_regard: 15.0275
+          cross_track_field_of_view: 15.0275
+          along_track_field_of_view: 0.002438
+          cross_track_pixels: 6164
+          is_rectangular: true
+          scan_period: 0.004236
+        provenance:
+          field_of_regard: *measured_extent
+          cross_track_field_of_view: *measured_extent
+          along_track_field_of_view: &pixel_width
+            kind: derived
+            source: "The angle of the multispectral bands' ground sample distance of 30 m at 705 km, the specification of Knight and Kvaran (2014), Remote Sensing 6, 10286, Table 1 (https://doi.org/10.3390/rs61110286), and the altitude of NASA Science, Landsat OLI: \"over an 185 km swath from 705 km altitude\""
+          cross_track_pixels:
+            kind: derived
+            source: The swath's field of view divided by the pixel's angle (42.55 urad), as OLI's 14 overlapping modules of 494 detectors each (Knight and Kvaran, 2014) are not modeled
+          is_rectangular:
+            kind: derived
+            source: Models a line of a pushbroom as a rectangular view
+          scan_period:
+            kind: nominal
+            source: "USGS, Landsat 8/9 OLI Line-of-Sight Model Creation Algorithm Description Document: \"Nominal OLI frame time nominal_frame_time (4.236 msec)\" (https://edcftp.cr.usgs.gov/project/landsat/L9_ADD/Individual%20ADDs/6.2%20OLI%20Geometry%20Algorithms/6.2.1%20OLI%20Line-of-Sight%20Model%20Creation%20Algorithm.docx)"
+    limitations:
+      - The pixel comes from the published ground sample distance, a specification at nadir, and the line period; no reference data locate OLI's detectors (the products are scenes resampled to a map grid), so the configuration is nominal. The panchromatic band's pixels are half the size, with half the line period.
 limitations:
   - The fitted angles were measured on Landsat 9. Scenes acquired off nadir on request are left out of every test, and their pointing is not modeled.
   - On Landsat 8, this configuration is a transfer that warns on use.

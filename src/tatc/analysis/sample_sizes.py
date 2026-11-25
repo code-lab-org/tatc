@@ -98,7 +98,12 @@ def compute_sample_sizes(
     `ConicalInstrument.compute_sample_size` and
     `ConicalInstrument.compute_sample_spacing`, `NaN` unless its
     `beam_width` and `scan_sample_spacing` are given), and `NaN` for other
-    instruments, whose samples are not defined.
+    instruments, whose samples are not defined. Along and across track are those
+    of the instrument's velocity frame: for a geostationary platform, whose
+    velocity is east in the inertial frame (and nearly zero in the Earth-fixed
+    frame), a `PointedInstrument` in the inertial frame gives the sizes east-west
+    (`sample_along`) and north-south (`sample_cross`), as of the pixels of a fixed
+    grid of scan angles.
 
     Also computes the platform's slant range from the target
     (`platform_range`, meters) and the target's scan angle (`scan_angle`,

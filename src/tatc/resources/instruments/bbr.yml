@@ -84,6 +84,73 @@ configurations:
       - The products break for about 4.3 s about every 93 s (about 950 breaks a day, about 5% of the day), so the area they observe is striped across track. The views are scored with breaks over 1 s as periods without data, rather than over 60 s as for other entries; the swath area compared omits cells nearest the lines that border them. This was chosen after a first score on the day of the fit, in which the aft view's swath IoU was 0.943 (with 94.6% of predicted passes observed); with it, the views' swath IoU was 0.990 (aft), 0.983 (nadir), and 0.989 (fore) on that day, with 99.2 to 99.5% of passes predicted.
       - On data held out on 2026-11-07 (41 days from the fit, with the element set whose epoch is nearest the day's middle, 15:03 UTC), the views predicted 97.3% (aft), 95.5% (nadir), and 97.9% (fore) of passes, failing the pass recall gate, with swath IoU 0.954, 0.921, and 0.952, the nadir view failing the swath IoU gate; epochs were within 0.52 s (95th percentile; +0.20 s median, against -0.01 s on the day of the fit) and swath width within 0.04 km (median). The same element set put the orbit up to 1.3 km across track from the positions recorded with ATLID's profiles that day (95th percentile), against 0.3 km on the day of the fit.
       - The same held-out data tested afterward with the day's other element set (epoch 07:20 UTC) gave swath IoU 0.978 (aft), 0.963 (nadir), and 0.977 (fore), passing that gate, but the views still predicted only 98.6%, 97.5%, and 98.3% of passes, failing the pass recall gate, with epochs within 0.74 s (95th percentile; +0.27 to +0.29 s median) and swath width within 0.03 km (median). The element set alone does not account for the missed passes. The record keeps the element set chosen by the rule (epoch nearest the day's middle), so this result is not counted toward the tier.
+  pixels:
+    grade: sample_size
+    description: The aft, nadir, and fore views (instrument indices 0, 1, and 2), each a line of 30 pixels across track at the angles of the views configuration, whose sizes and spacing `compute_sample_sizes` gives. Analyze one at a time with its instrument index.
+    platforms: [earthcare]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instrument_index: 1
+    instruments:
+      - type: pointed
+        parameters: &pixel_parameters
+          name: BBR aft
+          field_of_regard: 100.7374
+          cross_track_field_of_view: 2.49983
+          along_track_field_of_view: 0.093306
+          cross_track_pixels: 30
+          roll_angle: 0.0964
+          pitch_angle: -50.3554
+          is_rectangular: true
+          cross_track_oversampling: 0.106944
+          scan_period: 0.1532
+        provenance: &pixel_provenance
+          field_of_regard:
+            kind: derived
+            source: That of the view in the views configuration
+          cross_track_field_of_view:
+            kind: derived
+            source: The 30 pixels of a line at the spacing of the view's measured field of view between its outermost pixels (2.4165 deg over 29 intervals, 0.083328 deg)
+          along_track_field_of_view: &pixel_width
+            kind: derived
+            source: "The angle of the nadir footprint at 393 km, the mission's nominal mean spherical altitude, from Wehr et al. (2023), Atmos. Meas. Tech. 16, 3581, section 5.4: \"the instantaneous field of view is nominally 0.64 km × 0.64 km at nadir\" (https://doi.org/10.5194/amt-16-3581-2023)"
+          cross_track_pixels:
+            kind: nominal
+            source: "Wehr et al. (2023): a line of 30 pixels for each view; Clerbaux et al., 2nd ESA-JAXA EarthCARE Validation Workshop (2025): \"30 detectors for each view\""
+          roll_angle: *measured
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models an imaged line as a rectangular view
+          cross_track_oversampling:
+            kind: derived
+            source: One minus the spacing of pixels (0.083328 deg) divided by the pixel width of the nadir footprint (0.093306 deg)
+          scan_period:
+            kind: nominal
+            source: "Clerbaux et al., 2nd ESA-JAXA EarthCARE Validation Workshop (2025), B-SNG sampling: \"dt = 0.1532 sec\" (https://gerb.oma.be/public/nic/Prodex_BRAVO/presentation_2nd_Validation_Workshop_Clerbaux.pdf)"
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: BBR nadir
+          field_of_regard: 2.4359
+          cross_track_field_of_view: 2.49983
+          roll_angle: 0.0062
+          pitch_angle: -0.0913
+        provenance: *pixel_provenance
+      - type: pointed
+        parameters:
+          <<: *pixel_parameters
+          name: BBR fore
+          field_of_regard: 100.3558
+          cross_track_field_of_view: 2.499724
+          roll_angle: -0.0970
+          pitch_angle: 50.1645
+          cross_track_oversampling: 0.10698
+        provenance: *pixel_provenance
+    limitations:
+      - The pixel width comes from the published nadir footprint, so that comparison is not independent; the footprints of the slanted views (1.876 km along by 1.069 km across track, in Wehr et al. (2023), for both views at their nominal 50 deg) are the independent ones.
+      - Pixel positions and spacing are compared on the nadir view.
+      - The pixels of the slanted views are 3.0% (aft) and 4.0% (fore) shorter along track, and 1.8% and 2.3% narrower across track, than the published footprints, so the published dimensions fail the gate (4 of 6 within 3%). The published footprints are one value for both views at their nominal angle, whereas the views' fitted angles differ (50.36 deg aft, 50.16 deg fore), and they state no altitude other than the nominal one.
 limitations:
   - The nadir view's swath is about 17 km wide, and the aft and fore views' about 28 km, at the orbit's altitude of about 400 km.
   - Public Level 1 products of BBR cover blocks of about five days (as 2026-09-25 to 09-29, 10-15 to 10-19, and 11-04 to 11-08), whereas the views observe whenever a target is in view.

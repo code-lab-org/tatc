@@ -23,6 +23,12 @@ Needs the `validation` extra:
     python validation/catalog/validate_catalog_tropomi.py <data directory> 2026-11-05
     python validation/catalog/validate_catalog_tropomi.py <data directory> 2026-11-10
 
+It also validates the entry's sample size configuration (`pixels`), following
+`ValidateSampleSizes`: the projected boundaries of every 16th row are compared with
+the product's (the midpoints of their aft corners on consecutive lines), and the
+spacing of pixels with that measured. The only published pixel, at nadir, is
+compared without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, that of the
 fit). With `--write`, it writes the entry's validation record and the reduced fixture
 from which unit tests recompute the results.
@@ -44,8 +50,11 @@ from scipy.spatial import cKDTree
 from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import GeneralPerturbationsOrbit
 from tatc.utils import compute_projected_ray_position
+from scanner import Setup, validate_beams
 from validation_io import (
     EARTH_ROTATION,
+    FIXTURES,
+    TO_GEODETIC,
     RemoteFile,
     build_grid,
     ecef,
@@ -84,6 +93,38 @@ FIT_LINE_STRIDE = 10
 FIXTURE_PASSES = 200
 PRODUCT = "PRODUCT/"
 GEOLOCATION = PRODUCT + "SUPPORT_DATA/GEOLOCATIONS/"
+# the part of a line of the views of the pixels configuration, by name
+PART = re.compile(r"pixels (\d+) to (\d+)")
+# the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), from the TROPOMI L1b ATBD
+# (along track) and Kleipool et al. (2018) (across track, binned rows), compared
+# without the gate, as no other is published with an altitude
+PUBLISHED_FOOTPRINTS = (("TROPOMI pixels 128 to 304", 824, 98.74, 0, 5.5, 3.5),)
+PIXELS_SETUP = Setup(
+    swath=KEY,
+    beams="pixels",
+    size_instrument="TROPOMI pixels 128 to 304",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    fixture_path=FIXTURES / "tropomi.npz",
+    reference="Pixel bounds of S5P L2__AER_AI (boundaries of every 16th row)",
+    published_reference="Nadir pixel of the TROPOMI L1b ATBD (not gated); pixel "
+    "bounds of S5P L2__AER_AI (boundaries of every 16th row, midway between lines)",
+    time_steps=TIME_STEPS,
+    pass_radius=40,
+    gate_published=False,
+)
+
+
+def find_part(names: list[str], row: int) -> tuple[int, int, int]:
+    """
+    Gets the index of the instrument (a part of the line) that holds the boundary at
+    the start of a row (or the end of the last row), and its first and last rows.
+    """
+    for index, name in enumerate(names):
+        first, last = (int(group) for group in PART.search(name).groups())
+        if first <= row < last or row == last == N_ROWS:
+            return index, first, last
+    raise ValueError(f"no part of the line holds row {row}")
 
 
 def list_granules(day: datetime) -> list[str]:
@@ -160,7 +201,8 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
 class Reference:
     """A day of TROPOMI lines, with what is derived from them."""
 
-    def __init__(self, data: dict[str, np.ndarray]):
+    def __init__(self, data: dict[str, np.ndarray], day: datetime | None = None):
+        self.day = day
         good = (
             np.all(np.isfinite(data["node_lat"]), axis=1)
             & np.all(np.isfinite(data["node_lon"]), axis=1)
@@ -251,6 +293,89 @@ class Reference:
                 )
             )
         return pd.concat(rows, ignore_index=True).astype({"point_id": "int64"})
+
+    def measure_pixels(self, satellite, _index: int, setup, _frame) -> np.ndarray:
+        """
+        Gets rows of seconds from the start of the day, row, position difference
+        (km), and latitude and longitude of the boundaries of every 16th row on a
+        sample of lines, against those of the parts of the line of the pixels
+        configuration. A boundary's position on a line is the midpoint of its aft
+        corners on the line and the next, as the views were fitted (see
+        `measure_rays`). TROPOMI's rows run from left to right of the motion, and
+        TAT-C numbers pixels from the right, so the boundary at the start of a row is
+        half a pixel to the left of its pixel.
+        """
+        names = [instrument.name for instrument in satellite.instruments]
+        orbit = satellite.orbit.to_gp_orbit()
+        regular = np.nonzero(self.is_next_contiguous[:-1])[0]
+        lines = regular[:: setup.pixel_stride]
+        track = orbit.get_orbit_track(list(self.time[lines].to_pydatetime()))
+        seconds = (self.time[lines] - pd.Timestamp(self.day)).total_seconds()
+        middle = (self.xyz[lines] + self.xyz[lines + 1]) / 2
+        lon, lat, _ = TO_GEODETIC.transform(*np.moveaxis(middle, -1, 0))
+        rows = []
+        for node, row in enumerate(NODES):
+            index, first, last = find_part(names, int(row))
+            cross = (last - first) - 0.5 - (row - first)
+            position = satellite.get_instrument(index).compute_projected_pixel_position(
+                track, cross, 0
+            )
+            difference = np.linalg.norm(
+                ecef(position.longitude.degrees, position.latitude.degrees)
+                - ecef(lon[:, node], lat[:, node]),
+                axis=-1,
+            )
+            rows.append(
+                np.stack(
+                    [
+                        seconds.to_numpy(),
+                        np.full(len(lines), row),
+                        difference / 1e3,
+                        lat[:, node],
+                        lon[:, node],
+                    ],
+                    axis=-1,
+                )
+            )
+        return np.concatenate(rows)
+
+    def measure_spacing(self, setup) -> tuple[pd.DatetimeIndex, np.ndarray]:
+        """
+        Measures the spacing of the pixels of the part of the line of the sample
+        size instrument, from half the distance between the boundaries on either
+        side (divided by the rows between them) and between the lines before and
+        after, on a sample of lines. Gets the times, and rows of latitude, longitude,
+        along-track and cross-track spacing (km).
+        """
+        first, last = (
+            int(group) for group in PART.search(setup.size_instrument).groups()
+        )
+        nodes = np.nonzero((NODES > first) & (NODES < last))[0]
+        nodes = nodes[(NODES[nodes - 1] >= first) & (NODES[nodes + 1] <= last)]
+        regular = np.nonzero(
+            self.is_next_contiguous[:-1] & self.is_next_contiguous[1:]
+        )[0]
+        lines = regular[:: setup.spacing_stride] + 1
+        along = (
+            np.linalg.norm(
+                self.xyz[lines + 1][:, nodes] - self.xyz[lines - 1][:, nodes], axis=-1
+            )
+            / 2e3
+        )
+        cross = np.linalg.norm(
+            self.xyz[lines][:, nodes + 1] - self.xyz[lines][:, nodes - 1], axis=-1
+        ) / (1e3 * (NODES[nodes + 1] - NODES[nodes - 1]))
+        times = pd.DatetimeIndex(np.repeat(self.time[lines], len(nodes)))
+        rows = np.stack(
+            [
+                self.lat[lines][:, nodes].ravel(),
+                self.lon[lines][:, nodes].ravel(),
+                along.ravel(),
+                cross.ravel(),
+            ],
+            axis=-1,
+        )
+        return times, rows
 
 
 def measure_rays(reference: Reference, frame: str = "earth_fixed") -> dict:
@@ -498,7 +623,7 @@ def validate(run, tle, orbit, reference) -> None:
 def main() -> None:
     """Fits or validates the entry on a day of data."""
     run = parse_run("tropomi", __doc__)
-    reference = Reference(load_day(run.day, run.directory))
+    reference = Reference(load_day(run.day, run.directory), run.day)
     print(
         f"{run.day:%Y-%m-%d}: {len(reference.seconds)} lines, "
         f"{reference.n_dropped} dropped, {len(reference.arcs)} arcs, "
@@ -509,7 +634,11 @@ def main() -> None:
         fit_geometry(reference)
         return
     tle = run.element_set()
-    validate(run, tle, GeneralPerturbationsOrbit.from_tle(tle), reference)
+    orbit = GeneralPerturbationsOrbit.from_tle(tle)
+    if PIXELS_SETUP.beams in run.configurations:
+        validate_beams(PIXELS_SETUP, run, reference, orbit, tle)
+    if KEY in run.configurations:
+        validate(run, tle, orbit, reference)
 
 
 if __name__ == "__main__":

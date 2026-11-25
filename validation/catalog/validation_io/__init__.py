@@ -8,6 +8,8 @@ Helpers shared by the scripts that validate catalog entries, by topic:
 * `geometry`: coordinates, and the lattices of samples that scanners image;
 * `scoring`: comparisons through public TAT-C methods;
 * `records`: the validation records and reduced test fixtures.
+* `footprints`: the footprints and spacing of beam instruments' samples.
+* `grids`: the pixels of geostationary imagers' fixed grids.
 
 Scripts import these names from the package.
 
@@ -27,6 +29,8 @@ from .archives import (
     read_element_set_file,
 )
 from .cli import Run, parse_day, parse_run
+from .footprints import Footprints, measure_along_spacing, validate_footprints
+from .grids import FixedGrid, validate_fixed_grid
 from .geometry import (
     EARTH_ROTATION,
     TO_ECEF,

@@ -29,7 +29,7 @@ from .system_schemas import (
     _read_table,
     parse_system,
 )
-from .system_standard import SystemClass
+from .system_standard import SystemClass, SystemGrade
 
 _RESOURCES = pathlib.Path(__file__).parents[1] / "resources"
 _ENTRIES = _RESOURCES / "instruments"
@@ -100,16 +100,24 @@ def list_entries(
     tier: Tier | str | None = None,
     *,
     platform: str | None = None,
+    grade: Grade | str | None = None,
 ) -> list[InstrumentEntry]:
     """
-    Lists catalog entries, optionally of one class or validation tier, or that
-    list a platform.
+    Lists catalog entries, optionally of one class or validation tier, that list
+    a platform, or that have a configuration for a use (a grade). With a grade,
+    the tier is the entry's for that use (see `InstrumentEntry.get_tier`): the
+    lowest tier of its configurations that serve the grade, so that, for
+    example, `list_entries(tier="validated", grade="coverage")` gives the
+    entries validated for coverage, whatever their tier at other grades.
 
     Args:
         instrument_class (InstrumentClass | str | None): The class, if any.
-        tier (Tier | str | None): The validation tier, if any.
+        tier (Tier | str | None): The validation tier, if any: the entry's, or,
+            with a grade, the entry's for the grade.
         platform (str | None): The identifier of a spacecraft of the catalog's
             systems (see `get_spacecraft`) that the entries list, if any.
+        grade (Grade | str | None): The grade of a use that the entries have a
+            configuration for, if any.
 
     Returns:
         list[InstrumentEntry]: Copies of the entries, sorted by identifier.
@@ -118,13 +126,21 @@ def list_entries(
         None if instrument_class is None else InstrumentClass(instrument_class)
     )
     wanted_tier = None if tier is None else Tier(tier)
-    return [
-        entry.model_copy(deep=True)
-        for entry in map(_load_entry, get_entry_ids())
-        if (wanted_class is None or entry.instrument_class == wanted_class)
-        and (platform is None or platform in entry.platforms)
-        and (wanted_tier is None or entry.validation.tier == wanted_tier)
-    ]
+    wanted_grade = None if grade is None else Grade(grade)
+    selected = []
+    for entry in map(_load_entry, get_entry_ids()):
+        if wanted_class is not None and entry.instrument_class != wanted_class:
+            continue
+        if platform is not None and platform not in entry.platforms:
+            continue
+        if wanted_grade is not None or wanted_tier is not None:
+            entry_tier = entry.get_tier(wanted_grade)
+            if entry_tier is None or (
+                wanted_tier is not None and entry_tier != wanted_tier
+            ):
+                continue
+        selected.append(entry.model_copy(deep=True))
+    return selected
 
 
 def build_payload(
@@ -291,29 +307,46 @@ def list_systems(
     tier: Tier | str | None = None,
     *,
     satellite: bool | None = None,
+    grade: SystemGrade | str | None = None,
 ) -> list[SystemEntry]:
     """
-    Lists catalog systems, optionally of one class or validation tier, or only
-    satellite systems (or only networks).
+    Lists catalog systems, optionally of one class or validation tier, only
+    satellite systems (or only networks), or those with a configuration for a
+    use (a grade). With a grade, the tier is the system's for that use (see
+    `SystemEntry.get_tier`): the lowest tier of its configurations that serve
+    the grade, so that, for example, `list_systems(tier="validated",
+    grade="ground_track")` gives the systems validated for their ground tracks,
+    whatever their tier at other grades.
 
     Args:
         system_class (SystemClass | str | None): The class, if any.
-        tier (Tier | str | None): The validation tier, if any.
+        tier (Tier | str | None): The validation tier, if any: the system's, or,
+            with a grade, the system's for the grade.
         satellite (bool | None): `True` for satellite systems only, `False` for
             networks only, or `None` (the default) for both.
+        grade (SystemGrade | str | None): The grade of a use that the systems
+            have a configuration for, if any.
 
     Returns:
         list[SystemEntry]: Copies of the systems, sorted by identifier.
     """
     wanted_class = None if system_class is None else SystemClass(system_class)
     wanted_tier = None if tier is None else Tier(tier)
-    return [
-        entry
-        for entry in map(get_system, get_system_ids())
-        if (wanted_class is None or entry.system_class == wanted_class)
-        and (satellite is None or entry.system_class.is_satellite() == satellite)
-        and (wanted_tier is None or entry.validation.tier == wanted_tier)
-    ]
+    wanted_grade = None if grade is None else SystemGrade(grade)
+    selected = []
+    for entry in map(get_system, get_system_ids()):
+        if wanted_class is not None and entry.system_class != wanted_class:
+            continue
+        if satellite is not None and entry.system_class.is_satellite() != satellite:
+            continue
+        if wanted_grade is not None or wanted_tier is not None:
+            entry_tier = entry.get_tier(wanted_grade)
+            if entry_tier is None or (
+                wanted_tier is not None and entry_tier != wanted_tier
+            ):
+                continue
+        selected.append(entry)
+    return selected
 
 
 @functools.lru_cache(maxsize=None)

@@ -55,6 +55,7 @@ EXPECTED_STATUS = {
             "full_disk": ("partial", None, ["product_limit"]),
             "sst_good_quality": ("validated", None, []),
             "lst_good_quality": ("validated", None, []),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -63,6 +64,7 @@ EXPECTED_STATUS = {
         {
             "full_disk": ("partial", None, ["product_limit"]),
             "cloud_top_height": ("partial", 38, ["product_limit"]),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -98,6 +100,11 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swaths": ("validated", 34, []),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
+            ),
         },
         [],
     ),
@@ -105,6 +112,15 @@ EXPECTED_STATUS = {
         "partial",
         {
             "beam_pairs": ("partial", 34, ["epoch_p95"]),
+            "footprints": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "spacing_along_error",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -112,6 +128,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "profile": ("partial", 41, ["track_offset_median"]),
+            "footprints": ("partial", 41, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -139,6 +156,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "views": ("partial", 41, ["pass_recall", "footprint_iou_median"]),
+            "pixels": ("partial", 41, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -146,14 +164,17 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath_noaa_20": ("partial", 36, ["swath_width_median"]),
+            "beams_noaa_20": ("partial", None, ["sample_size_within_3pct"]),
             "swath_suomi_npp": ("validated", 35, []),
+            "beams_suomi_npp": ("partial", 35, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "cpr": (
         "partial",
         {
             "nadir": ("partial", None, ["track_offset_median"]),
+            "footprints": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -186,6 +207,7 @@ EXPECTED_STATUS = {
         {
             "iw": ("partial", 51, ["pass_recall"]),
             "ew": ("validated", 39, []),
+            "resolution_iw": ("validated", None, []),
         },
         [],
     ),
@@ -208,13 +230,15 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("partial", 35, ["pass_recall"]),
+            "beams": ("partial", 35, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "emit": (
         "partial",
         {
             "swath": ("partial", 35, ["pass_recall", "footprint_iou_median"]),
+            "pixels": ("partial", 35, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -224,6 +248,7 @@ EXPECTED_STATUS = {
             "full_disk": ("partial", None, ["product_limit"]),
             "lst_retrieved": ("validated", 32, []),
             "sst_acceptable_quality": ("validated", 32, []),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -231,6 +256,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "beams": ("partial", 38, ["epoch_p95"]),
+            "footprints": ("partial", 38, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -268,13 +294,28 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("validated", 30, []),
+            "fields_of_regard": (
+                "partial",
+                0,
+                [
+                    "pixel_position_median",
+                    "sample_size_within_3pct",
+                    "fitted values are not tested on data at least 30 days from "
+                    "their fitting data",
+                ],
+            ),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "karin": (
         "validated",
         {
             "swaths": ("validated", 34, []),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
+            ),
         },
         [],
     ),
@@ -287,6 +328,11 @@ EXPECTED_STATUS = {
                 "partial",
                 30,
                 ["footprint_iou_median", "footprint_iou_p5"],
+            ),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
             ),
         },
         [],
@@ -318,6 +364,15 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swath": ("validated", 38, []),
+            "pixels": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "pixel_position_median",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -325,15 +380,17 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("validated", 30, []),
+            "beams": ("partial", None, ["pixel_position_median"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "oci": (
         "partial",
         {
             "swath": ("validated", 33, []),
+            "beams": ("partial", 33, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "oco2": (
         "partial",
@@ -358,6 +415,15 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swath": ("validated", 33, []),
+            "pixels": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "pixel_position_median",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -451,13 +517,21 @@ EXPECTED_STATUS = {
                 47,
                 ["pass_recall", "pass_precision", "swath_width_median", "epoch_p95"],
             ),
+            "beams_tropics_03": ("validated", 47, []),
+            "beams_tropics_05": ("validated", 47, []),
+            "beams_tropics_06": ("partial", 47, ["pixel_position_median"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "tropomi": (
         "validated",
         {
             "swath": ("validated", 36, []),
+            "pixels": (
+                "partial",
+                36,
+                ["pixel_position_median", "sample_size_within_3pct"],
+            ),
         },
         [],
     ),
@@ -510,8 +584,30 @@ class TestLoading(unittest.TestCase):
                     record.digest, entry.configurations[key].digest, (entry.id, key)
                 )
                 self.assertTrue(
-                    is_compatible(entry.instrument_class, record.standard_version),
+                    is_compatible(
+                        entry.instrument_class,
+                        record.standard_version,
+                        entry.configurations[key].grade,
+                    ),
                     (entry.id, key),
+                )
+
+    def test_velocity_frame_of_platform(self):
+        """
+        Test that the configurations of an entry on a platform share its velocity
+        frame, which sets the spacecraft's attitude (yaw steering, or the inertial
+        frame of a geostationary satellite), whatever their grades.
+        """
+        for entry in list_entries():
+            frames = {}
+            for key, configuration in entry.configurations.items():
+                for platform in configuration.platforms:
+                    frames.setdefault(platform, {})[
+                        key
+                    ] = configuration.velocity_frame.value
+            for platform, by_key in frames.items():
+                self.assertEqual(
+                    len(set(by_key.values())), 1, (entry.id, platform, by_key)
                 )
 
     def test_platform_names(self):
@@ -573,6 +669,36 @@ class TestLoading(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
+
+    def test_list_by_grade(self):
+        """
+        Test that entries are selected by their tier for a use, the lowest of
+        their configurations that serve it: an entry partial only for want of
+        sample sizes is validated for coverage (its timing configuration serves
+        coverage), one with a partial configuration for coverage is not, and a
+        grade selects the entries with a configuration for it.
+        """
+        validated = [e.id for e in list_entries(tier="validated")]
+        for_coverage = [e.id for e in list_entries(tier="validated", grade="coverage")]
+        self.assertNotIn("airs", validated)
+        self.assertIn("airs", for_coverage)
+        # NOAA-20's swath is partial, although Suomi NPP's is validated
+        self.assertNotIn("ceres", for_coverage)
+        self.assertTrue(set(validated) <= set(for_coverage))
+        airs = get_entry("airs")
+        self.assertEqual(airs.get_tier("coverage").value, "validated")
+        self.assertEqual(airs.get_tier("sample_size").value, "partial")
+        self.assertEqual(airs.get_tier(), airs.validation.tier)
+        self.assertIsNone(get_entry("ssmis").get_tier("sample_size"))
+        with_sizes = [e.id for e in list_entries(grade="sample_size")]
+        self.assertNotIn("ssmis", with_sizes)
+        self.assertIn("airs", with_sizes)
+        self.assertEqual(
+            [e.id for e in list_entries("conical", "validated", grade="sample_size")],
+            ["gmi", "tmi"],
+        )
+        with self.assertRaises(ValueError):
+            list_entries(grade="approved")
 
     def test_loaded_copies_independent(self):
         """
@@ -1040,7 +1166,15 @@ class TestEntryStatus(unittest.TestCase):
         }
         self.assertEqual(
             with_attitude,
-            {"ecostress:swath", "emit:swath", "gedi:beams", "oco2:glint"},
+            {
+                "ecostress:swath",
+                "ecostress:beams",
+                "emit:swath",
+                "emit:pixels",
+                "gedi:beams",
+                "gedi:footprints",
+                "oco2:glint",
+            },
         )
 
     def test_entry_lists_every_gap(self):
@@ -1172,13 +1306,15 @@ class TestEntryStatus(unittest.TestCase):
             )
         )
 
-    def test_abi_builds_without_attitude(self):
+    def test_earth_fixed_builds_without_attitude(self):
         """
         Test that an Earth-fixed configuration without other attitude fields
-        builds as it was tested, without an attitude.
+        builds as it was tested, without an attitude, and that an inertial one
+        (as every geostationary configuration is) builds with an inertial attitude.
         """
+        self.assertIsNone(get_entry("mhs").build(configuration="beams").attitude)
         payload = get_entry("abi").build()
-        self.assertIsNone(payload.attitude)
+        self.assertEqual(payload.attitude.velocity_frame, VelocityFrame.INERTIAL)
         self.assertIsInstance(payload.instruments[0], Instrument)
 
 
@@ -1276,7 +1412,7 @@ class TestSelection(unittest.TestCase):
         grade, is an error.
         """
         with self.assertRaisesRegex(ValueError, "sample_size"):
-            get_entry("csar").select_configuration(grade="sample_size")
+            get_entry("ssmis").select_configuration(grade="sample_size")
         with self.assertRaisesRegex(ValueError, "timing"):
             get_entry("gmi").select_configuration("feeds", grade="sample_size")
 

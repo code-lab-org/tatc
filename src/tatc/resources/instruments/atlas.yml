@@ -94,5 +94,50 @@ configurations:
       - Each pair's strong and weak beams, about 90 m apart across track and 2.5 km along track, share one view.
       - On held-out data (4 November 2026, with an element set of 8 November, about 4 days from the data), the views contained every sampled segment, but TAT-C's epochs preceded the segments' times by 5.5 s (median), failing the timing gate. This is consistent with an along-track error of the element set, such as after an orbit adjustment that it does not represent, as ValidateLidarICESat2 also found; epochs are only as accurate as the element set along track.
       - The same held-out data tested afterward with the element set of the day (epoch nearest its middle, from validation/catalog/elements/icesat2_2026-11-04.3le; validate_catalog_atlas.py --same-day-element-set) had every sampled segment within its pair's view, the pairs' spacing within 0.021 km, and epochs within 0.37 s (95th percentile; +0.03 s median), passing the timing gate. The record keeps the element set a few days from the data, the age for which the views' widths were fitted, so this result is not counted toward the tier.
+  footprints:
+    grade: sample_size
+    description: The footprints of the three beam pairs' centers, at the angles of the beam pairs configuration, whose sizes and spacing along track `compute_sample_sizes` gives, from published values; not compared with reference data.
+    platforms: [icesat-2]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters: &footprint_parameters
+          name: ATLAS beam pair 1
+          field_of_regard: 2
+          cross_track_field_of_view: 0.001375
+          along_track_field_of_view: 0.001375
+          roll_angle: 0.3507
+          is_rectangular: false
+          scan_period: 0.0001
+        provenance: &footprint_provenance
+          field_of_regard:
+            kind: derived
+            source: Contains the footprint
+          cross_track_field_of_view: &divergence
+            kind: nominal
+            source: "Martino et al. (2023), Proc. SPIE 12512, Table 1: \"Transmitted Beam divergence (85% enclosed energy) 24 µR\", typical values that vary from beam to beam and with temperature (https://ntrs.nasa.gov/api/citations/20230010087/downloads/Martino_12512-17v2.pdf)"
+          along_track_field_of_view: *divergence
+          roll_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a footprint as a circular view
+          scan_period:
+            kind: nominal
+            source: "Neumann et al. (2019), Remote Sensing of Environment 233, 111325, Table 1: a pulse repetition rate of 10 kHz, footprints \"spaced ~0.7 m along track\" (https://pmc.ncbi.nlm.nih.gov/articles/PMC6839705)"
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: ATLAS beam pair 2
+          roll_angle: -0.0511
+        provenance: *footprint_provenance
+      - type: pointed
+        parameters:
+          <<: *footprint_parameters
+          name: ATLAS beam pair 3
+          roll_angle: -0.4511
+        provenance: *footprint_provenance
+    limitations:
+      - The footprint is that of the typical divergence (about 12 m at 496 km, 85% enclosed energy), whereas footprints measured with retroreflectors average 10.9 m (Magruder et al., 2021); the strong and weak beams of a pair, about 90 m apart, share their pair's center. The reference data of the entry (ATL08 segments of 100 m) do not give the spacing of shots, so the configuration is nominal.
 limitations:
   - TAT-C does not find ICESat-2's 91-day repeat cycle from an element set; declare it as a maintained orbit (see ValidateLidarICESat2).

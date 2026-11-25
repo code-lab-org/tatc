@@ -72,5 +72,5 @@ limitations:
   - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
   - OCI's configuration gives PACE's body the tilt schedule of OCI, which tilts by itself, so this configuration is not carried with OCI's.
   - HARP2 images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
-  - No configuration gives sample sizes, as no published instantaneous field of view was used.
+  - No configuration gives sample sizes, as no instantaneous field of view or frame period is published and the published sizes at nadir differ (from 0.65 km to 3 km among the mission's documents).
   - The yaw of the configuration was given to the body's attitude when tested, and then to the instrument, which gives the same views within 3 cm on the ground, so that the platform's instruments share the body's attitude. The records were rescored on the same held-out data, with the swath width changed by 0.5 m, as it is now measured with the instrument's yaw, and every other result unchanged.
