@@ -383,7 +383,8 @@ to reference data are tested on data at least {MIN_HOLDOUT_GAP_DAYS} days from
 their fitting data. An entry's tier is set by its configurations at the
 grades its class requires; configurations at an optional grade (the sample size
 grade of every class but cross-track and conical) have their own tiers, which do
-not set the entry's. A `partial` entry can still be useful within its
+not set the entry's. An entry's tier for a use is that of its weakest
+configuration at the use's grade (`get_tier`), by which entries can be listed. A `partial` entry can still be useful within its
 limitations, which each configuration lists below; a `validated` entry also has
 limitations.
 
@@ -392,6 +393,7 @@ limitations.
     from tatc.catalog import get_entry, list_entries
 
     list_entries(tier="validated")
+    list_entries(tier="validated", grade="coverage")  # validated for coverage
     entry = get_entry("atms")
     entry.validation  # tier, gate results, and gaps of each configuration
     satellite = entry.to_satellite(orbit, time_step=10, platform="noaa-21")

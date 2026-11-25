@@ -53,6 +53,7 @@ from .standard import (
     EntryValidation,
     Grade,
     InstrumentClass,
+    Tier,
     evaluate_entry,
     get_gates,
     serves,
@@ -1189,6 +1190,33 @@ class InstrumentEntry(_CatalogModel):
         standard rather than declared (see `tatc.catalog.standard.evaluate_entry`).
         """
         return evaluate_entry(self)
+
+    def get_tier(self, grade: Grade | str | None = None) -> Tier | None:
+        """
+        Gets the tier of this entry for a use: the entry's tier (see
+        `validation`), or, for a grade, the lowest tier of its configurations
+        that serve the grade (as a configuration at the timing grade serves the
+        coverage grade, see `tatc.catalog.standard.serves`), whether or not the
+        grade is one its class requires, as an entry is only as strong as its
+        weakest configuration. An entry that is partial for a grade it cannot yet
+        meet (such as the sample size grade) may be validated for coverage.
+
+        Args:
+            grade (Grade | str | None): The grade of the use, or `None` for the
+                entry's tier.
+
+        Returns:
+            Tier | None: The tier, or `None` if no configuration serves the grade.
+        """
+        validation = self.validation
+        if grade is None:
+            return validation.tier
+        tiers = [
+            validation.configurations[key].tier
+            for key, configuration in self.configurations.items()
+            if configuration.serves(grade)
+        ]
+        return min(tiers, key=lambda tier: tier.rank) if tiers else None
 
     def get_spacecraft(self) -> list[Spacecraft]:
         """

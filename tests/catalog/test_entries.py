@@ -652,6 +652,36 @@ class TestLoading(unittest.TestCase):
         with self.assertRaises(ValueError):
             list_entries(tier="approved")
 
+    def test_list_by_grade(self):
+        """
+        Test that entries are selected by their tier for a use, the lowest of
+        their configurations that serve it: an entry partial only for want of
+        sample sizes is validated for coverage (its timing configuration serves
+        coverage), one with a partial configuration for coverage is not, and a
+        grade selects the entries with a configuration for it.
+        """
+        validated = [e.id for e in list_entries(tier="validated")]
+        for_coverage = [e.id for e in list_entries(tier="validated", grade="coverage")]
+        self.assertNotIn("airs", validated)
+        self.assertIn("airs", for_coverage)
+        # NOAA-20's swath is partial, although Suomi NPP's is validated
+        self.assertNotIn("ceres", for_coverage)
+        self.assertTrue(set(validated) <= set(for_coverage))
+        airs = get_entry("airs")
+        self.assertEqual(airs.get_tier("coverage").value, "validated")
+        self.assertEqual(airs.get_tier("sample_size").value, "partial")
+        self.assertEqual(airs.get_tier(), airs.validation.tier)
+        self.assertIsNone(get_entry("ssmis").get_tier("sample_size"))
+        with_sizes = [e.id for e in list_entries(grade="sample_size")]
+        self.assertNotIn("ssmis", with_sizes)
+        self.assertIn("airs", with_sizes)
+        self.assertEqual(
+            [e.id for e in list_entries("conical", "validated", grade="sample_size")],
+            ["gmi", "tmi"],
+        )
+        with self.assertRaises(ValueError):
+            list_entries(grade="approved")
+
     def test_loaded_copies_independent(self):
         """
         Test that changing a loaded entry does not change later ones.
