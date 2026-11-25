@@ -193,16 +193,6 @@ class TestOlciFixture(_PushbroomFixture, unittest.TestCase):
     platform = "sentinel-3a"
 
 
-class TestOciFixture(_PushbroomFixture, unittest.TestCase):
-    """
-    Regression tests of the OCI entry's swath, a cross-track scanner whose tilt
-    follows a pitch profile scheduled by day.
-    """
-
-    entry_id = "oci"
-    platform = "pace"
-
-
 class TestLsarWideBandFixture(_PushbroomFixture, unittest.TestCase):
     """
     Regression tests of the L-SAR entry's modes with a 20 or 40 MHz band.

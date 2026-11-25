@@ -22,6 +22,11 @@ positions, times, and tilts are read, with range requests (about 1.2 GB a day):
     python validation/catalog/validate_catalog_oci.py <data directory> 2026-11-09
     python validation/catalog/validate_catalog_oci.py <data directory> 2026-11-10
 
+It also validates the entry's sample size configuration (`beams`), following
+`ValidateSampleSizes`: the projected pixels are compared with the samples'
+positions, and their spacing with that measured. The only published pixel, at nadir
+in McClain et al. (2022), is compared without the gate.
+
 Without a day, it takes that of the entry's record. The values are fitted to several
 periods, so the fits (`--fit`, `--switches`, and `--blind`) need the day given. A day
 is reduced to every sixth scan (about 1 s) and every 16th sample (and the last).
@@ -45,7 +50,7 @@ import pandas as pd
 
 from tatc.utils import compute_subsolar_latitude
 from tatc.schemas import GeneralPerturbationsOrbit
-from scanner import Product, Reference, Setup, load_day, validate_swath
+from scanner import Product, Reference, Setup, load_day, validate_beams, validate_swath
 from validation_io import (
     TO_GEODETIC,
     RemoteFile,
@@ -66,6 +71,10 @@ SCAN_STRIDE = 6
 SCAN_PERIOD = 0.17547  # s
 COLUMNS = np.r_[0:SAMPLES:16, SAMPLES - 1]
 INCLINATION = 98.0  # deg, approximately, to get the argument of latitude
+# the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), from Table 1 of McClain et al.
+# (2022), compared without the gate, as no other is published and sources differ
+PUBLISHED_FOOTPRINTS = (("OCI", 675, 98.0, 0, 1.05, 1.05),)
 
 
 def read_oci(_product, url: str, session, day: datetime, _directory) -> dict:
@@ -106,15 +115,17 @@ PRODUCT = Product(
 )
 SETUP = Setup(
     swath="swath",
-    beams=None,
-    size_instrument=None,
-    published_footprints=(),
+    beams="beams",
+    size_instrument="OCI",
+    published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "oci.npz",
     reference="PACE_OCI_L1B_SCI version 3 (sample positions and times)",
-    published_reference="",
+    published_reference="Nadir pixel of McClain et al. (2022) (not gated); sample "
+    "positions of PACE_OCI_L1B_SCI version 3",
     time_steps=(10, 30, 120),
     pass_radius=40,
     point_spacing=200e3,
+    gate_published=False,
 )
 
 
@@ -409,7 +420,10 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(SETUP, run, reference, orbit, tle)
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

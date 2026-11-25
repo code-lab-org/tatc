@@ -65,6 +65,58 @@ configurations:
             source: Models a scanned swath as a rectangular view
     limitations:
       - TAT-C observes all fields of view of a scan at one instant, whereas MWS sweeps them over part of its 2.25 s scan. The product gives one time per scan, which precedes TAT-C's epochs by about 1.1 s (median), so epochs are tested at the coverage grade only.
+  beams:
+    grade: sample_size
+    description: The 95 fields of view of a scan, with the beam width of each group of channels (23.8 and 31.4 GHz; 50.3 to 57.3 GHz; 89 to 229 GHz), whose footprints and spacing `compute_sample_sizes` gives. Analyze one at a time with its instrument index.
+    platforms: [metop-sga1]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instrument_index: 1
+    instruments:
+      - type: pointed
+        parameters: &beam_parameters
+          name: MWS 23.8-31.4 GHz
+          field_of_regard: 99.67305
+          cross_track_field_of_view: 99.67305
+          along_track_field_of_view: 1.04919
+          cross_track_pixels: 95
+          is_rectangular: true
+          cross_track_oversampling: 0.617084
+          along_track_oversampling: 0.617084
+          scan_period: 2.254
+        provenance: &beam_provenance
+          field_of_regard: &nominal_spacing
+            kind: nominal
+            source: "EPS-SG MWS Science Plan v1.0 (EUMETSAT, 2019), section 3.2.4: \"the angular sampling amounts 1.04919°. Thus, to cover at least ±49°, the number of Earth view pixel per scan is 95\" (https://www-cdn.eumetsat.int/files/2020-04/pdf_science_epssg_mws_plan.pdf)"
+          cross_track_field_of_view: *nominal_spacing
+          along_track_field_of_view: *nominal_spacing
+          cross_track_pixels: *nominal_spacing
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          cross_track_oversampling: &oversampling
+            kind: derived
+            source: "One minus the sampling of 1.04919 deg divided by the group's beam width of the NWP SAF AAPP-SG User Manual (NWPSAF-MO-UD-064 v1.0), section 5.4, Table 16: 2.74 deg (channels 1 and 2), 1.39 deg (3 to 16), and 1.18 deg (17 to 24), \"consistent with the MWS Science Plan and an altitude of 827 km\" (https://nwp-saf.eumetsat.int/site/download/documentation/aapp-sg/NWPSAF-MO-UD-064-AAPP-SG_UserManual.pdf)"
+          along_track_oversampling: *oversampling
+          scan_period:
+            kind: nominal
+            source: "EPS-SG MWS Science Plan v1.0, section 3.2.4: \"the scan duration is 2.254 seconds\""
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          name: MWS 50.3-57.3 GHz
+          cross_track_oversampling: 0.245187
+          along_track_oversampling: 0.245187
+        provenance: *beam_provenance
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          name: MWS 89-229 GHz
+          cross_track_oversampling: 0.110856
+          along_track_oversampling: 0.110856
+        provenance: *beam_provenance
+    limitations:
+      - Pixels are projected at the time the product gives for the scan, which precedes TAT-C's epochs by about 1.1 s (median; see the swath), so pixels lie about 7 km along track from where MWS samples them. On 2026-11-18, they lay 7.3 km from the fields of view (median), beyond the gate's 6 km, whereas their sizes agree with the published footprints within 2.2%. No published sampling interval gives the time of each field of view, as AMSU-A's does.
 limitations:
   - The product does not record the satellite's position, so the fit used positions from an element set of 2026-10-17, two days before the data, whose error enters the fitted angles.
   - The Data Store holds the product for about 30 days, so a test can only use recent days.

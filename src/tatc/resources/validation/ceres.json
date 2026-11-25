@@ -11,6 +11,7 @@
       "platforms": [
         "noaa-20"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -49,6 +50,7 @@
       "platforms": [
         "suomi-npp"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -75,6 +77,88 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 1.49206610005
+      }
+    },
+    "beams_noaa_20": {
+      "digest": "e20b2865d5de50f7fdb511e369d4bc27fa44f6b167fb4564161925cd63b80fff",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_ceres.py",
+      "reference": "Nadir footprints of the CERES ATBD Subsystem 4.4 (not gated); footprint positions of CER_ES8_NOAA20-FM6 Edition1, projected to the ellipsoid",
+      "period": "2026-09-30",
+      "platforms": [
+        "noaa-20"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 3.1581040630849544
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.638317939953682
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 10.742465509915183
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999977309029106
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9993548231111012
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 3.1581040630849544,
+        "pixel_position_median": 3.269678542949759,
+        "spacing_along_ratio_median": 1.0000291049196477,
+        "spacing_cross_ratio_median": 0.9992347442272006
+      }
+    },
+    "beams_suomi_npp": {
+      "digest": "e16c046b99033bb11824a041e3cb043251a5a3ec2165d8d490f2fd9d3139945d",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_ceres.py",
+      "reference": "Nadir footprints of the CERES ATBD Subsystem 4.4 (not gated); footprint positions of CER_ES8_NPP-FM5 Edition2, projected to the ellipsoid",
+      "period": "2026-06-20",
+      "platforms": [
+        "suomi-npp"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 3.158104055357236
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 0.7076326248532098
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 1.9449136157803466
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9999907010709674
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9993475699591785
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 3.158104055357236,
+        "pixel_position_median": 0.6971362294855971,
+        "spacing_along_ratio_median": 0.9999602084838413,
+        "spacing_cross_ratio_median": 0.999402428910771
       }
     }
   }

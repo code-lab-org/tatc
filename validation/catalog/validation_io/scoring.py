@@ -52,9 +52,13 @@ def compute_published_errors(entry, key: str, footprints) -> np.ndarray:
         orbit = CircularOrbit(
             altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
         )
-        satellite = entry.build(configuration=key, orbit=orbit).to_satellite(
-            orbit, name=entry.name
-        )
+        # a day, for a configuration that schedules its attitude
+        satellite = entry.build(
+            configuration=key,
+            orbit=orbit,
+            start=PUBLISHED_EPOCH,
+            end=PUBLISHED_EPOCH + timedelta(days=1),
+        ).to_satellite(orbit, name=entry.name)
         time = PUBLISHED_EPOCH + timedelta(minutes=10)
         target = compute_projected_ray_position(
             orbit.to_gp_orbit().get_orbit_track(time),

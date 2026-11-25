@@ -18,6 +18,11 @@ Needs the `validation` extra and a login to the EUMETSAT Data Store
     python validation/catalog/validate_catalog_iasi_ng.py <data directory> 2026-10-19 --fit
     python validation/catalog/validate_catalog_iasi_ng.py <data directory> 2026-11-18
 
+It also validates the entry's sample size configuration (`fields_of_regard`),
+following `ValidateSampleSizes`: the projected pixels are compared with the centers
+of the fields of regard, and their spacing with that measured. The only published
+pixel, at nadir in the IASI-NG Science Plan, is compared without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit). The
 element sets are those of the files in `elements/` (or of a file given with
 `--elements`). With `--write`, it writes the entry's validation record and the reduced
@@ -34,7 +39,7 @@ from skyfield.framelib import itrs
 
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
-from scanner import Reference, Setup, fit, validate_swath
+from scanner import Reference, Setup, fit, validate_beams, validate_swath
 from validation_io import (
     FIXTURES,
     TO_GEODETIC,
@@ -48,18 +53,29 @@ FIELDS_OF_REGARD, PIXELS = 14, 16
 SCAN_PERIOD = 15.561
 # the hours read from the start of a day, about two orbits
 HOURS = 3.5
+# the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), from Table 2.1 of the IASI-NG
+# Science Plan (which states no altitude), compared without the gate, as the pixel
+# width comes from it
+PUBLISHED_FOOTPRINTS = (("IASI-NG", 835, 98.7, 0, 12, 12),)
 SETUP = Setup(
     swath="swath",
-    beams=None,
-    size_instrument=None,
-    published_footprints=(),
+    beams="fields_of_regard",
+    size_instrument="IASI-NG",
+    published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "iasi_ng.npz",
     reference="IASI-NG Level 1c (EO:EUM:DAT:0892, BUFR), centers of the fields of "
     f"regard, first {HOURS} hours of the day",
-    published_reference="",
+    published_reference="Nadir pixel of the IASI-NG Science Plan (not gated); "
+    "centers of the fields of regard of the IASI-NG Level 1c (EO:EUM:DAT:0892, "
+    f"BUFR), first {HOURS} hours of the day",
     time_steps=(SCAN_PERIOD, 32, 128),
     pass_radius=150,
     point_spacing=500e3,
+    # a few hours of scans of 14 fields of regard
+    pixel_stride=10,
+    spacing_stride=20,
+    gate_published=False,
 )
 
 
@@ -171,7 +187,10 @@ def main() -> None:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
         return
-    validate_swath(SETUP, run, reference, orbit, tle)
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,12 @@ the satellite was retired. NOAA's archive has Suomi NPP's element sets only from
     python validation/catalog/validate_catalog_ceres.py <data directory> 2026-07-25 --platform suomi-npp --fit
     python validation/catalog/validate_catalog_ceres.py <data directory> 2026-06-20 --platform suomi-npp
 
+It also validates the platform's sample size configuration (`beams_noaa_20` or
+`beams_suomi_npp`), following `ValidateSampleSizes`: the projected pixels are
+compared with the footprints' positions, and their spacing with that measured. The
+only published footprints, of the optical field of view at nadir in the CERES ATBD
+(for TRMM and EOS), are compared without the gate.
+
 Without a day, it takes that of the platform's record (or, with `--fit`, of the
 fit).
 
@@ -47,7 +53,7 @@ from pyhdf.HDF import HDF
 from pyhdf.SD import SD, SDC
 
 from tatc.schemas import GeneralPerturbationsOrbit
-from scanner import Reference, Setup, fit, fit_yaw, validate_swath
+from scanner import Reference, Setup, fit, fit_yaw, validate_beams, validate_swath
 from validation_io import (
     FIXTURES,
     TO_GEODETIC,
@@ -67,6 +73,7 @@ class Product:
     short_name: str
     version: str
     configuration: str
+    beams: str
     fixture_path: pathlib.Path
     prefix: str
 
@@ -76,6 +83,7 @@ PRODUCTS = {
         "CER_ES8_NOAA20-FM6",
         "Edition1",
         "swath_noaa_20",
+        "beams_noaa_20",
         FIXTURES / "ceres.npz",
         "",
     ),
@@ -83,6 +91,7 @@ PRODUCTS = {
         "CER_ES8_NPP-FM5",
         "Edition2",
         "swath_suomi_npp",
+        "beams_suomi_npp",
         FIXTURES / "ceres_suomi_npp.npz",
         "npp_",
     ),
@@ -96,6 +105,15 @@ SAMPLE_STRIDE = 1
 TOA_HEIGHT = 30e3  # m
 WGS84_A, WGS84_F = 6378137.0, 1 / 298.257223563
 JULIAN_UNIX_EPOCH = 2440587.5
+# published footprints of the optical field of view at nadir: instrument, altitude
+# (km), inclination (deg), scan angle (deg), and sizes along and across track (km),
+# from Table 4.4-1 of the CERES ATBD Subsystem 4.4 (for TRMM and EOS, whose sizes
+# along the scan are across track in the cross-track mode); none are published at
+# other angles or for this orbit, so they are compared without the gate
+PUBLISHED_FOOTPRINTS = (
+    ("CERES", 350, 35, 0, 16, 8),
+    ("CERES", 705, 98.2, 0, 32, 16),
+)
 
 
 def download(day: datetime, directory: pathlib.Path, product: Product) -> pathlib.Path:
@@ -225,16 +243,19 @@ def make_setup(platform: str) -> Setup:
     product = PRODUCTS[platform]
     return Setup(
         swath=product.configuration,
-        beams=None,
-        size_instrument=None,
-        published_footprints=(),
+        beams=product.beams,
+        size_instrument="CERES",
+        published_footprints=PUBLISHED_FOOTPRINTS,
         fixture_path=product.fixture_path,
         reference=f"{product.short_name} {product.version} (footprint positions, "
         "projected to the ellipsoid, and times)",
-        published_reference="",
+        published_reference="Nadir footprints of the CERES ATBD Subsystem 4.4 "
+        f"(not gated); footprint positions of {product.short_name} "
+        f"{product.version}, projected to the ellipsoid",
         time_steps=(RECORD_PERIOD, 30, 120),
         pass_radius=60,
         point_spacing=200e3,
+        gate_published=False,
     )
 
 
@@ -264,6 +285,8 @@ def main() -> None:
     entry = run.entry
     default = entry.configurations[entry.default_configuration].platforms[0]
     setup = make_setup(default if run.transfer else run.platform)
+    if setup.beams in run.configurations:
+        validate_beams(setup, run, reference, orbit, tle)
     if setup.swath in run.configurations:
         validate_swath(setup, run, reference, orbit, tle)
 

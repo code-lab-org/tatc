@@ -146,9 +146,11 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath_noaa_20": ("partial", 36, ["swath_width_median"]),
+            "beams_noaa_20": ("partial", None, ["sample_size_within_3pct"]),
             "swath_suomi_npp": ("validated", 35, []),
+            "beams_suomi_npp": ("partial", 35, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "cpr": (
         "partial",
@@ -208,8 +210,9 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("partial", 35, ["pass_recall"]),
+            "beams": ("partial", 35, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "emit": (
         "partial",
@@ -268,8 +271,18 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("validated", 30, []),
+            "fields_of_regard": (
+                "partial",
+                0,
+                [
+                    "pixel_position_median",
+                    "sample_size_within_3pct",
+                    "fitted values are not tested on data at least 30 days from "
+                    "their fitting data",
+                ],
+            ),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "karin": (
         "validated",
@@ -325,15 +338,17 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("validated", 30, []),
+            "beams": ("partial", None, ["pixel_position_median"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "oci": (
         "partial",
         {
             "swath": ("validated", 33, []),
+            "beams": ("partial", 33, ["sample_size_within_3pct"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "oco2": (
         "partial",
@@ -451,8 +466,11 @@ EXPECTED_STATUS = {
                 47,
                 ["pass_recall", "pass_precision", "swath_width_median", "epoch_p95"],
             ),
+            "beams_tropics_03": ("validated", 47, []),
+            "beams_tropics_05": ("validated", 47, []),
+            "beams_tropics_06": ("partial", 47, ["pixel_position_median"]),
         },
-        ["no configuration at the sample_size grade"],
+        [],
     ),
     "tropomi": (
         "validated",
@@ -1040,7 +1058,13 @@ class TestEntryStatus(unittest.TestCase):
         }
         self.assertEqual(
             with_attitude,
-            {"ecostress:swath", "emit:swath", "gedi:beams", "oco2:glint"},
+            {
+                "ecostress:swath",
+                "ecostress:beams",
+                "emit:swath",
+                "gedi:beams",
+                "oco2:glint",
+            },
         )
 
     def test_entry_lists_every_gap(self):

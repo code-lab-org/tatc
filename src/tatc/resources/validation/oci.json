@@ -11,6 +11,7 @@
       "platforms": [
         "pace"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -37,6 +38,47 @@
       "fixture_metrics": {
         "passes_found": 100.0,
         "epoch_p95": 0.44427739664999993
+      }
+    },
+    "beams": {
+      "digest": "b1f3212853b254e9638dc62bfd14235d18b2a5d01bb668998d68ab532fee27ee",
+      "standard_version": 7,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_oci.py",
+      "reference": "Nadir pixel of McClain et al. (2022) (not gated); sample positions of PACE_OCI_L1B_SCI version 3",
+      "period": "2026-11-10",
+      "platforms": [
+        "pace"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.36023574329501207
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.16371513978231
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.6185494640853086
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 0.9998765480813098
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9996629541754368
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.36023574329501207,
+        "pixel_position_median": 1.1674098010688772,
+        "spacing_along_ratio_median": 0.9999346833601925,
+        "spacing_cross_ratio_median": 0.9996759839880193
       }
     }
   }

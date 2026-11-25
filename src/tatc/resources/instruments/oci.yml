@@ -40,7 +40,7 @@ configurations:
     description: The swath scanned between the outermost samples, tilted aft over the southern part of the sunlit half orbit and forward over the northern part, changing at a latitude scheduled by day, with a view tailored to the analysis time step. Build it with the start and end of the analysis.
     platforms: [pace]
     velocity_frame: earth_fixed
-    tilt_schedule:
+    tilt_schedule: &tilt_schedule
       fore_pitch_angle: 19.8555
       aft_pitch_angle: -19.8149
       odd_day_offset: 5.2097
@@ -107,8 +107,48 @@ configurations:
       - The scan line is rotated by about 0.1 deg from perpendicular to the Earth-fixed ground track (a fitted yaw), which is not modeled.
       - The swath width of a pointed instrument follows its field of regard, centered on nadir, which does not describe this tilted view; its width is that between the projections of its edges.
       - OCI images the sunlit half of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
+  beams:
+    grade: sample_size
+    description: The 1,272 science pixels of a scan, tilted on the schedule of the swath, whose sizes and spacing `compute_sample_sizes` gives. Build it with the start and end of the analysis.
+    platforms: [pace]
+    velocity_frame: earth_fixed
+    tilt_schedule: *tilt_schedule
+    instruments:
+      - type: pointed
+        parameters:
+          name: OCI
+          field_of_regard: 120
+          cross_track_field_of_view: 113.324091
+          along_track_field_of_view: 0.089127
+          cross_track_pixels: 1272
+          is_rectangular: true
+          scan_period: 0.175472
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the tilted view, as for the swath
+          cross_track_field_of_view:
+            kind: derived
+            source: "The 1,272 science pixels of a scan (NASA/TM-2024-219027 Vol. 13, Appendix A: \"ccd_pixels = 1272 ; SWIR_pixels = 1272\", https://ntrs.nasa.gov/api/citations/20240007962/downloads/PACE%20Vol%2013_all%20combined.pdf) at the spacing of the swath's measured field of view between the outermost samples (113.235 deg over 1,271 intervals, 0.089091 deg), each pixel as wide as the spacing"
+          along_track_field_of_view:
+            kind: nominal
+            source: "McClain et al. (2022), Frontiers in Remote Sensing 3:938006, Table 1, \"Nadir Resolution\" of 1,050 m, at the table's altitude of 675 km (https://www.frontiersin.org/journals/remote-sensing/articles/10.3389/frsen.2022.938006/full)"
+          cross_track_pixels:
+            kind: nominal
+            source: "NASA/TM-2024-219027 Vol. 13, Appendix A: \"ccd_pixels = 1272 ; SWIR_pixels = 1272\""
+          is_rectangular:
+            kind: derived
+            source: Models a scan line as a rectangular view
+          scan_period:
+            kind: measured
+            source: The median period between the scans of the product (every sixth scan, divided by six)
+            platforms: [pace]
+            period: "2026-10-04"
+    limitations:
+      - Only a pixel at nadir is published, and sources differ (1,050 m at 675 km in McClain et al. (2022); 1 km in Werdell et al. (2019) and the calibration and geolocation document; 1.2 km on the PACE website, eoPortal, and WMO OSCAR/Space, which may be the spacing of scans), so the sample size gate is not applied. The pixel of 1,050 m agrees within 0.04% with the measured spacing of samples.
+      - No pixel size is published for the tilted view; the pixels are those of the untilted view, tilted by 20 deg.
+      - Pixels are projected at the time of the scan; OCI's rotating telescope sweeps a scan's Earth view in about 0.06 s.
 limitations:
   - PACE flies with yaw steering, and the scan is nearly perpendicular to the Earth-fixed ground track, so the configuration uses the Earth-fixed frame.
-  - No configuration gives sample sizes, as no published instantaneous field of view was used.
   - The tilt schedule is that of the days tested; it is set by the mission and may change.
   - The tilt schedule, with its blind intervals, is given to the body, whereas OCI tilts by itself. HARP2's and SPEXone's configurations give PACE's body no attitude, so they are not carried with OCI's; an attitude that replaces theirs would tilt and blind them with OCI.

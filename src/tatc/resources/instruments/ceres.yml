@@ -59,6 +59,43 @@ configurations:
       - On data held out on 2026-09-30, 99.6% of observed passes were predicted and 99.4% of predicted passes observed, with epochs within 0.29 s (95th percentile) and the swath's intersection over union 0.9995 (0.998 with views tailored to the time step, before swept swaths were added; rescored on the same data), but the swath width, which a field of regard gives on a spherical Earth, differed by 7.9 km (median) from that between the outermost footprints, beyond the gate's 5 km. The difference grows toward the horizon, which the swath's edges, 60 deg from nadir, approach.
       - The field of regard was fitted with both sweeps of each record, whose footprints are offset by about 0.075 deg across track toward the end of each sweep, and was not fitted again when the script took the first sweep alone. On the fitting day, the first sweep alone measures 60.0639 deg left and 59.9074 deg right of the geodetic nadir (a field of regard of 119.9713 deg, centered 0.0786 deg to the left), and the second sweep 59.9138 deg left and 60.0574 deg right (centered 0.0718 deg to the right). The view is centered on nadir, as the mean of both sweeps is (0.0047 deg to the left), so the first sweep, which the record tests, lies about 0.08 deg to the left of the view.
       - The validation script was changed twice before its recorded run, without changing the entry. A run on the fitting day took both sweeps of each record as scans, whose cells crossed, and was replaced by the first sweep alone; a first run on 2026-09-30 kept every fourth footprint of a sweep, too sparse at the swath's edges to find the passes there (55.99% of predicted passes found), and was replaced by every footprint.
+  beams_noaa_20:
+    grade: sample_size
+    description: The 191 footprints of the first Earth sweep of each record of CERES on NOAA-20, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [noaa-20]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters: &beam_parameters
+          name: CERES
+          field_of_regard: 120.597018
+          cross_track_field_of_view: 120.597018
+          along_track_field_of_view: 2.6
+          cross_track_pixels: 191
+          is_rectangular: true
+          cross_track_oversampling: 0.514309
+          scan_period: 6.6
+        provenance: &beam_provenance
+          field_of_regard: &sampling
+            kind: derived
+            source: "The footprints of the Earth sweep (191, between the outermost of the swath's field of regard) at the spacing of the scan rate over the 10 ms sampling interval, 0.631398 deg, from CERES Software Bulletin 96-04: \"Normal Scan Rate 63.1398 deg/sec\" and \"660 measurements per 6.6-sec scan\" (https://webarchive.library.unt.edu/eot2008/20090825090144id_/http://asd-www.larc.nasa.gov/ceres/sw_bull/CERES_SB_96-04.pdf)"
+          cross_track_field_of_view: *sampling
+          cross_track_pixels: *sampling
+          along_track_field_of_view:
+            kind: nominal
+            source: "CERES ATBD Subsystem 4.4 (Release 2.2), section 4.4.2.2: \"The optical field-of-view (FOV) is a truncated diamond (or hexagon) and is 1.3o in the along-scan direction and 2.6o in the across-scan direction\" (https://ceres.larc.nasa.gov/documents/ATBD/pdf/r2_2/ceres-atbd2.2-s4.4.pdf)"
+          is_rectangular:
+            kind: derived
+            source: Models a sweep as a rectangular view
+          cross_track_oversampling:
+            kind: derived
+            source: One minus the sample spacing of 0.631398 deg divided by the optical field of view of 1.3 deg along the scan (CERES ATBD Subsystem 4.4)
+          scan_period:
+            kind: nominal
+            source: "CERES Software Bulletin 96-04: \"660 measurements per 6.6-sec scan\", a record of two sweeps, of which the first is compared"
+    limitations:
+      - &ceres_optical Only footprints at nadir are published (the optical field of view's, in the CERES ATBD, for TRMM at 350 km and EOS at 705 km, none for this orbit), so the sample size gate is not applied. Pixels are the optical field of view, a rectangle of 1.3 by 2.6 deg in place of its hexagon, whereas the footprint weighted by the point spread function is larger (17 by 27 km at half power at nadir from 705 km), and its centroid trails the optical axis by about 1 deg along the scan.
+      - &ceres_sweeps Pixels are projected at the time of the middle of the sweep, whereas CERES samples its footprints up to about 1 s before or after it, and scans are spaced by the 6.6 s record, of whose two sweeps the first is compared.
   swath_suomi_npp:
     grade: coverage
     description: The swath of CERES's cross-track scan on Suomi NPP, between the outermost footprint centers, with a view tailored to the analysis time step.
@@ -99,7 +136,28 @@ configurations:
       - The product places footprints at the top of the atmosphere (30 km); they are compared on the ellipsoid, projected along the line of sight from the spacecraft.
       - On data held out on 2026-06-20, with an element set from a file of the history of Suomi NPP's element sets (NOAA's archive has none before 2026-08-19), 99.996% of observed passes were predicted and 99.8% of predicted passes observed, with epochs within 1.49 s (95th percentile), the swath width within 0.71 km (median), and the swath's intersection over union 0.9999. The yaw was given to the body's attitude when tested, and then to the instrument, which gives the same views; the record was rescored on the same held-out data, with the swath width, now measured with the instrument's yaw, 15 m wider than 0.70 km, and every other result unchanged.
       - The product ends on 2026-07-31, and Suomi NPP was retired on 2026-11-02.
+  beams_suomi_npp:
+    grade: sample_size
+    description: The 191 footprints of the first Earth sweep of each record of CERES on Suomi NPP, at the yaw and roll of its swath, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [suomi-npp]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          <<: *beam_parameters
+          yaw_angle: -0.2725
+          roll_angle: 0.1317
+        provenance:
+          <<: *beam_provenance
+          roll_angle: *measured_suomi_npp
+          yaw_angle:
+            kind: measured
+            source: validate_catalog_ceres.py --fit, the slope of the footprints' along-track on their cross-track tangents (inertial frame)
+            platforms: [suomi-npp]
+            period: "2026-07-25"
+    limitations:
+      - *ceres_optical
+      - *ceres_sweeps
 limitations:
   - NOAA-20 and Suomi NPP do not steer their yaw, so the configurations use the inertial frame.
   - Only the cross-track mode is modeled. CERES instruments also scan in other modes (rotating azimuth plane or along track) on some days, and those on Terra and Aqua differ.
-  - No configuration gives sample sizes, as no published footprint size was used.

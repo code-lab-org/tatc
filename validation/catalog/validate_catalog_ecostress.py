@@ -20,6 +20,11 @@ requests (about 5 GB a day), and every 50th sample (and the last). The fit of
     python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-10-04 --fit --fit-view
     python validation/catalog/validate_catalog_ecostress.py <data directory> 2026-11-08
 
+It also validates the entry's sample size configuration (`beams`), following
+`ValidateSampleSizes`: the projected pixels of the middle line of a sweep are
+compared with the samples' positions, and their spacing with that measured. The only
+published pixel, at nadir in the L1 Calibration ATBD, is compared without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 With `--fit-view`, it centers the view in TAT-C's frame, with the entry's yaw and
 pitch, instead of fitting the scan's angles. ECOSTRESS images scenes over land and
@@ -50,6 +55,7 @@ from scanner import (
     fit,
     fit_view,
     fit_yaw,
+    validate_beams,
     validate_swath,
 )
 from validation_io import (
@@ -70,6 +76,10 @@ SCENE_BLOCK, BLOCK_STRIDE, SWEEP_STRIDE, SAMPLE_STRIDE = 8, 4, 4, 50
 SAMPLES = 5400
 COLUMNS = np.r_[0:SAMPLES:SAMPLE_STRIDE, SAMPLES - 1]
 J2000 = 2451545.0
+# the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), from Table 1 of the L1
+# Calibration ATBD, compared without the gate, as no other is published
+PUBLISHED_FOOTPRINTS = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851),)
 
 
 def read_scene(url: str, session, day: datetime) -> dict:
@@ -150,16 +160,19 @@ def load_day(day: datetime, directory: pathlib.Path) -> dict:
 
 SETUP = Setup(
     swath="swath",
-    beams=None,
-    size_instrument=None,
-    published_footprints=(),
+    beams="beams",
+    size_instrument="ECOSTRESS",
+    published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "ecostress.npz",
     reference="ECO_L1B_GEO version 002 (sample positions and times of every fourth "
     "sweep, in blocks of eight consecutive scenes of every 32)",
-    published_reference="",
+    published_reference="Nadir pixel of the ECOSTRESS L1 Calibration ATBD (not "
+    "gated); sample positions of ECO_L1B_GEO version 002 (the middle line of every "
+    "fourth sweep)",
     time_steps=(10, 30, 120),
     pass_radius=20,
     point_spacing=100e3,
+    gate_published=False,
 )
 
 
@@ -175,7 +188,13 @@ def main() -> None:
         ),
     )
     data = load_day(run.day, run.directory)
-    data.update(pixel=COLUMNS, pixels=SAMPLES, line_stride=SWEEP_STRIDE)
+    # the middle line of each kept sweep, of the lines a sweep images at once
+    data.update(
+        pixel=COLUMNS,
+        pixels=SAMPLES,
+        line_stride=SWEEP_STRIDE * LINES_PER_SWEEP,
+        line=LINES_PER_SWEEP // 2,
+    )
     reference = Reference(run.day, data, SWEEP_STRIDE * SWEEP_PERIOD)
     print(
         f"{run.day:%Y-%m-%d}: {len(reference.time)} sweeps from {reference.time[0]}, "
@@ -194,7 +213,10 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_swath(SETUP, run, reference, orbit, tle)
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,12 @@ Needs the `validation` extra and a login to the EUMETSAT Data Store
     python validation/catalog/validate_catalog_mws.py <data directory> 2026-10-19 --fit
     python validation/catalog/validate_catalog_mws.py <data directory> 2026-11-18
 
+It also validates the entry's sample size configuration (`beams`), following
+`ValidateSampleSizes`: sizes are compared with the footprints published in the
+EPS-SG MWS Science Plan, which the gate tests, the projected pixels with the
+positions of the fields of view, and their spacing with that measured.
+`--configuration beams` (or `swath`) tests one configuration.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit). The
 element sets are those of the files in `elements/` (or of a file given with
 `--elements`). With `--write`, it writes the entry's validation record and the reduced
@@ -31,20 +37,33 @@ from skyfield.framelib import itrs
 
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit
-from scanner import Reference, Setup, fit, validate_swath
+from scanner import Reference, Setup, fit, validate_beams, validate_swath
 from validation_io import FIXTURES, TO_GEODETIC, download_eumetsat, parse_run
 
 COLLECTION = "EO:EUM:DAT:0892"
 FIELDS_OF_VIEW = 95
 SCAN_PERIOD = 2.254
+# published footprints: instrument, altitude (km), inclination (deg), scan angle
+# (deg), and sizes along and across track (km), from Figure 8 of the EPS-SG MWS
+# Science Plan, which states no altitude or angle: those of the beam widths of the
+# AAPP-SG User Manual (827 km) and the outermost field of view (49.312 deg)
+PUBLISHED_FOOTPRINTS = (
+    ("MWS 23.8-31.4 GHz", 827, 98.7, 0, 39.6, 39.6),
+    ("MWS 23.8-31.4 GHz", 827, 98.7, 49.312, 67.6, 132.6),
+    ("MWS 50.3-57.3 GHz", 827, 98.7, 0, 20.0, 20.0),
+    ("MWS 50.3-57.3 GHz", 827, 98.7, 49.312, 34.2, 66.9),
+    ("MWS 89-229 GHz", 827, 98.7, 0, 17.0, 17.0),
+    ("MWS 89-229 GHz", 827, 98.7, 49.312, 29.0, 56.7),
+)
 SETUP = Setup(
     swath="swath",
-    beams=None,
-    size_instrument=None,
-    published_footprints=(),
+    beams="beams",
+    size_instrument="MWS 50.3-57.3 GHz",
+    published_footprints=PUBLISHED_FOOTPRINTS,
     fixture_path=FIXTURES / "mws.npz",
     reference="MWS Level 1b (EO:EUM:DAT:0892, BUFR), positions of the fields of view",
-    published_reference="",
+    published_reference="Footprints of the EPS-SG MWS Science Plan; positions of the "
+    "fields of view of the MWS Level 1b (EO:EUM:DAT:0892, BUFR)",
     time_steps=(SCAN_PERIOD, 32, 128),
     pass_radius=60,
     point_spacing=500e3,
@@ -143,7 +162,10 @@ def main() -> None:
         for frame in ("earth_fixed", "inertial"):
             fit(reference, frame)
         return
-    validate_swath(SETUP, run, reference, orbit, tle)
+    if SETUP.beams in run.configurations:
+        validate_beams(SETUP, run, reference, orbit, tle)
+    if SETUP.swath in run.configurations:
+        validate_swath(SETUP, run, reference, orbit, tle)
 
 
 if __name__ == "__main__":
