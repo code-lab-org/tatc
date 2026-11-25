@@ -218,6 +218,41 @@ def _compute_line_of_sight(
     return xyz - p_m
 
 
+def compute_incidence_angle(
+    orbit_track: Geocentric, target: GeographicPosition
+) -> npt.NDArray:
+    """
+    Compute the incidence angle (degrees) at a target of the line of sight from a
+    satellite: the angle between the line of sight to the satellite and the
+    normal to the WGS 84 ellipsoid at the target, 90 degrees less the
+    satellite's elevation angle (see `compute_local_incidence_angle` for sloped
+    terrain).
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+
+    Returns:
+        numpy.typing.NDArray: the incidence angle(s) (degrees).
+    """
+    p_m = np.asarray(orbit_track.frame_xyz(itrs).m)
+    up = -_compute_line_of_sight(target, p_m)
+    latitude = np.radians(target.latitude.degrees)
+    longitude = np.radians(target.longitude.degrees)
+    normal = np.stack(
+        [
+            np.cos(latitude) * np.cos(longitude),
+            np.cos(latitude) * np.sin(longitude),
+            np.sin(latitude) * np.ones_like(longitude),
+        ]
+    )
+    if normal.ndim < up.ndim:
+        normal = np.reshape(normal, (3,) + (1,) * (up.ndim - 1))
+    cosine = np.sum(up * normal, axis=0) / np.linalg.norm(up, axis=0)
+    return np.degrees(np.arccos(np.clip(cosine, -1, 1)))
+
+
 def _compute_view_frame(
     orbit_track: Geocentric,
     roll_angle: float = 0,

@@ -87,6 +87,55 @@ configurations:
     limitations:
       - The edges are those of good-quality sea surface heights over the open ocean, which extend from about 7.5 to 61 km from the ground track, beyond the nominal 10 to 60 km. Heights over land, ice, and inland water were not tested.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+  resolution:
+    grade: sample_size
+    description: The 2 km product's samples (L2_LR_SSH Basic) in the left and right swaths (one at a time, by instrument index), whose sizes `compute_sample_sizes` gives, from published values; not compared with reference data.
+    platforms: [swot]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters: &resolution_parameters
+          name: KaRIn left
+          field_of_regard: 90
+          cross_track_field_of_view: 3.4071
+          along_track_field_of_view: 1.0
+          roll_angle: 2.1883
+          is_rectangular: true
+          range_resolution: 2000
+          range_resolution_frame: ground
+          azimuth_resolution: 2000
+        provenance: &resolution_provenance
+          field_of_regard:
+            kind: derived
+            source: Contains the swaths
+          cross_track_field_of_view: *left
+          along_track_field_of_view:
+            kind: placeholder
+            source: An extent of the view along track, which the resolutions replace
+          roll_angle: *left
+          is_rectangular:
+            kind: derived
+            source: Models a swath as a rectangular view
+          range_resolution: &resolution
+            kind: nominal
+            source: "SWOT Product Description L2_LR_SSH (JPL D-56407 Rev C), section 3.4.1: \"Measurements in the Basic, WindWave, and Expert files have a spatial resolution of approximately 2 km in both the along-track and cross-track directions\", the half-power width of the point-target response after ground processing (https://www.aviso.altimetry.fr/fileadmin/documents/data/tools/D-56407_SWOT_Product_Description_L2_LR_SSH_20250224a_RevC_clean_sig.pdf)"
+          range_resolution_frame:
+            kind: derived
+            source: The product's resolution is constant on the ground
+          azimuth_resolution: *resolution
+      - type: pointed
+        parameters:
+          <<: *resolution_parameters
+          name: KaRIn right
+          cross_track_field_of_view: 3.4096
+          roll_angle: -2.2065
+        provenance:
+          <<: *resolution_provenance
+          cross_track_field_of_view: *right
+          roll_angle: *right
+    limitations:
+      - The resolution is that of the 2 km product, an approximate published value, so the configuration is nominal. The unsmoothed product has a resolution of about 500 m, and the single-look complex data about 70 m to 10 m across track and 5 m along track. The grid's spacing (2 km) is not modeled.
 limitations:
   - The nadir altimeter, which observes the gap between the swaths, is not represented.
   - SWOT's orbit is maintained on a repeat ground track; for analyses longer than its 20.86-day repeat cycle, propagate the orbit as maintained (`remove_drag=True` with `repeat_cycle="auto"`), as `ValidateSwathSWOT` found.

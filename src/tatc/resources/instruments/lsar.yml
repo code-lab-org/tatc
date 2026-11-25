@@ -135,6 +135,66 @@ configurations:
       - On the held-out days (30 products), 100 of the 101 lattice points observed were predicted (99.01%), the near-range and far-range edges were within 3.1 and 2.1 km (95th percentile), and the epochs within 0.13 s (95th percentile; -0.03 s median), passing every gate tested.
       - The held-out days were first tested, before element sets of those days were at hand, with the element set of 2026-11-04 (epoch 2026-11-08), 3 to 7 days after them, and the configuration was tested again with element sets of each day after those results, without changing it. With the later element set, 100 of the 101 points were predicted, and the near-range and far-range edges were within 8.9 and 8.8 km (95th percentile), but TAT-C's epochs preceded the zero-Doppler times by 1.14 s (median; 1.28 s at the 95th percentile), failing the timing gate. The difference shrinks as the element set's epoch nears the day (1.2 s on 2026-11-01, 0.35 s on 2026-11-05), as does the element set's position ahead of the products' recorded orbits along track (9.2 km on 2026-11-01, 1.7 km on 2026-11-05, against 0.08 km on the fitting day), so it measures the element set's age more than the view; the edges' distances include the same offset along track. On the fitting day, the edges were within 5.4 and 2.1 km and the epochs within 0.21 s.
       - Images are formed in the plane perpendicular to the Earth-fixed velocity (zero-Doppler geometry), so a user-supplied attitude should keep the Earth-fixed frame.
+  resolution:
+    grade: sample_size
+    description: The resolution cells of the range-Doppler single-look complex products (RSLC) of each bandwidth (one at a time, by instrument index; 20 MHz by default), in the view of the 20 and 40 MHz swath at its mean roll, whose sizes `compute_sample_sizes` gives, from published values; not compared with reference data.
+    platforms: [nisar]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instrument_index: 1
+    instruments:
+      - type: pointed
+        parameters: &resolution_parameters
+          name: L-SAR 5 MHz
+          field_of_regard: 85.0972
+          cross_track_field_of_view: 11.5185
+          along_track_field_of_view: 1.0
+          roll_angle: 35.2
+          is_rectangular: true
+          range_resolution: 30
+          azimuth_resolution: 6
+        provenance: &resolution_provenance
+          field_of_regard:
+            kind: derived
+            source: That of the 20 and 40 MHz swath
+          cross_track_field_of_view:
+            kind: derived
+            source: That of the 20 and 40 MHz swath
+          along_track_field_of_view:
+            kind: placeholder
+            source: An extent of the view along track, which the resolutions replace
+          roll_angle:
+            kind: derived
+            source: The mean of the roll angle profile of the 20 and 40 MHz swath, rounded
+          is_rectangular:
+            kind: derived
+            source: Models the swath as a rectangular view
+          range_resolution: &slant_resolution
+            kind: nominal
+            source: "NISAR L1/L2 ATBD (JPL D-95677 Rev A), Table 2.3-1: the RSLC slant range resolution of each bandwidth, 30, 7.5, 3.75, and 1.95 m (https://nisar.asf.earthdatacloud.nasa.gov/NISAR-SAMPLE-DATA/DOCS/NISAR_D-95677_NASA_L1_L2_ATBD_20231112_R3.4_w-sigs.pdf)"
+          azimuth_resolution:
+            kind: nominal
+            source: "NISAR RSLC Product Specification (JPL D-102268 Rev F), section 3.7: \"The RSLC products are all processed to 6 m azimuth resolution.\" (https://cumulus.asf.earthdatacloud.nasa.gov/PUBLIC/DATA/NISAR/NISAR_D-102268_RevF_NASA_SDS_Product_Specification_L1_RSLC_w-esigs.pdf)"
+      - type: pointed
+        parameters:
+          <<: *resolution_parameters
+          name: L-SAR 20 MHz
+          range_resolution: 7.5
+        provenance: *resolution_provenance
+      - type: pointed
+        parameters:
+          <<: *resolution_parameters
+          name: L-SAR 40 MHz
+          range_resolution: 3.75
+        provenance: *resolution_provenance
+      - type: pointed
+        parameters:
+          <<: *resolution_parameters
+          name: L-SAR 77 MHz
+          range_resolution: 1.95
+        provenance: *resolution_provenance
+    limitations:
+      - The slant range resolutions are c / (2 B) of the bandwidths, without the broadening of the range window (a Kaiser window of shape 1.6, about 8% at 3 dB), and no resolutions on the ground are published, so the configuration is nominal. The 5 and 77 MHz modes image other swaths (see their configurations), and the spacing of the products' pixels is not modeled.
 limitations:
   - The S-band radar (S-SAR) is not represented.
   - NISAR acquires according to plans, so TAT-C predicts which points it can observe, not which it will.

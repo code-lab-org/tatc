@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .records import ConfigurationRecord
     from .schemas import InstrumentEntry
 
-STANDARD_VERSION = 10
+STANDARD_VERSION = 11
 """The version of the thresholds in `get_gates`."""
 
 _LAST_THRESHOLD_CHANGE = 1
@@ -295,6 +295,10 @@ _GATES: dict[tuple[InstrumentClass, Grade], tuple[Gate, ...]] = {
         _SAMPLE_SIZE,
         _PIXEL_POSITION,
     ),
+    # version 11: the resolution cells of SAR and scatterometers, whose products
+    # locate them only through published tables of resolution
+    (InstrumentClass.SAR, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE,),
+    (InstrumentClass.SCATTEROMETER, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE,),
 }
 # the versions of the standard that added a grade to a class that had others
 _GRADE_VERSIONS: dict[tuple[InstrumentClass, Grade], int] = {
@@ -303,11 +307,14 @@ _GRADE_VERSIONS: dict[tuple[InstrumentClass, Grade], int] = {
     (InstrumentClass.PROFILER, Grade.SAMPLE_SIZE): 9,
     (InstrumentClass.ALTIMETER, Grade.SAMPLE_SIZE): 9,
     (InstrumentClass.GEOSTATIONARY, Grade.SAMPLE_SIZE): 10,
+    (InstrumentClass.SAR, Grade.SAMPLE_SIZE): 11,
+    (InstrumentClass.SCATTEROMETER, Grade.SAMPLE_SIZE): 11,
 }
 # grades whose configurations are gated but that an entry does not need to be
 # validated: the sample sizes of pushbroom imagers, whose published pixel sizes are
 # rarely given away from nadir (version 8), of the beams of lidars, profilers, and
-# altimeters (version 9), and of geostationary imagers (version 10)
+# altimeters (version 9), of geostationary imagers (version 10), and of SAR and
+# scatterometers (version 11)
 _OPTIONAL_GRADES: frozenset[tuple[InstrumentClass, Grade]] = frozenset(
     (instrument_class, Grade.SAMPLE_SIZE)
     for instrument_class in (
@@ -316,6 +323,8 @@ _OPTIONAL_GRADES: frozenset[tuple[InstrumentClass, Grade]] = frozenset(
         InstrumentClass.PROFILER,
         InstrumentClass.ALTIMETER,
         InstrumentClass.GEOSTATIONARY,
+        InstrumentClass.SAR,
+        InstrumentClass.SCATTEROMETER,
     )
 )
 
@@ -347,8 +356,8 @@ def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
     """
     Gets the grades that an entry needs to be validated: the coverage grade, and
     the sample size grade if its class has one that is not optional (those of
-    the pushbroom, lidar, profiler, altimeter, and geostationary classes are
-    optional). A
+    the pushbroom, lidar, profiler, altimeter, geostationary, SAR, and
+    scatterometer classes are optional). A
     configuration at the timing grade also meets the coverage grade, as timing
     also tests coverage.
 
@@ -377,7 +386,8 @@ def is_compatible(
     class, 4 the scatterometer class, 5 the regional geostationary class, 6 the
     profiler class, 7 the limb and occultation classes, 8 the sample size grade
     of the pushbroom class, 9 that of the lidar, profiler, and altimeter
-    classes, and 10 that of the geostationary class.
+    classes, 10 that of the geostationary class, and 11 that of the SAR and
+    scatterometer classes.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.
@@ -680,8 +690,8 @@ def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
     class (see `get_required_grades`), and is partial rather than nominal if any
     configuration was compared with reference data. Configurations at a grade
     that is optional for the class (the sample size grade of the pushbroom,
-    lidar, profiler, altimeter, and geostationary classes) have their own tiers,
-    which do not set the entry's.
+    lidar, profiler, altimeter, geostationary, SAR, and scatterometer classes)
+    have their own tiers, which do not set the entry's.
 
     Args:
         entry (InstrumentEntry): The entry.

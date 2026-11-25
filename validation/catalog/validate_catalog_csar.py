@@ -33,6 +33,12 @@ results.
 With `--platform sentinel-1d`, it tests the same values on a sibling satellite, and
 adds the results to the record as a transfer, which does not count toward the tier.
 
+It also validates the entry's resolution configuration (`resolution_iw`, run with
+`--configuration resolution_iw`): the resolutions of the IW sub-swaths, derived from
+the look bandwidths and windows of the ground range detected product, are compared
+with the resolutions of the Sentinel-1 Product Definition (Table 7-6), which the
+gate tests.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -60,14 +66,28 @@ from sar import (
     to_utc,
 )
 from validation_io import (
+    compute_published_errors,
     ecef,
     get_with_retries,
     parse_run,
     post_with_retries,
     recompute_passes,
+    score_published,
     write_results,
 )
 
+# published resolutions of the sub-swaths of the IW mode's ground range detected high
+# resolution product: instrument, altitude (km), inclination (deg), roll (deg, the
+# look angle of the sub-swath's incidence angle), and resolutions in azimuth and
+# ground range (km), from Table 7-6 of the Sentinel-1 Product Definition
+# (S1-RS-MDA-52-7440 v2.13)
+RESOLUTIONS = {
+    "resolution_iw": (
+        ("C-SAR IW1", 693, 98.18, -29.3332, 0.0225, 0.0204),
+        ("C-SAR IW2", 693, 98.18, -33.9851, 0.0226, 0.0203),
+        ("C-SAR IW3", 693, 98.18, -38.0423, 0.0226, 0.0205),
+    ),
+}
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel-1-grd"
 
@@ -435,6 +455,30 @@ def validate_mode(run, key, tle, orbit, products) -> None:
     )
 
 
+def validate_resolution(run, key: str) -> None:
+    """
+    Scores a resolution configuration against the published resolutions, and writes
+    its results if the run writes.
+    """
+    within, largest = score_published(
+        compute_published_errors(run.entry, key, RESOLUTIONS[key])
+    )
+    print(
+        f"published resolutions: {within:.1f}% within 3%, largest error {largest:.2f}%"
+    )
+    if run.write:
+        write_results(
+            run,
+            key,
+            reference="Resolutions of the Sentinel-1 Product Definition "
+            "(S1-RS-MDA-52-7440 v2.13), Table 7-6 (IW GRDH)",
+            metrics=[
+                {"name": "sample_size_within_3pct", "value": within},
+                {"name": "sample_size_largest_error", "value": largest},
+            ],
+        )
+
+
 def main() -> None:
     """Fits or validates the entry on a day of data."""
     run = parse_run(
@@ -456,7 +500,10 @@ def main() -> None:
         fit(products, orbit, run.day)
         return
     for key in run.configurations:
-        validate_mode(run, key, tle, orbit, products)
+        if key in RESOLUTIONS:
+            validate_resolution(run, key)
+        else:
+            validate_mode(run, key, tle, orbit, products)
 
 
 if __name__ == "__main__":

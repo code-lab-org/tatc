@@ -75,6 +75,55 @@ configurations:
       - On data held out on 2026-11-08 (34 days from the fit), 99.83% of passes were predicted, the edges were within 7.2 km (95th percentile), the swaths' intersection over union was 0.983 (median) and 0.976 (5th percentile) at time steps of 10 to 120 s, as the swaths are the strips the views' cross-track lines sweep (is_swept), and epochs were within 1.91 s (95th percentile). A pass is observed within half a cell (12.5 km) of a cell, which leaves the cells' corners out, so 85.9% of predicted passes were observed; precision is not gated for this class.
       - Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, the swaths' intersection over union had been 0.991 (median; 0.983 at the 5th percentile) at 10 s, 0.992 (0.984) at 30 s, and 0.973 (0.964) at 120 s.
       - The product stores the times of rows to 128 s; they are recovered as rows 3.75 s apart, within 0.375 s of the stored times' rounding. On the fitting day, the edges lay 0.16 deg ahead of the plane across track at the recovered times (about 0.4 s), which is not modeled.
+  resolution:
+    grade: sample_size
+    description: The 25 km product's cells (resolution of about 50 km) in the left and right swaths (one at a time, by instrument index), whose sizes `compute_sample_sizes` gives, from published values; not compared with reference data.
+    platforms: [metop-c]
+    velocity_frame: earth_fixed
+    grouping: alternatives
+    instruments:
+      - type: pointed
+        parameters: &resolution_parameters
+          name: ASCAT left
+          field_of_regard: 90
+          cross_track_field_of_view: 21.3587
+          along_track_field_of_view: 1.0
+          roll_angle: 34.1656
+          is_rectangular: true
+          range_resolution: 50000
+          range_resolution_frame: ground
+          azimuth_resolution: 50000
+        provenance: &resolution_provenance
+          field_of_regard:
+            kind: derived
+            source: Contains the swaths
+          cross_track_field_of_view: *left
+          along_track_field_of_view:
+            kind: placeholder
+            source: An extent of the view along track, which the resolutions replace
+          roll_angle: *left
+          is_rectangular:
+            kind: derived
+            source: Models a swath as a rectangular view
+          range_resolution: &resolution
+            kind: nominal
+            source: "EUMETSAT ASCAT User Guide (EUM/OPS-EPS/MAN/04/0028 v6), section 4.4.1.2: \"approximately 50 km and 30 km horizontal resolution on grids of 25 km and 12.5 km\", the width at 50% of the spatial filter in the along-track and across-track directions (https://user.eumetsat.int/s3/eup-strapi-media/ASCAT_User_Guide_1618a3d741.pdf)"
+          range_resolution_frame:
+            kind: derived
+            source: The product's resolution is constant on the ground
+          azimuth_resolution: *resolution
+      - type: pointed
+        parameters:
+          <<: *resolution_parameters
+          name: ASCAT right
+          cross_track_field_of_view: 21.3596
+          roll_angle: -34.1649
+        provenance:
+          <<: *resolution_provenance
+          cross_track_field_of_view: *right
+          roll_angle: *right
+    limitations:
+      - The resolution is that of the 25 km product, an approximate published value, so the configuration is nominal; the 12.5 km product's is about 25 km near the nadir gap to 34 km far from it. The grid's spacing (25 km) is not modeled.
 limitations:
   - Winds are retrieved over the ocean, without sea ice; the swaths are those of the cells' geometry, which the product gives everywhere.
   - The swaths were fitted and tested on Metop-C. On Metop-B, recorded as a transfer (2026-11-17, from ASCATB-L2-25km, with a public element set), they met the gates of the coverage grade as on Metop-C (pass recall 99.83%, edges within 6.7 km at the 95th percentile, IoU 0.983 at the median and 0.977 at the 5th percentile, epochs within 1.91 s at the 95th percentile). Using the configuration on Metop-B warns, as for any platform on which it was not validated.

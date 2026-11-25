@@ -71,6 +71,7 @@ from .projection import (
     compute_swept_footprints,
     compute_ground_advance,
     compute_ground_sample_size,
+    compute_incidence_angle,
     compute_view_angles,
     compute_view_tangents,
 )
@@ -131,6 +132,7 @@ __all__ = [
     "compute_terrain_elevation_angle",
     "compute_ground_advance",
     "compute_ground_sample_size",
+    "compute_incidence_angle",
     "compute_view_angles",
     "compute_view_tangents",
     "field_of_regard_to_swath_width",

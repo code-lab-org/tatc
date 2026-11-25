@@ -24,6 +24,7 @@ from ...utils.projection import (
     compute_swept_footprints,
     compute_ground_advance,
     compute_ground_sample_size,
+    compute_incidence_angle,
     compute_projected_ray_position,
     compute_view_angles,
     compute_view_tangents,
@@ -164,6 +165,28 @@ class PointedInstrument(Instrument):
         + "`compute_sample_spacing`), or `None` if not modeled.",
         gt=0,
     )
+    range_resolution: float | None = Field(
+        default=None,
+        description="Resolution (meters) of a radar's sample in range: in slant "
+        + "range (as set by its bandwidth and processing), whose size on the ground "
+        + "across track is divided by the sine of the incidence angle at the target, "
+        + "or on the ground (see `range_resolution_frame`), or `None` for the "
+        + "instantaneous field of view of a pixel (see `compute_sample_size`).",
+        gt=0,
+    )
+    range_resolution_frame: Literal["slant", "ground"] = Field(
+        default="slant",
+        description="Frame of `range_resolution`: in slant range (`slant`), or a "
+        + "size on the ground across track (`ground`, as of a product on a grid of "
+        + "constant resolution).",
+    )
+    azimuth_resolution: float | None = Field(
+        default=None,
+        description="Resolution (meters) of a radar's sample in azimuth, a size on "
+        + "the ground along track, or `None` for the instantaneous field of view of "
+        + "a pixel (see `compute_sample_size`).",
+        gt=0,
+    )
     velocity_frame: VelocityFrame = Field(
         default=VelocityFrame.EARTH_FIXED,
         description="Reference frame of the velocity vector that defines the "
@@ -201,7 +224,11 @@ class PointedInstrument(Instrument):
         track, centered on the line of sight to the target (see
         `tatc.utils.compute_ground_sample_size`). The sizes grow with the
         slant range and, in the direction of a view off nadir, with the
-        obliquity of the view.
+        obliquity of the view. A radar's resolutions replace them, if given:
+        the `azimuth_resolution` along track, and the `range_resolution`
+        across track (in slant range, divided by the sine of the incidence
+        angle at the target, see `tatc.utils.compute_incidence_angle`; or on
+        the ground).
 
         Args:
             orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
@@ -212,12 +239,23 @@ class PointedInstrument(Instrument):
             tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
                 and cross-track sizes (meters).
         """
-        return self._compute_ground_extent(
+        along, cross = self._compute_ground_extent(
             orbit_track,
             target,
             self.get_along_track_instantaneous_field_of_view(),
             self.get_cross_track_instantaneous_field_of_view(),
         )
+        if self.azimuth_resolution is not None:
+            along = np.full(np.shape(along), self.azimuth_resolution, dtype=float)
+        if self.range_resolution is not None:
+            if self.range_resolution_frame == "ground":
+                cross = np.full(np.shape(cross), self.range_resolution, dtype=float)
+            else:
+                incidence = np.radians(compute_incidence_angle(orbit_track, target))
+                cross = np.reshape(
+                    self.range_resolution / np.sin(incidence), np.shape(cross)
+                )
+        return along, cross
 
     def compute_sample_spacing(
         self, orbit_track: Geocentric, target: GeographicPosition

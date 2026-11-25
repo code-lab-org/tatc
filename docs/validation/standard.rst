@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 10 of the standard. The thresholds of version 1 were drafted from
+This is version 11 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -107,6 +107,17 @@ Versions
        own tiers. No threshold of earlier versions changed, so their results
        still apply; results of this grade apply from version 10. The gates were
        adopted before any geostationary sample sizes were analyzed.
+   * - 11
+     - Adds the sample size grade to the SAR and scatterometer classes, whose
+       samples are resolution cells (a resolution in range, projected to the
+       ground by the incidence angle, and in azimuth) rather than angular pixels:
+       at least 90% of published resolutions within 3%. Their products locate
+       resolution cells only through published tables, so the grade has no gate of
+       positions or spacing. As for the other classes added since version 8, the
+       grade is optional, and its configurations have their own tiers. No
+       threshold of earlier versions changed, so their results still apply;
+       results of these grades apply from version 11. The gate was adopted before
+       any resolutions were analyzed.
 
 Rules
 =====

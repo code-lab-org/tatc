@@ -100,6 +100,11 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swaths": ("validated", 34, []),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
+            ),
         },
         [],
     ),
@@ -202,6 +207,7 @@ EXPECTED_STATUS = {
         {
             "iw": ("partial", 51, ["pass_recall"]),
             "ew": ("validated", 39, []),
+            "resolution_iw": ("validated", None, []),
         },
         [],
     ),
@@ -305,6 +311,11 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swaths": ("validated", 34, []),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
+            ),
         },
         [],
     ),
@@ -317,6 +328,11 @@ EXPECTED_STATUS = {
                 "partial",
                 30,
                 ["footprint_iou_median", "footprint_iou_p5"],
+            ),
+            "resolution": (
+                "nominal",
+                None,
+                ["sample_size_within_3pct", "no comparison with reference data"],
             ),
         },
         [],
@@ -1346,7 +1362,7 @@ class TestSelection(unittest.TestCase):
         grade, is an error.
         """
         with self.assertRaisesRegex(ValueError, "sample_size"):
-            get_entry("csar").select_configuration(grade="sample_size")
+            get_entry("ssmis").select_configuration(grade="sample_size")
         with self.assertRaisesRegex(ValueError, "timing"):
             get_entry("gmi").select_configuration("feeds", grade="sample_size")
 

@@ -26,6 +26,7 @@ from tatc.utils.projection import (
     VelocityFrame,
     ViewGeometry,
     compute_ground_advance,
+    compute_incidence_angle,
     compute_projected_ray_position,
     compute_view_angles,
 )
@@ -1293,6 +1294,90 @@ class TestScanAlongFirst(unittest.TestCase):
                     Point(pixel.longitude.degrees, pixel.latitude.degrees)
                 )
             )
+
+
+class TestRadarResolution(unittest.TestCase):
+    """
+    Unit tests for the resolutions of a radar's samples (`range_resolution` and
+    `azimuth_resolution`), which replace the sizes of a pixel's angles, and for the
+    incidence angle at a target.
+    """
+
+    def setUp(self):
+        epoch = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        orbit = CircularOrbit(altitude=693e3, inclination=98.18, epoch=epoch)
+        self.track = orbit.to_gp_orbit().get_orbit_track(epoch)
+        self.base = dict(
+            name="sar",
+            field_of_regard=90,
+            cross_track_field_of_view=5,
+            along_track_field_of_view=1,
+            roll_angle=-34,
+            is_rectangular=True,
+        )
+        ray = compute_projected_ray_position(self.track, 0, 0, -34, 0)
+        self.target = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+
+    def test_incidence_angle(self):
+        """
+        Test that the incidence angle is about zero at nadir, and that, off nadir,
+        it is that of the look angle on a sphere (within the ellipsoid's
+        difference).
+        """
+        nadir = wgs84.subpoint_of(self.track)
+        self.assertAlmostEqual(
+            float(compute_incidence_angle(self.track, nadir)), 0, delta=0.01
+        )
+        radius = 6371e3
+        height = float(wgs84.height_of(self.track).m)
+        expected = np.degrees(
+            np.arcsin((radius + height) / radius * np.sin(np.radians(34)))
+        )
+        self.assertAlmostEqual(
+            float(compute_incidence_angle(self.track, self.target)),
+            expected,
+            delta=0.3,
+        )
+
+    def test_slant_range_resolution(self):
+        """
+        Test that a slant range resolution is divided by the sine of the incidence
+        angle across track, and that the azimuth resolution is the size along track.
+        """
+        instrument = PointedInstrument(
+            **self.base, range_resolution=12.6, azimuth_resolution=22.5
+        )
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        incidence = np.radians(compute_incidence_angle(self.track, self.target))
+        self.assertAlmostEqual(float(along), 22.5)
+        self.assertAlmostEqual(float(cross), 12.6 / float(np.sin(incidence)), places=6)
+
+    def test_ground_range_resolution(self):
+        """
+        Test that a ground range resolution is the size across track wherever the
+        target is.
+        """
+        instrument = PointedInstrument(
+            **self.base,
+            range_resolution=2000,
+            range_resolution_frame="ground",
+            azimuth_resolution=2000,
+        )
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        self.assertEqual((float(along), float(cross)), (2000.0, 2000.0))
+
+    def test_without_resolutions(self):
+        """
+        Test that, without resolutions, the sizes are those of the pixel's angles,
+        and that a resolution replaces only its own direction.
+        """
+        instrument = PointedInstrument(**self.base)
+        with_azimuth = PointedInstrument(**self.base, azimuth_resolution=10)
+        along, cross = instrument.compute_sample_size(self.track, self.target)
+        along_r, cross_r = with_azimuth.compute_sample_size(self.track, self.target)
+        self.assertGreater(float(along), 1000)
+        self.assertEqual(float(along_r), 10)
+        self.assertAlmostEqual(float(cross_r), float(cross))
 
 
 class TestInstrumentYaw(unittest.TestCase):
