@@ -56,7 +56,7 @@
     },
     "pixels": {
       "digest": "1e2ec3c791b7c72b7043e6a863593e1a19d82e768b07586dbd6f4696112bbb3f",
-      "standard_version": 10,
+      "standard_version": 11,
       "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ahi.py",
       "reference": "Resolution at the sub-satellite point of JMA's Himawari Standard Data User's Guide (not gated); pixel positions of AHI-L2-FLDK-Clouds (2 km)",
@@ -72,27 +72,27 @@
         },
         {
           "name": "pixel_position_median",
-          "value": 2.825282032290378
+          "value": 0.5080290601384081
         },
         {
           "name": "pixel_position_p95",
-          "value": 3.1383665400047454
+          "value": 0.7774292155993041
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 1.0006054422876687
+          "value": 1.0003529252388985
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 1.0000219994777302
+          "value": 1.0000186836344453
         }
       ],
       "transfers": {},
       "fixture_metrics": {
         "sample_size_largest_error": 0.021460753665958343,
-        "pixel_position_median": 2.8390707974210847,
-        "spacing_along_ratio_median": 1.0006162944889319,
-        "spacing_cross_ratio_median": 1.000025400077774
+        "pixel_position_median": 0.5099502896334314,
+        "spacing_along_ratio_median": 1.000322936774614,
+        "spacing_cross_ratio_median": 1.0000171562831102
       }
     }
   }

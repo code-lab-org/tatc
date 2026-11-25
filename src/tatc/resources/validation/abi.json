@@ -124,7 +124,7 @@
     },
     "pixels": {
       "digest": "74b526ef4291df066bd96ab7446ca3152b11f988b708139b745a65a4e3e0e7dc",
-      "standard_version": 10,
+      "standard_version": 11,
       "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_abi.py",
       "reference": "Nadir resolution of the GOES-R Product Definition and Users' Guide (not gated); fixed grid of ABI-L2-ACMF (2 km)",
@@ -140,27 +140,27 @@
         },
         {
           "name": "pixel_position_median",
-          "value": 1.6837728380010901
+          "value": 0.4250532609992156
         },
         {
           "name": "pixel_position_p95",
-          "value": 1.908739661112086
+          "value": 0.6170758844133434
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 1.000018708273251
+          "value": 1.0000421737353764
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 1.0004224340926975
+          "value": 1.000423886566417
         }
       ],
       "transfers": {},
       "fixture_metrics": {
         "sample_size_largest_error": 0.1793600330402878,
-        "pixel_position_median": 1.677498709458136,
-        "spacing_along_ratio_median": 1.0000597450982163,
-        "spacing_cross_ratio_median": 1.0003400974323529
+        "pixel_position_median": 0.4114651032161978,
+        "spacing_along_ratio_median": 1.0000482436052662,
+        "spacing_cross_ratio_median": 1.0004036915060472
       }
     }
   }

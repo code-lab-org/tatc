@@ -191,8 +191,9 @@ Instruments and Pointing
        to the edges of a full scan: field of regard IoU 0.994 with the area a held-out scan imaged; the hourly
        east-west sweep is not modeled (:doc:`catalog`). Fixed grids of scan angles (`ViewGeometry.SCAN`, sweeping
        about the x axis as ABI's; `ViewGeometry.SCAN_ALONG_FIRST`, about the y axis as AHI's and FCI's) projected
-       from the grid's nominal position: pixels within 1.7 (ABI), 2.8 (AHI), and 3.3 km (FCI) of the products' grids
-       (median), most of it from the longitude of `GeosynchronousOrbit`, and spacing within 0.1% (:doc:`catalog`)
+       from the grid's nominal position: pixels within 0.43 (ABI), 0.51 (AHI), and 0.92 km (FCI) of the products' grids
+       (median), most of it from the latitude to which SGP4's lunar and solar terms move the nominal orbit (0.004 to
+       0.006 deg), and spacing within 0.1% (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)
      - PACE OCI
      - Pixels within 0.8 km near nadir and 9 km at the edges (median); epochs within 0.15 s (median) with a daily tilt
