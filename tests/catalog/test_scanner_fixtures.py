@@ -100,15 +100,16 @@ class _SwathFixture:
         """
         Test that the recorded passes are predicted, and that this does not move.
         """
-        # the day is the period of the analysis, for a schedule of the attitude
-        satellite = self.entry.to_satellite(
-            self.orbit,
+        # the day is the period of the analysis, for a schedule of the attitude; a
+        # union of views is analyzed together (instrument_index=None)
+        satellite = self.entry.build(
             configuration=self.swath_key,
+            orbit=self.orbit,
             time_step=self.time_step(),
             platform=self.platform,
             start=self.day,
             end=self.day + timedelta(days=1),
-        )
+        ).to_satellite(self.orbit, name=self.entry.name)
         differences = find_pass_differences(
             satellite, self.instrument_index, self.day, self.data["passes"]
         )
@@ -165,7 +166,8 @@ class _ScannerFixture(_SwathFixture):
         and do not move.
         """
         errors = []
-        for name, altitude, inclination, angle, along, cross in self.footprints:
+        for name, altitude, inclination, angle, along, cross, *rest in self.footprints:
+            pitch = rest[0] if rest else 0
             orbit = CircularOrbit(
                 altitude=altitude * 1e3, inclination=inclination, epoch=PUBLISHED_EPOCH
             )
@@ -181,7 +183,7 @@ class _ScannerFixture(_SwathFixture):
                 0,
                 0,
                 angle,
-                0,
+                pitch,
                 velocity_frame=VelocityFrame.INERTIAL,
             )
             sizes = compute_sample_sizes(
@@ -851,13 +853,63 @@ class TestOciFixture(_StepBeamScannerFixture, unittest.TestCase):
     footprints = (("OCI", 675, 98.0, 0, 1.05, 1.05),)
 
 
-class TestEmitFixture(_StepSwathFixture, unittest.TestCase):
+class TestEmitFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the EMIT entry, on the International Space Station.
+    Regression tests of the EMIT entry, on the International Space Station, whose
+    published pixel (only at nadir) is not gated.
     """
 
     entry_id = "emit"
     platform = "iss"
+    sizes_key = "pixels"
+    size_instrument = "EMIT"
+    gates_published = False
+    footprints = (("EMIT", 400, 51.6, 0, 0.068, 0.062),)
+
+
+class TestTropomiFixture(_StepBeamScannerFixture, unittest.TestCase):
+    """
+    Regression tests of the TROPOMI entry, whose views are analyzed as a union, and
+    whose pixels, of parts of a curved line, miss the gate; its published pixel (only
+    at nadir) is not gated.
+    """
+
+    entry_id = "tropomi"
+    platform = "sentinel-5p"
+    instrument_index = None
+    sizes_key = "pixels"
+    size_instrument = "TROPOMI pixels 128 to 304"
+    gates_published = False
+    meets_pixel_gate = False
+    footprints = (("TROPOMI pixels 128 to 304", 824, 98.74, 0, 5.5, 3.5),)
+
+    def recompute_pixel_differences(self) -> np.ndarray:
+        # each row is the boundary at the start of a row of the product (or the end
+        # of its last), in the part of the line that holds it, half a pixel to the
+        # left of its pixel in TAT-C's numbering from the right
+        parts = [
+            tuple(int(n) for n in name.split("pixels ")[1].split(" to "))
+            for name in self.names
+        ]
+        orbit = self.satellite.orbit.to_gp_orbit()
+        differences = []
+        for seconds, row, _, lat, lon in self.data["pixels"]:
+            index = next(
+                i
+                for i, (first, last) in enumerate(parts)
+                if first <= row < last or row == last == parts[-1][1]
+            )
+            first, last = parts[index]
+            position = self.satellite.get_instrument(
+                index
+            ).compute_projected_pixel_position(
+                orbit.get_orbit_track(self.day + timedelta(seconds=float(seconds))),
+                (last - first) - 0.5 - (row - first),
+                0,
+            )
+            predicted = _ecef(position.longitude.degrees, position.latitude.degrees)
+            differences.append(np.linalg.norm(predicted - _ecef(lon, lat)) / 1e3)
+        return np.array(differences)
 
 
 class TestPoseidon4Fixture(_StepSwathFixture, unittest.TestCase):
@@ -899,15 +951,24 @@ class TestCprFixture(_StepSwathFixture, unittest.TestCase):
     platform = "earthcare"
 
 
-class TestBbrFixture(_StepSwathFixture, unittest.TestCase):
+class TestBbrFixture(_StepBeamScannerFixture, unittest.TestCase):
     """
-    Regression tests of the BBR entry's nadir view (instrument index 1).
+    Regression tests of the BBR entry's nadir view (instrument index 1), whose
+    published footprints of the slanted views miss the gate.
     """
 
     entry_id = "bbr"
     swath_key = "views"
     platform = "earthcare"
     instrument_index = 1
+    sizes_key = "pixels"
+    size_instrument = "BBR nadir"
+    meets_published_gate = False
+    footprints = (
+        ("BBR nadir", 393, 97.05, 0, 0.64, 0.64),
+        ("BBR aft", 393, 97.05, 0, 1.876, 1.069, -50.3554),
+        ("BBR fore", 393, 97.05, 0, 1.876, 1.069, 50.1645),
+    )
 
 
 class TestTropics03Fixture(_StepBeamScannerFixture, unittest.TestCase):

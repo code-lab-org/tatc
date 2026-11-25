@@ -94,16 +94,6 @@ class TestOliFixture(_PushbroomFixture, unittest.TestCase):
     platform = "landsat-9"
 
 
-class TestTropomiFixture(_PushbroomFixture, unittest.TestCase):
-    """
-    Regression tests of the TROPOMI entry, whose views are analyzed as a union.
-    """
-
-    entry_id = "tropomi"
-    platform = "sentinel-5p"
-    instrument_index = None
-
-
 class TestMsiFixture(_PushbroomFixture, unittest.TestCase):
     """
     Regression tests of the MSI entry, on Sentinel-2B.

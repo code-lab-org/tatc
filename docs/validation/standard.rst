@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 7 of the standard. The thresholds of version 1 were drafted from
+This is version 8 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -72,6 +72,20 @@ Versions
        geolocation; :doc:`limb_and_space/ValidateROCOSMIC2`: every recorded
        occultation predicted, with tangent points within about 0.4 km), and
        frozen before any data were analyzed for the catalog.
+   * - 8
+     - Adds the sample size grade to the pushbroom class, with the gates of
+       cross-track scanners: at least 90% of published footprint dimensions within
+       3%, and pixels projected within 6 km of the product's (median). The grade is
+       optional: a pushbroom entry does not need it to be validated, and its sample
+       size configurations have their own tiers, which do not set the entry's, as
+       the pixel sizes of pushbroom imagers are rarely published away from nadir
+       (of the eleven entries of the class, only BBR's footprints are published at
+       more than one viewing angle). No threshold of earlier versions changed, so
+       their results still apply; results of the pushbroom sample size grade apply
+       from version 8. The gates were adopted before any pushbroom sample sizes
+       were analyzed. The pixel position gate is loose for imagers of tens of
+       meters, and is kept the same as that of scanners so that one threshold
+       serves both.
 
 Rules
 =====

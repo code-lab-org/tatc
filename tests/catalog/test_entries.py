@@ -139,6 +139,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "views": ("partial", 41, ["pass_recall", "footprint_iou_median"]),
+            "pixels": ("partial", 41, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -218,6 +219,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "swath": ("partial", 35, ["pass_recall", "footprint_iou_median"]),
+            "pixels": ("partial", 35, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -331,6 +333,15 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swath": ("validated", 38, []),
+            "pixels": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "pixel_position_median",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -373,6 +384,15 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swath": ("validated", 33, []),
+            "pixels": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "pixel_position_median",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -476,6 +496,11 @@ EXPECTED_STATUS = {
         "validated",
         {
             "swath": ("validated", 36, []),
+            "pixels": (
+                "partial",
+                36,
+                ["pixel_position_median", "sample_size_within_3pct"],
+            ),
         },
         [],
     ),
@@ -528,7 +553,11 @@ class TestLoading(unittest.TestCase):
                     record.digest, entry.configurations[key].digest, (entry.id, key)
                 )
                 self.assertTrue(
-                    is_compatible(entry.instrument_class, record.standard_version),
+                    is_compatible(
+                        entry.instrument_class,
+                        record.standard_version,
+                        entry.configurations[key].grade,
+                    ),
                     (entry.id, key),
                 )
 
@@ -1062,6 +1091,7 @@ class TestEntryStatus(unittest.TestCase):
                 "ecostress:swath",
                 "ecostress:beams",
                 "emit:swath",
+                "emit:pixels",
                 "gedi:beams",
                 "oco2:glint",
             },

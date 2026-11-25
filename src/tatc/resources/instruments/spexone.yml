@@ -66,4 +66,4 @@ limitations:
   - PACE flies with yaw steering, so the configuration uses the Earth-fixed frame.
   - OCI's configuration gives PACE's body the tilt schedule of OCI, which tilts by itself, so this configuration is not carried with OCI's.
   - SPEXone images the sunlit part of each orbit, whereas the view observes whenever a target is in view, unless a solar limit is added.
-  - No configuration gives sample sizes, as no published instantaneous field of view was used.
+  - No configuration gives sample sizes. No instantaneous field of view is published, and the product compared (Level 1C) bins the samples to a grid of 5.2 km, which does not locate them; the sampling at nadir is published as 2.3 km by 2.7 km (van Amerongen et al.), without an altitude.

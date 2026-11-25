@@ -62,9 +62,49 @@ configurations:
       - On data held out on 2026-11-08 (35 days from the fit), epochs were within 0.25 s (95th percentile) and the swath width within 0.05 km (median), but 94.6% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.925 (median of 8 segments of 120 s) at time steps of 10 to 120 s, failing both gates. Rescored after swept swaths (is_swept) were added, on the same data, with the other results unchanged; with views tailored to the time step, it had been 0.92 at 10 s, 0.91 at 30 s, and 0.73 at 120 s. Diagnosed after the run, the missed pixels lay within about 1.5 km of one edge, consistent with the station's roll varying from day to day (by 0.12 deg, about 0.9 km, between the fit and 2026-11-07) and the error of an element set two days old across track, which the narrow swath (about 75 km) cannot absorb at the recall gate.
       - The roll, pitch, and field of view were changed after the run on 2026-11-07 recorded below, and the configuration tested again on 2026-11-08 (above). They had been measured with --fit (a roll of 0.3073 deg from the geodetic nadir, a pitch of -7.5841 deg, and a field of view of 11.0943 deg).
       - On data held out on 2026-11-07 (34 days from the fit), with the earlier roll, pitch, and field of view, epochs were within 0.86 s (95th percentile) and the swath width within 0.47 km (median), but only 92.3% of a sample of 1,000 pixels were observed within two minutes of their times, and the swath's intersection over union with the strip between the outermost pixels was 0.85 at a time step of 10 s and 0.69 at 120 s (median of 6 segments of 120 s), failing both gates. Diagnosed after the run, the view lay 4.0 to 4.5 km to one side of the observed swath (median, both edges; first reported as 6.4 to 6.9 km, from projections that omitted the roll), and the missed pixels lay along that edge, whereas the angles fitted on the held-out day barely differ. The roll, measured from the geodetic nadir at each line's time, does not center the view that TAT-C rolls, pitches, and yaws.
+  pixels:
+    grade: sample_size
+    description: The 1,242 pixels of a line, at the attitude and roll of the swath, whose sizes and spacing `compute_sample_sizes` gives.
+    platforms: [iss]
+    velocity_frame: inertial
+    attitude:
+      yaw_angle: 3.7416
+      pitch_angle: -7.5608
+    instruments:
+      - type: pointed
+        parameters:
+          name: EMIT
+          field_of_regard: 20
+          cross_track_field_of_view: 11.049296
+          along_track_field_of_view: 0.009798
+          cross_track_pixels: 1242
+          roll_angle: 0.7829
+          is_rectangular: true
+          scan_period: 0.00926
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the view, rolled and pitched, as for the swath
+          cross_track_field_of_view:
+            kind: derived
+            source: "The 1,242 pixels of a line at the spacing of the swath's measured field of view between the outermost pixels (11.0404 deg over 1,241 intervals, 155.27 urad), which agrees with the EMIT L1B ATBD, Table 3: \"Cross-track IFOV 155 microradians\" (https://lpdaac.usgs.gov/documents/1570/EMITL1B_ATBD_v1.pdf)"
+          along_track_field_of_view:
+            kind: nominal
+            source: "EMIT L1B ATBD, Table 3: \"Along-track IFOV 171 microradians\""
+          cross_track_pixels:
+            kind: nominal
+            source: "EMIT L1B User Guide (JPL D-107862), Table 2-1: \"Data Dimensions 1242 cross-track\" (https://lpdaac.usgs.gov/documents/1568/EMITL1BRAD_User_Guide_v1.pdf)"
+          roll_angle: *measured_view
+          is_rectangular:
+            kind: derived
+            source: Models a line of a pushbroom as a rectangular view
+          scan_period:
+            kind: nominal
+            source: "EMIT L1B ATBD: \"A line of data is collected every 9.26 ms.\""
+    limitations:
+      - Only the pixel at nadir is published (62 m across by 68 m along track from 400 km, in the EMIT L1B ATBD), so the sample size gate is not applied; across the narrow field of view, of about 5.5 deg either side, the pixel grows by less than 1%.
 limitations:
   - The station flies in a fixed attitude relative to its orbit, without yaw steering, so the configuration uses the inertial frame. Its attitude changes for operations such as dockings, which are not modeled.
   - The body's attitude, a yaw of 3.7416 deg and a pitch of -7.5608 deg, is fitted to EMIT's samples alone, so it holds the station's attitude and EMIT's mounting on it, which one instrument cannot separate. The other instruments' fits give other angles (ECOSTRESS a yaw of 3.7876 deg and a pitch of -7.2427 deg; GEDI, on other days, a pitch of -3.2916 deg), so configurations of instruments on the station are carried together only with an attitude that replaces theirs.
   - EMIT images scenes of arid regions and plume targets by plan, whereas the view observes whenever a target is in view.
   - The station's orbit decays and is reboosted often, so element sets age quickly.
-  - No configuration gives sample sizes.

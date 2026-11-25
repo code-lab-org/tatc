@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .records import ConfigurationRecord
     from .schemas import InstrumentEntry
 
-STANDARD_VERSION = 7
+STANDARD_VERSION = 8
 """The version of the thresholds in `get_gates`."""
 
 _LAST_THRESHOLD_CHANGE = 1
@@ -271,7 +271,20 @@ _GATES: dict[tuple[InstrumentClass, Grade], tuple[Gate, ...]] = {
     (InstrumentClass.GEOSTATIONARY_REGIONAL, Grade.COVERAGE): (_FIELD_OF_REGARD_IOU,),
     (InstrumentClass.CROSS_TRACK, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE, _PIXEL_POSITION),
     (InstrumentClass.CONICAL, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE,),
+    # version 8: the sample sizes of pushbroom imagers, with the gates of
+    # cross-track scanners
+    (InstrumentClass.PUSHBROOM, Grade.SAMPLE_SIZE): (_SAMPLE_SIZE, _PIXEL_POSITION),
 }
+# the versions of the standard that added a grade to a class that had others
+_GRADE_VERSIONS: dict[tuple[InstrumentClass, Grade], int] = {
+    (InstrumentClass.PUSHBROOM, Grade.SAMPLE_SIZE): 8,
+}
+# grades whose configurations are gated but that an entry does not need to be
+# validated: the sample sizes of pushbroom imagers, whose published pixel sizes are
+# rarely given away from nadir
+_OPTIONAL_GRADES: frozenset[tuple[InstrumentClass, Grade]] = frozenset(
+    {(InstrumentClass.PUSHBROOM, Grade.SAMPLE_SIZE)}
+)
 
 
 def get_gates(instrument_class: InstrumentClass, grade: Grade) -> tuple[Gate, ...]:
@@ -300,8 +313,9 @@ def get_gates(instrument_class: InstrumentClass, grade: Grade) -> tuple[Gate, ..
 def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
     """
     Gets the grades that an entry needs to be validated: the coverage grade, and
-    the sample size grade if its class has one. A configuration at the timing
-    grade also meets the coverage grade, as timing also tests coverage.
+    the sample size grade if its class has one that is not optional (the
+    pushbroom class's is optional). A configuration at the timing grade also meets
+    the coverage grade, as timing also tests coverage.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.
@@ -309,32 +323,40 @@ def get_required_grades(instrument_class: InstrumentClass) -> tuple[Grade, ...]:
     Returns:
         tuple[Grade, ...]: The required grades.
     """
+    instrument_class = InstrumentClass(instrument_class)
     return tuple(
         grade
         for grade in (Grade.COVERAGE, Grade.SAMPLE_SIZE)
-        if (InstrumentClass(instrument_class), grade) in _GATES
+        if (instrument_class, grade) in _GATES
+        and (instrument_class, grade) not in _OPTIONAL_GRADES
     )
 
 
-def is_compatible(instrument_class: InstrumentClass, version: int) -> bool:
+def is_compatible(
+    instrument_class: InstrumentClass, version: int, grade: Grade | None = None
+) -> bool:
     """
     Checks whether results tested under a version of the standard apply to a
-    class: the version is compatible and has the class's gates. Version 2 added
-    the lidar class, 3 the altimeter class, 4 the scatterometer class, 5 the
-    regional geostationary class, 6 the profiler class, and 7 the limb and
-    occultation classes.
+    class (and, if given, a grade): the version is compatible and has the gates
+    of the class at the grade. Version 2 added the lidar class, 3 the altimeter
+    class, 4 the scatterometer class, 5 the regional geostationary class, 6 the
+    profiler class, 7 the limb and occultation classes, and 8 the sample size
+    grade of the pushbroom class.
 
     Args:
         instrument_class (InstrumentClass): The class of the instrument.
         version (int): The version of the standard.
+        grade (Grade | None): The grade of the results, or `None` for any grade
+            of the class.
 
     Returns:
         bool: `True`, if the results apply.
     """
-    return (
-        version in COMPATIBLE_VERSIONS
-        and version >= _CLASS_VERSIONS[InstrumentClass(instrument_class)]
-    )
+    instrument_class = InstrumentClass(instrument_class)
+    added = _CLASS_VERSIONS[instrument_class]
+    if grade is not None:
+        added = max(added, _GRADE_VERSIONS.get((instrument_class, Grade(grade)), 0))
+    return version in COMPATIBLE_VERSIONS and version >= added
 
 
 def serves(configuration_grade: Grade | str, grade: Grade | str) -> bool:
@@ -595,7 +617,7 @@ def _evaluate_configuration(
     record = None if entry.record is None else entry.record.configurations.get(key)
     gaps = ()
     if record is not None and not is_compatible(
-        entry.instrument_class, record.standard_version
+        entry.instrument_class, record.standard_version, configuration.grade
     ):
         gaps = (
             f"version {record.standard_version} of the standard, of the test, "
@@ -620,7 +642,9 @@ def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
     Applies the standard to an entry's records. An entry is only as strong as its
     weakest configuration, needs configurations that serve the grades of its
     class (see `get_required_grades`), and is partial rather than nominal if any
-    configuration was compared with reference data.
+    configuration was compared with reference data. Configurations at a grade
+    that is optional for the class (the pushbroom class's sample size grade) have
+    their own tiers, which do not set the entry's.
 
     Args:
         entry (InstrumentEntry): The entry.
@@ -636,4 +660,10 @@ def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
         for grade in get_required_grades(entry.instrument_class)
         if not any(c.serves(grade) for c in entry.configurations.values())
     )
-    return _combine(configurations, missing)
+    instrument_class = InstrumentClass(entry.instrument_class)
+    counted = {
+        key: validation
+        for key, validation in configurations.items()
+        if (instrument_class, Grade(validation.grade)) not in _OPTIONAL_GRADES
+    }
+    return EntryValidation(_combine(counted, missing).tier, configurations, missing)

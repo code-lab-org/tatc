@@ -23,8 +23,14 @@ from tatc.catalog.standard import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 7
+FROZEN_VERSION = 8
 FROZEN_GATES = {
+    # version 8 added the sample size grade of the pushbroom class, with the gates
+    # of cross-track scanners, and changed no other gate
+    ("pushbroom", "sample_size"): [
+        ("sample_size_within_3pct", 90, False),
+        ("pixel_position_median", 6, True),
+    ],
     # version 7 added the limb and occultation classes, and changed no other gate
     ("limb", "coverage"): [
         ("tangent_position_median", 10, True),
@@ -206,6 +212,11 @@ class TestFrozenGates(unittest.TestCase):
         self.assertEqual(
             get_required_grades(InstrumentClass.GEOSTATIONARY), (Grade.COVERAGE,)
         )
+        # the pushbroom class's sample size grade is gated but optional
+        get_gates(InstrumentClass.PUSHBROOM, Grade.SAMPLE_SIZE)
+        self.assertEqual(
+            get_required_grades(InstrumentClass.PUSHBROOM), (Grade.COVERAGE,)
+        )
 
     def test_compatible_versions(self):
         """
@@ -217,6 +228,9 @@ class TestFrozenGates(unittest.TestCase):
         self.assertFalse(is_compatible(InstrumentClass.LIDAR, 1))
         self.assertTrue(is_compatible(InstrumentClass.LIDAR, 2))
         self.assertFalse(is_compatible(InstrumentClass.PROFILER, 5))
+        self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 1, Grade.COVERAGE))
+        self.assertFalse(is_compatible(InstrumentClass.PUSHBROOM, 7, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 8, Grade.SAMPLE_SIZE))
         self.assertFalse(
             is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
         )

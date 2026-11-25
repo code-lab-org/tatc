@@ -11,6 +11,7 @@
       "platforms": [
         "earthcare"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "pass_recall",
@@ -92,6 +93,51 @@
       "fixture_metrics": {
         "passes_found": 96.66666666666667,
         "epoch_p95": 0.501839136
+      }
+    },
+    "pixels": {
+      "digest": "2aa30f345e5c4dcaa62e26dd46cc06dd336ac7f6919820145223a4a5cc891c0d",
+      "standard_version": 8,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_bbr.py",
+      "reference": "Footprints of Wehr et al. (2023); pixel positions of the nadir view of BBR_SNG_1B (shortwave band, every 2nd line)",
+      "period": "2026-11-07",
+      "platforms": [
+        "earthcare"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_within_3pct",
+          "value": 66.66666666666666
+        },
+        {
+          "name": "sample_size_largest_error",
+          "value": 4.0116967675258515
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.6740847736970177
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.5347177416904905
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.00000773234611
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 0.9986644064148917
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_within_3pct": 66.66666666666666,
+        "pixel_position_median": 1.6080865658081889,
+        "spacing_along_ratio_median": 1.0000372291643378,
+        "spacing_cross_ratio_median": 0.9980530702984778
       }
     }
   }
