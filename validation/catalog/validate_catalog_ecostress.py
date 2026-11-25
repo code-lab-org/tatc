@@ -77,9 +77,11 @@ SAMPLES = 5400
 COLUMNS = np.r_[0:SAMPLES:SAMPLE_STRIDE, SAMPLES - 1]
 J2000 = 2451545.0
 # the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
-# angle (deg), and sizes along and across track (km), from Table 1 of the L1
-# Calibration ATBD, compared without the gate, as no other is published
-PUBLISHED_FOOTPRINTS = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851),)
+# angle (deg), sizes along and across track (km), and angle along track (deg), from
+# Table 1 of the L1 Calibration ATBD, compared without the gate, as no other is
+# published; at the center of the scan line, which the body's pitch places behind
+# nadir
+PUBLISHED_FOOTPRINTS = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851, -7.2427),)
 
 
 def read_scene(url: str, session, day: datetime) -> dict:

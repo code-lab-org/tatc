@@ -5,6 +5,7 @@ Unit tests for the PointedInstrument schema.
 """
 
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -1279,6 +1280,70 @@ class TestScanAlongFirst(unittest.TestCase):
                 along_first.is_in_field_of_view(self.track, target)[0], inside
             )
 
+    def test_sample_spacing_follows_order(self):
+        """
+        Test that, off the scan line and off nadir across track, the spacing that
+        each order predicts is that of its projected pixels (half the distance
+        between a pixel's neighbors), along and across track, on a grid as fine as
+        a geostationary imager's (whose steps are nearly linear on the ground).
+        """
+        pixels, angle = 5500, np.degrees(55.888e-6)
+        for geometry in (ViewGeometry.SCAN, ViewGeometry.SCAN_ALONG_FIRST):
+            instrument = PointedInstrument(
+                name="grid",
+                field_of_regard=20,
+                cross_track_field_of_view=pixels * angle,
+                along_track_field_of_view=pixels * angle,
+                cross_track_pixels=pixels,
+                along_track_pixels=pixels,
+                is_rectangular=True,
+                view_geometry=geometry,
+                velocity_frame=VelocityFrame.INERTIAL,
+            )
+            grid = self.satellite.model_copy(
+                update={"instruments": [instrument]}
+            ).get_instrument(0)
+
+            def step(a, b):
+                p, q = (
+                    grid.compute_projected_pixel_position(self.track, *x)
+                    for x in (a, b)
+                )
+                return (
+                    geodesic_distance(
+                        p.longitude.degrees,
+                        p.latitude.degrees,
+                        q.longitude.degrees,
+                        q.latitude.degrees,
+                    )
+                    / 2
+                )
+
+            for i, j in [(1500, 1500), (2750, 1200), (1200, 2750)]:
+                center = grid.compute_projected_pixel_position(self.track, i, j)
+                target = wgs84.latlon(center.latitude.degrees, center.longitude.degrees)
+                along, cross = grid.compute_sample_spacing(self.track, target)
+                self.assertAlmostEqual(
+                    float(along) / step((i, j - 1), (i, j + 1)), 1, delta=2e-4
+                )
+                self.assertAlmostEqual(
+                    float(cross) / step((i - 1, j), (i + 1, j)), 1, delta=2e-4
+                )
+
+    def test_view_angles_along_first_from_tilt(self):
+        """
+        Test that the along-track angle along track first is measured from the
+        tilt, as in the other order.
+        """
+        target = wgs84.subpoint_of(self.track)
+        _, untilted = compute_view_angles(
+            self.track, target, VelocityFrame.INERTIAL, along_first=True
+        )
+        _, tilted = compute_view_angles(
+            self.track, target, VelocityFrame.INERTIAL, tilt_angle=5, along_first=True
+        )
+        self.assertAlmostEqual(float(tilted), float(untilted) - 5, places=9)
+
     def test_footprint_contains_pixels(self):
         """
         Test that the footprint along track first contains the grid's corner
@@ -1365,6 +1430,33 @@ class TestRadarResolution(unittest.TestCase):
         )
         along, cross = instrument.compute_sample_size(self.track, self.target)
         self.assertEqual((float(along), float(cross)), (2000.0, 2000.0))
+
+    def test_resolutions_spacing_and_visibility(self):
+        """
+        Test that the spacing of a radar's samples is not modeled (`NaN` in the
+        directions of its resolutions), that a target whose pixel's rays miss the
+        Earth has no size, and that a slant range resolution at nadir is infinite,
+        without a warning.
+        """
+        instrument = PointedInstrument(
+            **self.base, range_resolution=12.6, azimuth_resolution=22.5
+        )
+        along, cross = instrument.compute_sample_spacing(self.track, self.target)
+        self.assertTrue(np.isnan(along) and np.isnan(cross))
+        # near the limb (about 64.4 deg from nadir), where half the pixel's 5 deg
+        # across track misses the Earth
+        ray = compute_projected_ray_position(self.track, 0, 0, -63.5, 0)
+        near_limb = wgs84.latlon(ray.latitude.degrees, ray.longitude.degrees)
+        _, cross = instrument.compute_sample_size(self.track, near_limb)
+        self.assertTrue(np.isnan(cross))
+        subpoint = wgs84.subpoint_of(self.track)
+        nadir = wgs84.latlon(subpoint.latitude.degrees, subpoint.longitude.degrees)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            _, cross = PointedInstrument(
+                **{**self.base, "roll_angle": 0}, range_resolution=12.6
+            ).compute_sample_size(self.track, nadir)
+        self.assertGreater(float(cross), 1e6)
 
     def test_without_resolutions(self):
         """

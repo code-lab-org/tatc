@@ -596,6 +596,34 @@ class TestTiers(unittest.TestCase):
             ).validation
             self.assertEqual(validation.tier, expected, version)
 
+    def test_only_optional_configurations(self):
+        """
+        Test that an entry whose only configuration is at an optional grade has a
+        tier (nominal without a comparison, else partial, as it lacks the grades
+        its class requires), and that a result under a version before the grade's
+        names the grade in its gap.
+        """
+        validation = _entry(grade="sample_size").validation
+        self.assertEqual(validation.tier, Tier.NOMINAL)
+        self.assertEqual(validation.missing_grades, (Grade.COVERAGE,))
+        metrics = [
+            {"name": "sample_size_within_3pct", "value": 100},
+            {"name": "pixel_position_median", "value": 1},
+        ]
+        validation = _entry(
+            metrics=metrics, grade="sample_size", record={"standard_version": 10}
+        ).validation
+        self.assertEqual(validation.configurations["c"].tier, Tier.VALIDATED)
+        self.assertEqual(validation.tier, Tier.PARTIAL)
+        validation = _entry(
+            metrics=metrics, grade="sample_size", record={"standard_version": 9}
+        ).validation
+        self.assertEqual(validation.configurations["c"].tier, Tier.PARTIAL)
+        self.assertIn(
+            "does not apply to the sample_size grade of the geostationary class",
+            validation.configurations["c"].gaps[-1],
+        )
+
     def test_grade_without_gates_invalid(self):
         """
         Test that a configuration cannot use a grade its class does not have.

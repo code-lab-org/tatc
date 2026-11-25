@@ -700,8 +700,9 @@ def compute_view_angles(
             nadir axis, applied before the tilt angle.
         along_first (bool): `True` for the angles in the other order, of a
             `ViewGeometry.SCAN_ALONG_FIRST` view: the pitch angle about the
-            cross-track axis (from nadir, including the tilt angle), then the
-            roll angle about the pitched along-track axis.
+            cross-track axis (from the tilt angle, as the tilt and the pitch
+            rotate about the same axis), then the roll angle about the pitched
+            along-track axis.
     Returns:
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the roll (positive
             left) and pitch (positive forward) angles (degrees).
@@ -723,7 +724,7 @@ def compute_view_angles(
             np.arctan2(np.sum(los * along, axis=0), np.sum(los * nadir, axis=0))
         )
         roll = np.degrees(np.arcsin(np.clip(np.sum(los * cross, axis=0), -1, 1)))
-        return roll, pitch
+        return roll, pitch - tilt_angle
     p_m, nadir, along, cross = _compute_view_frame(
         orbit_track,
         0,

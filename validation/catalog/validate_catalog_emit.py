@@ -87,9 +87,10 @@ FIXTURE_PASSES = 60
 # a segment's strip (every 4th line read, about 0.6 s apart)
 SEGMENT, SEGMENT_LINE_STRIDE = 120, 4
 # the published pixel at nadir: instrument, altitude (km), inclination (deg), scan
-# angle (deg), and sizes along and across track (km), from the EMIT L1B ATBD,
-# compared without the gate, as no other is published
-PUBLISHED_FOOTPRINTS = (("EMIT", 400, 51.6, 0, 0.068, 0.062),)
+# angle (deg), sizes along and across track (km), and angle along track (deg), from
+# the EMIT L1B ATBD, compared without the gate, as no other is published; at the
+# center of the line, which the body's pitch places behind nadir
+PUBLISHED_FOOTPRINTS = (("EMIT", 400, 51.6, 0, 0.068, 0.062, -7.5608),)
 PIXELS_SETUP = Setup(
     swath=CONFIGURATION,
     beams="pixels",

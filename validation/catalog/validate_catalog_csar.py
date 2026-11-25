@@ -501,7 +501,9 @@ def main() -> None:
         return
     for key in run.configurations:
         if key in RESOLUTIONS:
-            validate_resolution(run, key)
+            # compared with published tables, so not a transfer to a platform
+            if not run.transfer:
+                validate_resolution(run, key)
         else:
             validate_mode(run, key, tle, orbit, products)
 

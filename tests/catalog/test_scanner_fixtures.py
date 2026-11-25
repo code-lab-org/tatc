@@ -835,7 +835,7 @@ class TestEcostressFixture(_StepBeamScannerFixture, unittest.TestCase):
     sizes_key = "beams"
     size_instrument = "ECOSTRESS"
     gates_published = False
-    footprints = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851),)
+    footprints = (("ECOSTRESS", 400, 51.6, 0, 0.0753, 0.06851, -7.2427),)
 
 
 class TestOciFixture(_StepBeamScannerFixture, unittest.TestCase):
@@ -864,7 +864,7 @@ class TestEmitFixture(_StepBeamScannerFixture, unittest.TestCase):
     sizes_key = "pixels"
     size_instrument = "EMIT"
     gates_published = False
-    footprints = (("EMIT", 400, 51.6, 0, 0.068, 0.062),)
+    footprints = (("EMIT", 400, 51.6, 0, 0.068, 0.062, -7.5608),)
 
 
 class TestTropomiFixture(_StepBeamScannerFixture, unittest.TestCase):

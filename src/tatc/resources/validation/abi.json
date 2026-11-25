@@ -152,7 +152,7 @@
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 1.000423886566417
+          "value": 1.000040383826304
         }
       ],
       "transfers": {},
@@ -160,7 +160,7 @@
         "sample_size_largest_error": 0.1793600330402878,
         "pixel_position_median": 0.4114651032161978,
         "spacing_along_ratio_median": 1.0000482436052662,
-        "spacing_cross_ratio_median": 1.0004036915060472
+        "spacing_cross_ratio_median": 1.0000436786711198
       }
     }
   }

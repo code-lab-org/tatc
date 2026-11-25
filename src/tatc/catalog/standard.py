@@ -669,9 +669,16 @@ def _evaluate_configuration(
     if record is not None and not is_compatible(
         entry.instrument_class, record.standard_version, configuration.grade
     ):
+        # the grade, if the version applies to the class but not to the grade
+        what = (
+            f"the {Grade(configuration.grade).value} grade of the "
+            f"{entry.instrument_class.value} class"
+            if is_compatible(entry.instrument_class, record.standard_version)
+            else f"the {entry.instrument_class.value} class"
+        )
         gaps = (
             f"version {record.standard_version} of the standard, of the test, "
-            f"does not apply to the {entry.instrument_class.value} class",
+            f"does not apply to {what}",
         )
     return _evaluate_record(
         configuration.grade,
@@ -717,4 +724,14 @@ def evaluate_entry(entry: InstrumentEntry) -> EntryValidation:
         for key, validation in configurations.items()
         if (instrument_class, Grade(validation.grade)) not in _OPTIONAL_GRADES
     }
-    return EntryValidation(_combine(counted, missing).tier, configurations, missing)
+    if counted:
+        tier = _combine(counted, missing).tier
+    else:
+        # only optional configurations: partial (a grade is missing) if any was
+        # compared with reference data
+        tier = (
+            Tier.PARTIAL
+            if any(c.tier != Tier.NOMINAL for c in configurations.values())
+            else Tier.NOMINAL
+        )
+    return EntryValidation(tier, configurations, missing)

@@ -42,7 +42,7 @@
     },
     "beams": {
       "digest": "252084a63d2050a377608d809fb626cd9a900ce505acf04811c96811dee90d7c",
-      "standard_version": 7,
+      "standard_version": 11,
       "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_ecostress.py",
       "reference": "Nadir pixel of the ECOSTRESS L1 Calibration ATBD (not gated); sample positions of ECO_L1B_GEO version 002 (the middle line of every fourth sweep)",
@@ -54,7 +54,7 @@
       "metrics": [
         {
           "name": "sample_size_largest_error",
-          "value": 1.4158976018514124
+          "value": 0.552059244258507
         },
         {
           "name": "pixel_position_median",
@@ -70,15 +70,15 @@
         },
         {
           "name": "spacing_cross_ratio_median",
-          "value": 0.9986989378168599
+          "value": 0.9986989330565286
         }
       ],
       "transfers": {},
       "fixture_metrics": {
-        "sample_size_largest_error": 1.4158976018514124,
+        "sample_size_largest_error": 0.552059244258507,
         "pixel_position_median": 3.4825955098499994,
         "spacing_along_ratio_median": 1.307362394170645,
-        "spacing_cross_ratio_median": 0.9986500467244926
+        "spacing_cross_ratio_median": 0.9986498585361929
       }
     }
   }

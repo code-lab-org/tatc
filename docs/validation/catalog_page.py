@@ -382,8 +382,8 @@ An entry's tier is computed from its results and the thresholds of
 to reference data are tested on data at least {MIN_HOLDOUT_GAP_DAYS} days from
 their fitting data. An entry's tier is set by its configurations at the
 grades its class requires; configurations at an optional grade (the sample size
-grade of every class but cross-track and conical) have their own tiers, which do
-not set the entry's. An entry's tier for a use is that of its weakest
+grade of the pushbroom, lidar, profiler, altimeter, geostationary, SAR, and
+scatterometer classes) have their own tiers, which do not set the entry's. An entry's tier for a use is that of its weakest
 configuration at the use's grade (`get_tier`), by which entries can be listed. A `partial` entry can still be useful within its
 limitations, which each configuration lists below; a `validated` entry also has
 limitations.

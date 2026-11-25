@@ -42,7 +42,7 @@
     },
     "pixels": {
       "digest": "387e2a11b71b525c3d3287b870eb37aca841b609a7148ef1a92558bba8b41f06",
-      "standard_version": 8,
+      "standard_version": 11,
       "tatc_version": "3.7.0",
       "source": "validation/catalog/validate_catalog_emit.py",
       "reference": "Nadir pixel of the EMIT L1B ATBD (not gated); pixel positions of EMITL1BRAD version 002 (every 16th line and 25th pixel)",
@@ -54,7 +54,7 @@
       "metrics": [
         {
           "name": "sample_size_largest_error",
-          "value": 1.24352037954788
+          "value": 1.0801925164567017
         },
         {
           "name": "pixel_position_median",
@@ -75,7 +75,7 @@
       ],
       "transfers": {},
       "fixture_metrics": {
-        "sample_size_largest_error": 1.24352037954788,
+        "sample_size_largest_error": 1.0801925164567017,
         "pixel_position_median": 2.766455346186717,
         "spacing_along_ratio_median": 1.0013537053499348,
         "spacing_cross_ratio_median": 0.9975618271949933

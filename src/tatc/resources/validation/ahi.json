@@ -80,7 +80,7 @@
         },
         {
           "name": "spacing_along_ratio_median",
-          "value": 1.0003529252388985
+          "value": 1.0000131780639743
         },
         {
           "name": "spacing_cross_ratio_median",
@@ -91,7 +91,7 @@
       "fixture_metrics": {
         "sample_size_largest_error": 0.021460753665958343,
         "pixel_position_median": 0.5099502896334314,
-        "spacing_along_ratio_median": 1.000322936774614,
+        "spacing_along_ratio_median": 1.000008015198937,
         "spacing_cross_ratio_median": 1.0000171562831102
       }
     }
