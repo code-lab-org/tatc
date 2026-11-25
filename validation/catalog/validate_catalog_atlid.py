@@ -15,6 +15,11 @@ profiles' times and positions are read, with range requests:
     python validation/catalog/validate_catalog_atlid.py <data directory> 2026-09-27 --fit
     python validation/catalog/validate_catalog_atlid.py <data directory> 2026-11-07
 
+It also validates the entry's sample size configuration (`footprints`), following
+`validation_io.validate_footprints`: the spacing of profiles along track is compared
+with that measured, which the gate tests, and the laser's published footprint,
+without the gate.
+
 Without a day, it takes that of the entry's record (or, with `--fit`, of the fit).
 The element set is the one nearest the middle of the day in
 `elements/earthcare_2026-09-27.3le` (or in a file given with `--elements`). With
@@ -36,10 +41,22 @@ from earthcare_io import (
     load_day,
     to_seconds,
     validate_profiler,
+    validate_profiler_footprints,
 )
-from validation_io import ecef, parse_run
+from validation_io import FIXTURES, ecef, Footprints, parse_run
 
 CONFIGURATION = "profile"
+# published footprints at nadir: instrument, altitude (km), inclination (deg), scan
+# angle (deg), and sizes along and across track (km), of the laser on ESA's ATLID
+# page, which states no definition, compared without the gate
+PUBLISHED_FOOTPRINTS = (("ATLID", 393, 97.05, 0, 0.015, 0.015),)
+FOOTPRINTS = Footprints(
+    key="footprints",
+    published_footprints=PUBLISHED_FOOTPRINTS,
+    reference="Laser footprint of ESA's ATLID page (not gated); profile spacing of ATL_NOM_1B",
+    fixture_path=FIXTURES / "atlid.npz",
+    gate_published=False,
+)
 
 
 def read_atlid(f, day: datetime) -> dict:
@@ -74,14 +91,17 @@ def main() -> None:
     tle = run.element_set()
     print(f"element set: {tle[0][:32]}", flush=True)
     orbit = GeneralPerturbationsOrbit.from_tle(tle)
-    validate_profiler(
-        run,
-        CONFIGURATION,
-        profiles,
-        orbit,
-        tle,
-        "ATL_NOM_1B (profile positions and times)",
-    )
+    if FOOTPRINTS.key in run.configurations:
+        validate_profiler_footprints(run, FOOTPRINTS, profiles, orbit, tle)
+    if CONFIGURATION in run.configurations:
+        validate_profiler(
+            run,
+            CONFIGURATION,
+            profiles,
+            orbit,
+            tle,
+            "ATL_NOM_1B (profile positions and times)",
+        )
 
 
 if __name__ == "__main__":

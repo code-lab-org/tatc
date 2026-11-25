@@ -71,3 +71,4 @@ limitations:
   - The measurements' positions are the satellite's nadir, so the track offset tests the element set as much as the view.
   - The view observes everywhere along the ground track, whereas products omit measurements by surface and quality.
   - On Sentinel-6B, recorded as a transfer (JASON_CS_S6B_L2_ALT_LR_RED_OST_NRT_G, 2026-11-08, with a public element set), every sampled measurement was within the view at its time, with the track within 0.107 km (median) and epochs within 0.11 s (95th percentile). Using the configuration on Sentinel-6B warns, as for any platform on which it was not validated.
+  - No configuration gives sample sizes. The footprint of a pulse-limited altimeter depends on the sea state (from about 2 km on a calm sea to about 15 km, Donlon et al., 2021) rather than on a beam width (1.34 deg, whose footprint is about 31 km at 1,336 km), and no footprint of Poseidon-4 is published with its definition.

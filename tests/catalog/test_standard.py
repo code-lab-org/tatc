@@ -23,8 +23,17 @@ from tatc.catalog.standard import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 8
+FROZEN_VERSION = 9
 FROZEN_GATES = {
+    # version 9 added the sample size grade of the lidar, profiler, and altimeter
+    # classes, and changed no other gate
+    **{
+        (instrument_class, "sample_size"): [
+            ("sample_size_within_3pct", 90, False),
+            ("spacing_along_error", 3, True),
+        ]
+        for instrument_class in ("lidar", "profiler", "altimeter")
+    },
     # version 8 added the sample size grade of the pushbroom class, with the gates
     # of cross-track scanners, and changed no other gate
     ("pushbroom", "sample_size"): [
@@ -217,6 +226,10 @@ class TestFrozenGates(unittest.TestCase):
         self.assertEqual(
             get_required_grades(InstrumentClass.PUSHBROOM), (Grade.COVERAGE,)
         )
+        # as are those of the lidar, profiler, and altimeter classes
+        for instrument_class in ("lidar", "profiler", "altimeter"):
+            get_gates(instrument_class, Grade.SAMPLE_SIZE)
+            self.assertEqual(get_required_grades(instrument_class), (Grade.COVERAGE,))
 
     def test_compatible_versions(self):
         """
@@ -231,6 +244,9 @@ class TestFrozenGates(unittest.TestCase):
         self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 1, Grade.COVERAGE))
         self.assertFalse(is_compatible(InstrumentClass.PUSHBROOM, 7, Grade.SAMPLE_SIZE))
         self.assertTrue(is_compatible(InstrumentClass.PUSHBROOM, 8, Grade.SAMPLE_SIZE))
+        self.assertFalse(is_compatible(InstrumentClass.LIDAR, 8, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.LIDAR, 9, Grade.SAMPLE_SIZE))
+        self.assertTrue(is_compatible(InstrumentClass.LIDAR, 8, Grade.COVERAGE))
         self.assertFalse(
             is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
         )

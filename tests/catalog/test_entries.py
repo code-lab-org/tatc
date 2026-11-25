@@ -105,6 +105,15 @@ EXPECTED_STATUS = {
         "partial",
         {
             "beam_pairs": ("partial", 34, ["epoch_p95"]),
+            "footprints": (
+                "nominal",
+                None,
+                [
+                    "sample_size_within_3pct",
+                    "spacing_along_error",
+                    "no comparison with reference data",
+                ],
+            ),
         },
         [],
     ),
@@ -112,6 +121,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "profile": ("partial", 41, ["track_offset_median"]),
+            "footprints": ("partial", 41, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -157,6 +167,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "nadir": ("partial", None, ["track_offset_median"]),
+            "footprints": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -236,6 +247,7 @@ EXPECTED_STATUS = {
         "partial",
         {
             "beams": ("partial", 38, ["epoch_p95"]),
+            "footprints": ("partial", 38, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -1093,6 +1105,7 @@ class TestEntryStatus(unittest.TestCase):
                 "emit:swath",
                 "emit:pixels",
                 "gedi:beams",
+                "gedi:footprints",
                 "oco2:glint",
             },
         )

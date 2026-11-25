@@ -80,6 +80,40 @@ configurations:
       - On the day of the fit, the angles were constant within 0.003 deg along track and 0.007 deg across track (5th to 95th percentiles), at every latitude and in both directions, in the Earth-fixed frame (EarthCARE steers its yaw); in the inertial frame, the angle across track varied by 0.38 deg.
       - On data held out on 2026-11-07 (41 days from the fit, with the element set whose epoch is nearest the day's middle, 15:03 UTC), every sampled profile was within the view at its time and epochs were within 0.46 s (95th percentile; +0.18 s median), but the profiles lay 0.72 km (median) across track from the predicted track of the view's center, failing the track offset gate. The profiles' angles that day were those of the fit (-3.0481 deg along track and +0.0282 deg across track, median, Earth-fixed frame); the element set's inclination (97.0160 deg) differs by about 0.01 deg from those of the sets around it (97.006 to 97.008 deg), and its orbit lay up to 1.3 km across track from the recorded positions (95th percentile), against 0.3 km on the day of the fit.
       - The same held-out data tested afterward with the day's other element set (epoch 07:20 UTC), whose orbit lay within 0.7 km across track of the recorded positions (95th percentile), had every sampled profile in view, the profiles 0.33 km (median) from the predicted track, and epochs within 0.66 s (95th percentile), passing every gate. The record keeps the element set chosen by the rule (epoch nearest the day's middle), so this result is not counted toward the tier.
+  footprints:
+    grade: sample_size
+    description: The footprint of the laser, at the angles of the profile configuration, whose size and spacing along track `compute_sample_sizes` gives.
+    platforms: [earthcare]
+    velocity_frame: earth_fixed
+    instruments:
+      - type: pointed
+        parameters:
+          name: ATLID
+          field_of_regard: 6.2752
+          cross_track_field_of_view: 0.002063
+          along_track_field_of_view: 0.002063
+          roll_angle: 0.0282
+          pitch_angle: -3.0481
+          is_rectangular: false
+          scan_period: 0.039216
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: That of the profile configuration
+          cross_track_field_of_view: &divergence
+            kind: nominal
+            source: "Wehr et al. (2023), Atmos. Meas. Tech. 16, 3581, section 5.1: a \"divergence of 36 µrad after the × 6.7 beam expander\" (https://doi.org/10.5194/amt-16-3581-2023)"
+          along_track_field_of_view: *divergence
+          roll_angle: *measured
+          pitch_angle: *measured
+          is_rectangular:
+            kind: derived
+            source: Models a footprint as a circular view
+          scan_period:
+            kind: derived
+            source: "Two shots at 51 Hz, accumulated on board (do Carmo et al. (2021), Atmosphere 12, 76: \"51 Hz, corresponding to about 285 m spatial sampling for a local accumulation of two shots\", https://www.mdpi.com/2073-4433/12/1/76)"
+    limitations:
+      - The footprint is that of the laser's divergence (about 14 m at 393 km); the receiver's field of view is wider (66.5 µrad, about 26 m), and the published footprints (15 m for the laser, and at most 30 m for the receiver, on ESA's pages) do not state their definition, so they are compared without the gate.
 limitations:
   - The view observes everywhere along its track, whereas products omit profiles by quality and mode.
   - EarthCARE's altitude varies from about 398 to 425 km around its orbit, so the footprint lies 21 to 23 km behind the satellite's nadir.

@@ -30,12 +30,15 @@ from tatc.schemas import Point
 from validation_io import (
     EARTH_ROTATION,
     TO_GEODETIC,
+    Footprints,
     RemoteFile,
     ecef,
     get_with_retries,
+    measure_along_spacing,
     normalize,
     recompute_passes,
     up,
+    validate_footprints,
     write_results,
 )
 
@@ -457,3 +460,23 @@ __all__ = [
     "track_offsets",
     "validate_profiler",
 ]
+
+
+def validate_profiler_footprints(run, footprints: Footprints, profiles, orbit, tle):
+    """
+    Scores the sample size configuration of a profiler (see
+    `validation_io.validate_footprints`): its footprint against the published ones,
+    and the spacing of its profiles along track against the product's.
+    """
+    entry = run.entry
+    configuration = entry.configurations[footprints.key]
+    instrument = configuration.instruments[0].parameters
+    satellite = entry.build(
+        configuration=footprints.key, orbit=orbit, platform=run.platform
+    ).to_satellite(orbit, name=entry.name)
+    rows = measure_along_spacing(
+        profiles.seconds, profiles.lat, profiles.lon, instrument["scan_period"]
+    )
+    validate_footprints(
+        footprints, run, satellite, [instrument["name"]] * len(rows), rows, tle
+    )

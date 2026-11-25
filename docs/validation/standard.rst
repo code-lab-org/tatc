@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 8 of the standard. The thresholds of version 1 were drafted from
+This is version 9 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -86,6 +86,18 @@ Versions
        were analyzed. The pixel position gate is loose for imagers of tens of
        meters, and is kept the same as that of scanners so that one threshold
        serves both.
+   * - 9
+     - Adds the sample size grade to the lidar, profiler, and altimeter classes,
+       whose beams point near nadir: at least 90% of published footprint
+       dimensions within 3%, and the median ratio of predicted to measured spacing
+       of samples along track within 3% of one. Their positions are tested at the
+       coverage grade (beam spacing and track offset), so the grade tests
+       spacing rather than pixel positions, which would test footprints of 10 m
+       to a few kilometers against 6 km. As for the pushbroom class, the grade is
+       optional, and its configurations have their own tiers. No threshold of
+       earlier versions changed, so their results still apply; results of these
+       grades apply from version 9. The gates were adopted before any of their
+       sample sizes were analyzed.
 
 Rules
 =====
