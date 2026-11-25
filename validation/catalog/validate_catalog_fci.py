@@ -12,6 +12,12 @@ measures them on a scan, from the satellite's nominal position (and, for the sea
 surface temperature, the zenith angles the product gives), and running on a scan at
 least 30 days from the fit tests them on data held out from it.
 
+It also validates the entry's sample size configuration (`pixels`), following
+`validation_io.validate_fixed_grid`: the pixels of the fixed grid of the infrared
+bands, projected from its nominal position, are compared with the grid of the cloud
+mask, and their spacing with the grid's; the published sampling distance at the
+sub-satellite point, which the grid's angle defines, is compared without the gate.
+
 Needs the `validation` extra and a login to the EUMETSAT Data Store
 (`eumdac auth --interactive`):
 
@@ -46,7 +52,14 @@ from validate_catalog_abi import (
     predict,
     satellite_position,
 )
-from validation_io import download_eumetsat, parse_run, write_results
+from validation_io import (
+    FIXTURES,
+    FixedGrid,
+    download_eumetsat,
+    parse_run,
+    validate_fixed_grid,
+    write_results,
+)
 
 # the products of each configuration: collection, the text of the names of a scan's
 # products (from its start), and the file of each product
@@ -59,6 +72,40 @@ SST_QUALITY = 4
 BOUNDS = {"lst_retrieved": 70.0, "sst_acceptable_quality": 65.0}
 # the nominal position of the satellite, over the equator at 0 deg longitude
 NOMINAL_HEIGHT = 35786400.0
+# the fixed grid of the infrared bands, whose published spatial sampling distance at
+# the sub-satellite point (instrument, altitude in km, inclination in deg, scan angle
+# in deg, and sizes east-west and north-south in km) the grid's angle defines, so is
+# not gated
+GRID = FixedGrid(
+    key="pixels",
+    instrument="FCI",
+    published_footprints=(("FCI", 35786.4, 0, 0, 2.0, 2.0),),
+    reference="Spatial sampling distance of the MTG End User Requirements Document "
+    "(not gated); fixed grid of the FCI Level 2 cloud mask (EO:EUM:DAT:0678, 2 km)",
+    fixture_path=FIXTURES / "fci_pixels.npz",
+)
+
+
+def oriented_grid(dataset) -> tuple[np.ndarray, np.ndarray, float]:
+    """
+    Gets the latitudes and longitudes (deg) of every pixel of the fixed grid, with
+    rows from the north and columns from the west, and its longitude (deg).
+    """
+    latitude, longitude = fixed_grid(dataset, 1)
+    name = next(
+        v
+        for v in dataset.variables
+        if getattr(dataset[v], "grid_mapping_name", "") == "geostationary"
+    )
+    origin = float(dataset[name].longitude_of_projection_origin)
+    quarter = latitude.shape[0] // 4
+    if np.nanmean(latitude[:quarter]) < np.nanmean(latitude[-quarter:]):
+        latitude, longitude = latitude[::-1], longitude[::-1]
+    middle = latitude.shape[0] // 2
+    east = (longitude[middle] - origin + 180) % 360 - 180
+    if np.nanmean(east[:quarter]) > np.nanmean(east[-quarter:]):
+        latitude, longitude = latitude[:, ::-1], longitude[:, ::-1]
+    return latitude, longitude, origin
 
 
 def download(product: tuple, time: datetime, directory: pathlib.Path) -> pathlib.Path:
@@ -166,6 +213,11 @@ def main() -> None:
     rng = np.random.default_rng(1)
     fixture = {"tle": np.array(tle), "time": np.array(time.isoformat())}
     results = {}
+
+    if GRID.key in run.configurations:
+        with netCDF4.Dataset(download(CLOUD_MASK, time, run.directory)) as dataset:
+            latitude, longitude, origin = oriented_grid(dataset)
+        validate_fixed_grid(GRID, run, latitude, longitude, origin, time)
 
     # earth disk: elevation angles, and which imaged pixels are observed
     key = "full_disk"

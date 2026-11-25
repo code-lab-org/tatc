@@ -16,6 +16,12 @@ tests only some configurations, on the same samples. With `--write`, it writes t
 entry's validation record and the reduced fixture from which unit tests recompute
 the results.
 
+It also validates the entry's sample size configuration (`pixels`), following
+`validation_io.validate_fixed_grid`: the pixels of the fixed grid of the infrared
+bands, projected from its nominal position, are compared with the grid of the clear
+sky mask, and their spacing with the grid's; the published size at the sub-satellite
+point, which the grid's angle defines, is compared without the gate.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -35,7 +41,14 @@ from tatc.catalog.metrics import compute_product_limit_error
 from tatc.constants import timescale
 from tatc.schemas import GeneralPerturbationsOrbit, Point
 from tatc.utils import compute_field_of_regard
-from validation_io import get_with_retries, parse_run, write_results
+from validation_io import (
+    FIXTURES,
+    FixedGrid,
+    get_with_retries,
+    parse_run,
+    validate_fixed_grid,
+    write_results,
+)
 
 # NOAA's open archive of each platform's products
 BUCKETS = {
@@ -49,6 +62,17 @@ PRODUCTS = {
     "lst_good_quality": ("ABI-L2-LSTF", "LST", 1),
 }
 WGS84_A, WGS84_F = 6378137.0, 1 / 298.257223563
+# the fixed grid of the infrared bands, whose published size at the sub-satellite
+# point (instrument, altitude in km, inclination in deg, scan angle in deg, and sizes
+# east-west and north-south in km) the grid's angle defines, so is not gated
+GRID = FixedGrid(
+    key="pixels",
+    instrument="ABI",
+    published_footprints=(("ABI", 35786.023, 0, 0, 2.0, 2.0),),
+    reference="Nadir resolution of the GOES-R Product Definition and Users' Guide "
+    "(not gated); fixed grid of ABI-L2-ACMF (2 km)",
+    fixture_path=FIXTURES / "abi_pixels.npz",
+)
 
 
 def download(
@@ -174,6 +198,16 @@ def main() -> None:
     rng = np.random.default_rng(1)
     fixture = {"tle": np.array(tle), "time": np.array(time.isoformat())}
     results = {}
+
+    if GRID.key in run.configurations:
+        with xr.open_dataset(
+            download(run.platform, "ABI-L2-ACMF", time, run.directory)
+        ) as dataset:
+            latitude, longitude = fixed_grid(dataset)
+            origin = float(
+                dataset.goes_imager_projection.attrs["longitude_of_projection_origin"]
+            )
+        validate_fixed_grid(GRID, run, latitude, longitude, origin, time)
 
     # earth disk: elevation angles, and which imaged pixels are observed
     key = "full_disk"

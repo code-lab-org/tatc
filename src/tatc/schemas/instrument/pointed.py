@@ -113,7 +113,10 @@ class PointedInstrument(Instrument):
         + "in a plane perpendicular to the boresight (`frame`, as for a framing "
         + "camera or a pushbroom array), or in cross-track and along-track angles "
         + "(`scan`, as for a cross-track scanner, whose along-track angular extent "
-        + "is constant across the scan).",
+        + "is constant across the scan), or in the same angles with the along-track "
+        + "angle first (`scan_along_first`, whose cross-track angular extent is "
+        + "constant along track, as for the fixed grid of a geostationary imager "
+        + "that sweeps about the y axis).",
     )
     is_rectangular: bool = Field(
         default=False,
@@ -277,10 +280,11 @@ class PointedInstrument(Instrument):
         """
         Computes the size on the ground (meters) of angular extents centered
         on the line of sight to a target, along this instrument's view axes:
-        those of the rolled and pitched view, or, for a `ViewGeometry.SCAN`
-        view, of the scan plane tilted by the pitch angle.
+        those of the rolled and pitched view, or, for a view in angles
+        (`ViewGeometry.SCAN` or `ViewGeometry.SCAN_ALONG_FIRST`), of the scan
+        plane tilted by the pitch angle.
         """
-        if self.view_geometry == ViewGeometry.SCAN:
+        if ViewGeometry(self.view_geometry).is_scan:
             return compute_ground_sample_size(
                 orbit_track,
                 target,
@@ -491,17 +495,22 @@ class PointedInstrument(Instrument):
         Returns:
             numpy.typing.NDArray: Array of indicators: `True` if the target is in the field of view.
         """
-        if self.view_geometry == ViewGeometry.SCAN:
-            # angles in the scan plane, tilted by the pitch angle
+        if ViewGeometry(self.view_geometry).is_scan:
+            along_first = self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST
+            # angles in the scan plane, tilted by the pitch angle (or, along
+            # track first, the pitch angle from nadir and the roll angle)
             roll, pitch = compute_view_angles(
                 orbit_track,
                 target,
                 self.velocity_frame,
                 self.nadir_reference,
-                self.get_pitch_angle(orbit_track),
+                0 if along_first else self.get_pitch_angle(orbit_track),
                 attitude=self._attitude,
                 yaw_angle=self.yaw_angle,
+                along_first=along_first,
             )
+            if along_first:
+                pitch = pitch - self.get_pitch_angle(orbit_track)
             # angular offsets from the view center, normalized by the half widths
             cross_offset = (
                 (roll - self.get_roll_angle(orbit_track) + 180) % 360 - 180
@@ -589,20 +598,23 @@ class PointedInstrument(Instrument):
         Returns:
             (skyfield.toposlib.GeographicPosition): the geographic position of the projected pixel
         """
-        if self.view_geometry == ViewGeometry.SCAN:
+        if ViewGeometry(self.view_geometry).is_scan:
             cross_offset, along_offset = self._get_pixel_offsets(
                 cross_track_index, along_track_index
             )
+            # along track first, the along-track offset tilts with the pitch
+            along_first = self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST
             return compute_projected_ray_position(
                 orbit_track=orbit_track,
                 cross_track_field_of_view=0,
                 along_track_field_of_view=0,
                 roll_angle=self.get_roll_angle(orbit_track) + cross_offset,
-                pitch_angle=along_offset,
+                pitch_angle=0 if along_first else along_offset,
                 elevation=elevation,
                 velocity_frame=self.velocity_frame,
                 nadir_reference=self.nadir_reference,
-                tilt_angle=self.get_pitch_angle(orbit_track),
+                tilt_angle=self.get_pitch_angle(orbit_track)
+                + (along_offset if along_first else 0),
                 ground_elevation=ground_elevation,
                 attitude=self._attitude,
                 yaw_angle=self.yaw_angle,

@@ -23,8 +23,14 @@ from tatc.catalog.standard import (
 # (metric, limit, at most) by class and grade. These thresholds are frozen: they
 # must test new instruments rather than follow their results. A change needs a
 # new STANDARD_VERSION, with its reason, in docs/validation/standard.rst.
-FROZEN_VERSION = 9
+FROZEN_VERSION = 10
 FROZEN_GATES = {
+    # version 10 added the sample size grade of the geostationary class, with the
+    # gates of cross-track scanners, and changed no other gate
+    ("geostationary", "sample_size"): [
+        ("sample_size_within_3pct", 90, False),
+        ("pixel_position_median", 6, True),
+    ],
     # version 9 added the sample size grade of the lidar, profiler, and altimeter
     # classes, and changed no other gate
     **{
@@ -227,7 +233,7 @@ class TestFrozenGates(unittest.TestCase):
             get_required_grades(InstrumentClass.PUSHBROOM), (Grade.COVERAGE,)
         )
         # as are those of the lidar, profiler, and altimeter classes
-        for instrument_class in ("lidar", "profiler", "altimeter"):
+        for instrument_class in ("lidar", "profiler", "altimeter", "geostationary"):
             get_gates(instrument_class, Grade.SAMPLE_SIZE)
             self.assertEqual(get_required_grades(instrument_class), (Grade.COVERAGE,))
 
@@ -247,6 +253,12 @@ class TestFrozenGates(unittest.TestCase):
         self.assertFalse(is_compatible(InstrumentClass.LIDAR, 8, Grade.SAMPLE_SIZE))
         self.assertTrue(is_compatible(InstrumentClass.LIDAR, 9, Grade.SAMPLE_SIZE))
         self.assertTrue(is_compatible(InstrumentClass.LIDAR, 8, Grade.COVERAGE))
+        self.assertFalse(
+            is_compatible(InstrumentClass.GEOSTATIONARY, 9, Grade.SAMPLE_SIZE)
+        )
+        self.assertTrue(
+            is_compatible(InstrumentClass.GEOSTATIONARY, 10, Grade.SAMPLE_SIZE)
+        )
         self.assertFalse(
             is_compatible(InstrumentClass.CROSS_TRACK, STANDARD_VERSION + 1)
         )

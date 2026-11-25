@@ -182,12 +182,15 @@ Instruments and Pointing
        predicted track with the element set nearest the day's middle, whose inclination differed by 0.01 deg from
        those of the sets around it; with the day's other element set, 0.33 km (:doc:`catalog`)
    * - Geostationary imagers
-     - GOES-19 ABI, Himawari-9 AHI, TEMPO
+     - GOES-19 ABI, Himawari-9 AHI, Meteosat-12 FCI, TEMPO
      - A 17.4 deg field of regard observes the full disk; elevation angles within 0.0004 deg; product coverage limits
        within 0.36 deg of local zenith angle; on held-out AHI cloud top heights, the product's limit within 0.70 deg
        (:doc:`catalog`). TEMPO's region, as a rectangular view fitted
        to the edges of a full scan: field of regard IoU 0.994 with the area a held-out scan imaged; the hourly
-       east-west sweep is not modeled (:doc:`catalog`)
+       east-west sweep is not modeled (:doc:`catalog`). Fixed grids of scan angles (`ViewGeometry.SCAN`, sweeping
+       about the x axis as ABI's; `ViewGeometry.SCAN_ALONG_FIRST`, about the y axis as AHI's and FCI's) projected
+       from the grid's nominal position: pixels within 1.7 (ABI), 2.8 (AHI), and 3.3 km (FCI) of the products' grids
+       (median), most of it from the longitude of `GeosynchronousOrbit`, and spacing within 0.1% (:doc:`catalog`)
    * - Tilted scanners (`pitch_angle_profile`), sun glint (`compute_glint_angle`)
      - PACE OCI
      - Pixels within 0.8 km near nadir and 9 km at the edges (median); epochs within 0.15 s (median) with a daily tilt

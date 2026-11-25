@@ -91,6 +91,44 @@ configurations:
           field_of_regard:
             kind: derived
             source: compute_field_of_regard(35786e3, 90 - 55), from the bound declared by the product
+  pixels:
+    grade: sample_size
+    description: The fixed grid of the infrared bands (2 km), 5424 pixels square of 56 urad in scan angles, whose sizes and spacing `compute_sample_sizes` gives (east-west along track, north-south across track). Analyze it on a geosynchronous orbit at the grid's longitude (-75.2 deg), to which the products are navigated.
+    platforms: [goes-19]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: ABI
+          field_of_regard: 20
+          cross_track_field_of_view: 17.403249
+          along_track_field_of_view: 17.403249
+          cross_track_pixels: 5424
+          along_track_pixels: 5424
+          view_geometry: scan
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the Earth's disk
+          cross_track_field_of_view: &grid
+            kind: nominal
+            source: "GOES-R Product Definition and Users' Guide, Vol. 3 (L1b), Rev 2.3, section 5.1.2.2: \"The ABI native spatial resolutions are 0.5, 1.0, and 2.0 km at nadir... angular separation between imagery data points, which are 14, 28, and 56 microradians\" (https://www.ospo.noaa.gov/Organization/Documents/PUG/GS%20Series%20416-R-PUG-L1B-0347%20Vol%203%20Rev%202.3.pdf); the 5,424 pixels of 56 urad"
+          along_track_field_of_view: *grid
+          cross_track_pixels: &size
+            kind: nominal
+            source: "GOES-R Product Definition and Users' Guide, Vol. 3, Table 5.1.2.6: 5424 pixels square at 2 km for the full disk"
+          along_track_pixels: *size
+          view_geometry:
+            kind: derived
+            source: "The fixed grid's north-south angle is a rotation about the x axis, and its east-west angle about the rotated y axis (GOES-R Product Definition and Users' Guide, Vol. 3, section 5.1.2.1), the angles of a scan view in the inertial frame"
+          is_rectangular:
+            kind: derived
+            source: Models the fixed grid as a rectangular view
+    limitations:
+      - Only sizes at the sub-satellite point are published, which the grid's angle defines, so the sample size gate is not applied.
+      - The products are navigated to the grid seen from the nominal position, whereas a satellite's element sets lie up to a few hundredths of a degree from it, which moves a view projected from the satellite's position by kilometers. The configuration's along-track and cross-track directions are east and north only in the inertial frame.
+      - "The grid is that of the infrared bands. The visible and near-infrared bands' grids are two (28 urad) and four (14 urad) times as fine; the detectors' instantaneous fields of view differ from the grid's angle (GOES-R Series Data Book, Table 3-1)."
 limitations:
   - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the mesoscale and CONUS sectors.
   - On GOES-18 (GOES-West, 137.2 deg W), recorded as a transfer (full-disk products of 2026-11-17 at 12:00 UTC, with a public element set), every imaged pixel was observed, with elevation angles within 0.0006 deg, and the product limits were within 0.37 deg (sea surface temperature) and 0.25 deg (land surface temperature). Using the configurations on GOES-18 warns, as for any platform on which they were not validated.

@@ -7,7 +7,7 @@ entry must show before it is called validated, so that entries can be compared
 and the claim means the same for each. An entry's tier is computed from its
 results and these thresholds, and cannot be declared.
 
-This is version 9 of the standard. The thresholds of version 1 were drafted from
+This is version 10 of the standard. The thresholds of version 1 were drafted from
 the earlier results below, so they can show little about those instruments. They
 were frozen before validating instruments new to TAT-C, which are their first real
 test. Changing a threshold requires a new version and a stated reason here.
@@ -98,6 +98,15 @@ Versions
        earlier versions changed, so their results still apply; results of these
        grades apply from version 9. The gates were adopted before any of their
        sample sizes were analyzed.
+   * - 10
+     - Adds the sample size grade to the geostationary class, whose imagers sample
+       fixed grids of scan angles, with the gates of cross-track scanners: at
+       least 90% of published pixel dimensions within 3%, and pixels projected
+       within 6 km of the product's (median). As for the other classes added
+       since version 8, the grade is optional, and its configurations have their
+       own tiers. No threshold of earlier versions changed, so their results
+       still apply; results of this grade apply from version 10. The gates were
+       adopted before any geostationary sample sizes were analyzed.
 
 Rules
 =====

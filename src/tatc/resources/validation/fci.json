@@ -11,6 +11,7 @@
       "platforms": [
         "meteosat-12"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "imaged_pixels_observed",
@@ -37,6 +38,7 @@
       "platforms": [
         "meteosat-12"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -62,6 +64,7 @@
       "platforms": [
         "meteosat-12"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -75,6 +78,47 @@
       "transfers": {},
       "fixture_metrics": {
         "product_limit": 0.3142486532976392
+      }
+    },
+    "pixels": {
+      "digest": "a4091a221167ef785470e69181a7dee3c99d35ef17955ff1da83a8c240c9cde3",
+      "standard_version": 10,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_fci.py",
+      "reference": "Spatial sampling distance of the MTG End User Requirements Document (not gated); fixed grid of the FCI Level 2 cloud mask (EO:EUM:DAT:0678, 2 km)",
+      "period": "2026-11-17T12:00Z",
+      "platforms": [
+        "meteosat-12"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.021456954965970443
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 3.3138215904722275
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.62604529850082
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0006110263603136
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000125875548305
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.021456954965970443,
+        "pixel_position_median": 3.3173803979110614,
+        "spacing_along_ratio_median": 1.0006073373063924,
+        "spacing_cross_ratio_median": 1.000033612037285
       }
     }
   }

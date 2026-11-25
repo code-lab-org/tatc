@@ -74,5 +74,43 @@ configurations:
     limitations:
       - The product declares no bound of local zenith angle; the bound is measured as the greatest angle at which it retrieves a height, which it does only for cloudy pixels.
       - On the held-out scan of 2026-11-08T12:00Z, the product retrieved heights up to 79.384 deg (0.005 deg from the fit), but the boundary of predicted observations lay up to 0.70 deg from it, beyond the gate's 0.5 deg. A field of regard is a cone about nadir, and so near the limb it meets the flattened Earth at local zenith angles that vary with latitude, from about 79.1 deg in the tropics to 79.9 deg at high latitudes.
+  pixels:
+    grade: sample_size
+    description: The fixed grid of the infrared bands (2 km at the sub-satellite point), 5500 pixels square of 55.888 urad in scan angles, whose sizes and spacing `compute_sample_sizes` gives (east-west along track, north-south across track). Analyze it on a geosynchronous orbit at the grid's longitude (140.7 deg), to which the products are navigated.
+    platforms: [himawari-9]
+    velocity_frame: inertial
+    instruments:
+      - type: pointed
+        parameters:
+          name: AHI
+          field_of_regard: 20
+          cross_track_field_of_view: 17.611803
+          along_track_field_of_view: 17.611803
+          cross_track_pixels: 5500
+          along_track_pixels: 5500
+          view_geometry: scan_along_first
+          is_rectangular: true
+        provenance:
+          field_of_regard:
+            kind: derived
+            source: Contains the Earth's disk
+          cross_track_field_of_view: &grid
+            kind: derived
+            source: "The angle of 2 km at the sub-satellite point (JMA, Himawari Standard Data User's Guide v1.3, Table 3: \"Spatial resolution at SSP (sub satellite point) [km]\" of 2 for the infrared bands, https://www.data.jma.go.jp/mscweb/en/himawari89/space_segment/hsd_sample/HS_D_users_guide_en_v13.pdf) from the projection's distance of 42,164 km from the Earth's center (35,785.863 km above the equator), 55.888 urad"
+          along_track_field_of_view: *grid
+          cross_track_pixels: &size
+            kind: nominal
+            source: "JMA, Himawari Standard Data User's Guide v1.3, Table 3: 5,500 pixels square at 2 km for the full disk"
+          along_track_pixels: *size
+          view_geometry:
+            kind: derived
+            source: "The Normalized Geostationary Projection of the LRIT/HRIT Global Specification (Himawari Standard Data User's Guide, section 3), whose east-west angle precedes its north-south angle (a sweep about the y axis), the angles of a scan view along track first in the inertial frame"
+          is_rectangular:
+            kind: derived
+            source: Models the fixed grid as a rectangular view
+    limitations:
+      - Only sizes at the sub-satellite point are published, which the grid's angle defines, so the sample size gate is not applied.
+      - The products are navigated to the grid seen from the nominal position, whereas a satellite's element sets lie up to a few hundredths of a degree from it, which moves a view projected from the satellite's position by kilometers. The configuration's along-track and cross-track directions are east and north only in the inertial frame.
+      - "The grid is that of the infrared bands. The visible and near-infrared bands' grids are two and four times as fine."
 limitations:
   - The scan is not modeled. Every point is available at any time, without the 10 minute cadence of a full-disk scan or the Japan and target sectors.

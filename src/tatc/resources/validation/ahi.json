@@ -11,6 +11,7 @@
       "platforms": [
         "himawari-9"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "imaged_pixels_observed",
@@ -37,6 +38,7 @@
       "platforms": [
         "himawari-9"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -50,6 +52,47 @@
       "transfers": {},
       "fixture_metrics": {
         "product_limit": 0.4968281089902149
+      }
+    },
+    "pixels": {
+      "digest": "1e2ec3c791b7c72b7043e6a863593e1a19d82e768b07586dbd6f4696112bbb3f",
+      "standard_version": 10,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_ahi.py",
+      "reference": "Resolution at the sub-satellite point of JMA's Himawari Standard Data User's Guide (not gated); pixel positions of AHI-L2-FLDK-Clouds (2 km)",
+      "period": "2026-11-08T12:00Z",
+      "platforms": [
+        "himawari-9"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.021460753665958343
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 2.825282032290378
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 3.1383665400047454
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.0006054422876687
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0000219994777302
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.021460753665958343,
+        "pixel_position_median": 2.8390707974210847,
+        "spacing_along_ratio_median": 1.0006162944889319,
+        "spacing_cross_ratio_median": 1.000025400077774
       }
     }
   }

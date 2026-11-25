@@ -9,10 +9,18 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 from pydantic import ValidationError
+from pyproj import Proj
+from shapely.geometry import Point
 from skyfield.api import EarthSatellite, wgs84
 
 from tatc.constants import timescale
-from tatc.schemas import Attitude, CircularOrbit, PointedInstrument
+from tatc.schemas import (
+    Attitude,
+    CircularOrbit,
+    GeosynchronousOrbit,
+    PointedInstrument,
+    Satellite,
+)
 from tatc.utils import field_of_regard_to_swath_width, geodesic_distance
 from tatc.utils.projection import (
     VelocityFrame,
@@ -1162,6 +1170,128 @@ class TestScanViewGeometry(unittest.TestCase):
             )
             self.assertAlmostEqual(
                 pixel.longitude.degrees, ray.longitude.degrees, places=8
+            )
+
+
+class TestScanAlongFirst(unittest.TestCase):
+    """
+    Unit tests for views in angles with the along-track angle first
+    (`ViewGeometry.SCAN_ALONG_FIRST`), as of the fixed grids of geostationary
+    imagers, against the geostationary projection of PROJ.
+    """
+
+    def setUp(self):
+        self.epoch = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+        orbit = GeosynchronousOrbit(longitude=140.7, epoch=self.epoch, inclination=0)
+        self.satellite = Satellite(name="geo", orbit=orbit)
+        self.track = orbit.to_gp_orbit().get_orbit_track(self.epoch)
+        # the projection seen from the satellite's position
+        subpoint = wgs84.subpoint_of(self.track)
+        self.height = float(wgs84.height_of(self.track).m)
+        self.longitude = float(subpoint.longitude.degrees)
+        # a coarse grid of 11 by 11 pixels of 1 deg, within the Earth's disk (whose
+        # edge is about 8.7 deg from nadir) to its corners
+        self.pixels, self.angle = 11, 1.0
+
+    def grid(self, view_geometry: ViewGeometry):
+        """Gets the grid as a pointed instrument bound to the satellite."""
+        field_of_view = self.pixels * self.angle
+        instrument = PointedInstrument(
+            name="grid",
+            field_of_regard=20,
+            cross_track_field_of_view=field_of_view,
+            along_track_field_of_view=field_of_view,
+            cross_track_pixels=self.pixels,
+            along_track_pixels=self.pixels,
+            is_rectangular=True,
+            view_geometry=view_geometry,
+            velocity_frame=VelocityFrame.INERTIAL,
+        )
+        return self.satellite.model_copy(
+            update={"instruments": [instrument]}
+        ).get_instrument(0)
+
+    def distance(self, instrument, sweep: str, row: int, column: int) -> float:
+        """
+        Gets the distance (km) between a pixel (rows from the north, columns from
+        the west) and the point of its scan angles in the geostationary
+        projection with a sweep axis.
+        """
+        geos = Proj(
+            proj="geos", h=self.height, lon_0=self.longitude, sweep=sweep, ellps="WGS84"
+        )
+        center = (self.pixels - 1) / 2
+        x = np.radians((column - center) * self.angle) * self.height
+        y = np.radians((center - row) * self.angle) * self.height
+        longitude, latitude = geos(x, y, inverse=True)
+        # TAT-C numbers pixels from the right of the motion (east): from the south,
+        # and from the east
+        pixel = instrument.compute_projected_pixel_position(
+            self.track, self.pixels - 1 - row, self.pixels - 1 - column
+        )
+        return (
+            geodesic_distance(
+                pixel.longitude.degrees, pixel.latitude.degrees, longitude, latitude
+            )
+            / 1e3
+        )
+
+    def test_fixed_grids(self):
+        """
+        Test that pixels in scan geometry lie at the points of a grid that sweeps
+        about the x axis (as GOES-R's), and along track first at those of a grid
+        that sweeps about the y axis (as CGMS's), within about a kilometer, whereas
+        4 deg from nadir in both directions the two orders differ by about 9 km.
+        """
+        scan = self.grid(ViewGeometry.SCAN)
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        for row, column in [(5, 5), (0, 5), (5, 10), (1, 1), (9, 2)]:
+            self.assertLess(self.distance(scan, "x", row, column), 1.0)
+            self.assertLess(self.distance(along_first, "y", row, column), 1.0)
+        self.assertGreater(self.distance(scan, "y", 1, 1), 5)
+        self.assertGreater(self.distance(along_first, "x", 1, 1), 5)
+
+    def test_scan_line(self):
+        """
+        Test that the two orders give the same pixels on the scan line (where the
+        along-track angle is zero).
+        """
+        scan = self.grid(ViewGeometry.SCAN)
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        for index in (0, 3, 10):
+            a = scan.compute_projected_pixel_position(self.track, index, 5)
+            b = along_first.compute_projected_pixel_position(self.track, index, 5)
+            self.assertAlmostEqual(a.latitude.degrees, b.latitude.degrees, places=8)
+            self.assertAlmostEqual(a.longitude.degrees, b.longitude.degrees, places=8)
+
+    def test_field_of_view(self):
+        """
+        Test that a pixel at a corner of the grid is in the field of view along
+        track first, and that one beyond its edge is not.
+        """
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        corner = along_first.compute_projected_pixel_position(self.track, 1, 1)
+        beyond = along_first.compute_projected_pixel_position(self.track, -1, 1)
+        for pixel, inside in [(corner, True), (beyond, False)]:
+            target = wgs84.latlon(pixel.latitude.degrees, pixel.longitude.degrees)
+            self.assertEqual(
+                along_first.is_in_field_of_view(self.track, target)[0], inside
+            )
+
+    def test_footprint_contains_pixels(self):
+        """
+        Test that the footprint along track first contains the grid's corner
+        pixels.
+        """
+        along_first = self.grid(ViewGeometry.SCAN_ALONG_FIRST)
+        footprint = along_first.compute_footprint(self.track)
+        footprint = footprint[0] if isinstance(footprint, list) else footprint
+        for i, j in [(0, 0), (0, 10), (10, 0), (10, 10)]:
+            pixel = along_first.compute_projected_pixel_position(self.track, i, j)
+            self.assertTrue(
+                footprint.contains(
+                    Point(pixel.longitude.degrees, pixel.latitude.degrees)
+                )
             )
 
 

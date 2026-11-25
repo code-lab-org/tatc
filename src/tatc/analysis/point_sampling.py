@@ -884,7 +884,7 @@ def _get_batch_view_crossing_times(
         t = _to_time_from_offsets(reference, seconds)
         yield t
         orbit_track = orbit.get_orbit_track_at_time(t)
-        if instrument.view_geometry == ViewGeometry.SCAN:
+        if ViewGeometry(instrument.view_geometry).is_scan:
             # the target crosses the scan plane (tilted by the pitch angle)
             position, _, along, _ = _compute_view_frame(
                 orbit_track,

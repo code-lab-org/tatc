@@ -55,6 +55,7 @@ EXPECTED_STATUS = {
             "full_disk": ("partial", None, ["product_limit"]),
             "sst_good_quality": ("validated", None, []),
             "lst_good_quality": ("validated", None, []),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -63,6 +64,7 @@ EXPECTED_STATUS = {
         {
             "full_disk": ("partial", None, ["product_limit"]),
             "cloud_top_height": ("partial", 38, ["product_limit"]),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),
@@ -240,6 +242,7 @@ EXPECTED_STATUS = {
             "full_disk": ("partial", None, ["product_limit"]),
             "lst_retrieved": ("validated", 32, []),
             "sst_acceptable_quality": ("validated", 32, []),
+            "pixels": ("partial", None, ["sample_size_within_3pct"]),
         },
         [],
     ),

@@ -17,6 +17,12 @@ some configurations, on the same samples. With `--write`, it writes the entry's
 validation record and the reduced fixture from which unit tests recompute the
 results.
 
+It also validates the entry's sample size configuration (`pixels`), following
+`validation_io.validate_fixed_grid`: the pixels of the fixed grid of the infrared
+bands, projected from its nominal position, are compared with the pixel positions of
+the cloud mask, and their spacing with the grid's; the published size at the
+sub-satellite point, which the grid's angle defines, is compared without the gate.
+
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
@@ -40,13 +46,31 @@ from validate_catalog_abi import (
     predict,
     satellite_position,
 )
-from validation_io import get_with_retries, parse_run, write_results
+from validation_io import (
+    FIXTURES,
+    FixedGrid,
+    get_with_retries,
+    parse_run,
+    validate_fixed_grid,
+    write_results,
+)
 
 BUCKET = "https://noaa-himawari9.s3.amazonaws.com/"
 PREFIX = "AHI-L2-FLDK-Clouds"
 # the nominal position of the fixed grid: longitude (deg) and height (m)
 GRID_LONGITUDE, GRID_HEIGHT = 140.7, 35785863.0
 CHUNK_ROWS = 250
+# the fixed grid of the infrared bands, whose published size at the sub-satellite
+# point (instrument, altitude in km, inclination in deg, scan angle in deg, and sizes
+# east-west and north-south in km) the grid's angle defines, so is not gated
+GRID = FixedGrid(
+    key="pixels",
+    instrument="AHI",
+    published_footprints=(("AHI", 35785.863, 0, 0, 2.0, 2.0),),
+    reference="Resolution at the sub-satellite point of JMA's Himawari Standard "
+    "Data User's Guide (not gated); pixel positions of AHI-L2-FLDK-Clouds (2 km)",
+    fixture_path=FIXTURES / "ahi_pixels.npz",
+)
 
 
 def download(product: str, time: datetime, directory: pathlib.Path) -> pathlib.Path:
@@ -130,6 +154,14 @@ def validate(run) -> None:
     rng = np.random.default_rng(1)
     fixture = {"tle": np.array(tle), "time": np.array(time.isoformat())}
     results = {}
+
+    if GRID.key in run.configurations:
+        with xr.open_dataset(download("CMSK", time, run.directory)) as dataset:
+            latitude = dataset.Latitude.values.astype(float)
+            longitude = dataset.Longitude.values.astype(float)
+        off_disk = (np.abs(latitude) > 90) | (np.abs(longitude) > 360)
+        latitude[off_disk] = longitude[off_disk] = np.nan
+        validate_fixed_grid(GRID, run, latitude, longitude, GRID_LONGITUDE, time)
 
     # earth disk: elevation angles, and which imaged pixels are observed
     key = "full_disk"

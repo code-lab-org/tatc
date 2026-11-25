@@ -11,6 +11,7 @@
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "imaged_pixels_observed",
@@ -51,6 +52,7 @@
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -90,6 +92,7 @@
       "platforms": [
         "goes-19"
       ],
+      "platform_periods": {},
       "metrics": [
         {
           "name": "product_limit",
@@ -117,6 +120,47 @@
       },
       "fixture_metrics": {
         "product_limit": 0.2588730783312698
+      }
+    },
+    "pixels": {
+      "digest": "74b526ef4291df066bd96ab7446ca3152b11f988b708139b745a65a4e3e0e7dc",
+      "standard_version": 10,
+      "tatc_version": "3.7.0",
+      "source": "validation/catalog/validate_catalog_abi.py",
+      "reference": "Nadir resolution of the GOES-R Product Definition and Users' Guide (not gated); fixed grid of ABI-L2-ACMF (2 km)",
+      "period": "2026-10-03T12:00Z",
+      "platforms": [
+        "goes-19"
+      ],
+      "platform_periods": {},
+      "metrics": [
+        {
+          "name": "sample_size_largest_error",
+          "value": 0.1793600330402878
+        },
+        {
+          "name": "pixel_position_median",
+          "value": 1.6837728380010901
+        },
+        {
+          "name": "pixel_position_p95",
+          "value": 1.908739661112086
+        },
+        {
+          "name": "spacing_along_ratio_median",
+          "value": 1.000018708273251
+        },
+        {
+          "name": "spacing_cross_ratio_median",
+          "value": 1.0004224340926975
+        }
+      ],
+      "transfers": {},
+      "fixture_metrics": {
+        "sample_size_largest_error": 0.1793600330402878,
+        "pixel_position_median": 1.677498709458136,
+        "spacing_along_ratio_median": 1.0000597450982163,
+        "spacing_cross_ratio_median": 1.0003400974323529
       }
     }
   }
