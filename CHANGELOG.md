@@ -28,6 +28,8 @@ Changed:
  - A function of a study's results (such as the `evaluate` of a `tradespace.Study`, or the metrics of an `ObservationStudy`) whose first parameter is named `design` is given what it is of (such as what a design builds) in it, rather than raising a `TypeError`; a later parameter named `design` is given the realized design, as before.
 
 Fixed:
+ - `GeosynchronousOrbit` placed its satellite off its `longitude` by up to about 0.04 deg, by the date: its node used the apparent rather than the mean sidereal time of SGP4's TEME frame, and SGP4's deep-space (lunar and solar) terms displace the satellite at its epoch from its mean elements. The node is now solved so that the sub-satellite point at epoch is at the longitude (rotated by the argument of latitude), within 1e-6 deg; within each day of the repeat cycle, the longitude still drifts by up to about 0.006 deg. GOES's slot record is updated (its longitude error had been 0.037 deg).
+ - Catalog values of sourced models (such as a spacecraft's resources) set to `None`, as a model dumped with its defaults gives them, needed a provenance, so a system's record could not be written.
  - `analysis.collect_footprint_observations` failed for the footprints of radar stations with pandas 3.
  - `analysis.compute_latencies` missed a contact in progress when another contact (with another ground station or a relay) that had not started ended first, downlinking the observation later.
  - `analysis.estimate_sampling_error` failed (with an `IndexError`) for observations without any rows, rather than giving every target no samples and no error.
