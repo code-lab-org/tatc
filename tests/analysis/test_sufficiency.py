@@ -42,6 +42,19 @@ def _observations(samples):
     return gpd.GeoDataFrame(rows, crs="EPSG:4326")
 
 
+def _no_observations():
+    """Observations without any rows (as of targets never observed)."""
+    return gpd.GeoDataFrame(
+        {"target_hash": [], "epoch": pd.to_datetime([], utc=True)},
+        geometry=[],
+        crs="EPSG:4326",
+    )
+
+
+# targets, none of them observed by `_no_observations`
+UNOBSERVED = gpd.GeoSeries([Point(0, 0), Point(10, 0)], crs="EPSG:4326")
+
+
 class TestSamplingErrorVariance(unittest.TestCase):
     """
     Unit tests for the variance of sampling errors.
@@ -115,6 +128,31 @@ class TestEstimateSamplingError(unittest.TestCase):
         # four samples six hours apart are nearly independent; two an hour apart are not
         self.assertAlmostEqual(error.effective_samples[0], 4, delta=0.5)
         self.assertLess(error.effective_samples[1], 2)
+
+    def test_without_observations(self):
+        """Without any observations, every target has no samples and no error."""
+        error = estimate_sampling_error(
+            _no_observations(),
+            START,
+            START + DAY,
+            timedelta(hours=1),
+            standard_deviation=2.0,
+            targets=UNOBSERVED,
+        )
+        self.assertEqual(len(error), 2)
+        self.assertEqual(list(error.samples), [0, 0])
+        self.assertTrue(error.relative_error.isna().all())
+        self.assertTrue(error.sampling_error.isna().all())
+        self.assertEqual(list(error.effective_samples), [0, 0])
+        # nor are there targets, if none is given
+        self.assertEqual(
+            len(
+                estimate_sampling_error(
+                    _no_observations(), START, START + DAY, timedelta(hours=1)
+                )
+            ),
+            0,
+        )
 
     def test_standard_deviation_by_target(self):
         """The standard deviation may differ between targets."""
@@ -198,6 +236,16 @@ class TestRevisitStatistics(unittest.TestCase):
             list(named.columns[:4]), ["target_hash", "geometry", "region", "samples"]
         )
 
+    def test_without_observations(self):
+        """Without any observations, every target's gap is the whole period."""
+        stats = compute_revisit_statistics(
+            _no_observations(), START, START + DAY, targets=UNOBSERVED
+        )
+        self.assertEqual(list(stats.samples), [0, 0])
+        self.assertTrue(stats.revisit.isna().all())
+        self.assertTrue(stats["revisit p90"].isna().all())
+        self.assertTrue((stats.max_gap == DAY).all())
+
 
 class TestLocalTimeCoverage(unittest.TestCase):
     """
@@ -219,6 +267,16 @@ class TestLocalTimeCoverage(unittest.TestCase):
         self.assertEqual(west.local_time_coverage, 0.5)
         with self.assertRaises(ValueError):
             compute_local_time_coverage(observations, bins=0)
+
+    def test_without_observations(self):
+        """Without any observations, no target samples any time of day."""
+        coverage = compute_local_time_coverage(
+            _no_observations(), bins=4, targets=UNOBSERVED
+        )
+        self.assertEqual(len(coverage), 2)
+        self.assertEqual(coverage["local 00:00"].sum(), 0)
+        self.assertEqual(list(coverage.local_bins_sampled), [0, 0])
+        self.assertEqual(list(coverage.local_time_coverage), [0, 0])
 
 
 class TestOverlappingSamples(unittest.TestCase):
@@ -388,6 +446,18 @@ class TestSampleField(unittest.TestCase):
         np.testing.assert_allclose(comparison.error[:2], [0, 0], atol=1e-9)
         self.assertEqual(list(comparison.samples), [2, 1, 0])
         self.assertTrue(np.isnan(comparison.sampled_mean[2]))
+
+    def test_compare_means_without_observations(self):
+        """Without any samples, targets have a true mean but no sampled mean."""
+        sampled = sample_field(_no_observations(), self.field)
+        self.assertEqual(len(sampled), 0)
+        comparison = compare_sampled_means(
+            sampled, self.field, START, START + DAY, targets=UNOBSERVED
+        )
+        np.testing.assert_allclose(comparison.true_mean, [12, 12 + 1])
+        self.assertEqual(list(comparison.samples), [0, 0])
+        self.assertTrue(comparison.sampled_mean.isna().all())
+        self.assertTrue(comparison.error.isna().all())
 
     def test_compare_means_at_interval(self):
         """
