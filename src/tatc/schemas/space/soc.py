@@ -6,7 +6,6 @@ Object schema for streets-of-coverage (SOC) constellations.
 
 from __future__ import annotations
 
-import copy
 import math
 from typing import Literal
 
@@ -227,6 +226,7 @@ class SOCConstellation(BaseConstellation):
             instruments=self.instruments,
             attitude=self.attitude,
             resources=self.resources,
+            communications=self.communications,
             number_satellites=number_satellites,
             number_planes=number_planes,
             # offset adjacent planes by half a within-plane satellite
@@ -258,9 +258,7 @@ class SOCConstellation(BaseConstellation):
                     + (i // satellites_per_plane) * 180 / satellites_per_plane,
                     (i // satellites_per_plane) * spacing,
                 ),
-                instruments=copy.deepcopy(self.instruments),
-                attitude=copy.deepcopy(self.attitude),
-                resources=copy.deepcopy(self.resources),
+                **self._member_fields(),
             )
             for i in range(number_satellites)
         ]

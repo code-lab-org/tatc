@@ -11,6 +11,20 @@ from .attitude import (
     GlintAttitude,
     TargetAttitude,
 )
+from .communication import (
+    AllReceivers,
+    AllTransmitters,
+    Band,
+    DataFlow,
+    DataGeneration,
+    LinkMode,
+    Receiver,
+    RelayCommunications,
+    ShannonModem,
+    SpacecraftCommunications,
+    StationCommunications,
+    Transmitter,
+)
 from .instrument import (
     AllInstruments,
     ConicalInstrument,
@@ -57,6 +71,18 @@ radar stations (see `tatc.analysis.collect_footprints`).
 """
 
 __all__ = [
+    "AllReceivers",
+    "AllTransmitters",
+    "Band",
+    "DataFlow",
+    "DataGeneration",
+    "LinkMode",
+    "Receiver",
+    "RelayCommunications",
+    "ShannonModem",
+    "SpacecraftCommunications",
+    "StationCommunications",
+    "Transmitter",
     "ActiveWindow",
     "Aircraft",
     "AllInstruments",

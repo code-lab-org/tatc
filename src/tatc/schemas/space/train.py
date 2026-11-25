@@ -6,7 +6,6 @@ Object schema for train constellations.
 
 from __future__ import annotations
 
-import copy
 from datetime import timedelta
 from typing import Literal
 
@@ -109,9 +108,7 @@ class TrainConstellation(BaseConstellation):
                 orbit=self.orbit.get_derived_orbit(
                     i * self.get_delta_mean_anomaly(), i * self.get_delta_raan()
                 ),
-                instruments=copy.deepcopy(self.instruments),
-                attitude=copy.deepcopy(self.attitude),
-                resources=copy.deepcopy(self.resources),
+                **self._member_fields(),
             )
             for i in range(self.number_satellites)
         ]

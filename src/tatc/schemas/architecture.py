@@ -16,6 +16,7 @@ from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_val
 
 from .._warnings import warn
 from .air import Aircraft
+from .communication import RelayCommunications
 from .space import Satellite
 from .space.base_constellation import BaseConstellation
 from .surface import GroundStation, RadarStation, SurfacePlatform
@@ -145,6 +146,12 @@ class Relay(BaseModel):
         timedelta(0),
         description="The minimum duration of a contact.",
         examples=[timedelta(seconds=60)],
+    )
+    communications: RelayCommunications | None = Field(
+        None,
+        description="The antennas, receivers, and feeder link of each relay "
+        + "satellite, or `None` for any number of antennas without a link "
+        + "budget (see `tatc.analysis.compute_data_flow`).",
     )
 
     _expand = field_validator("satellites", mode="before")(_expand_constellations)

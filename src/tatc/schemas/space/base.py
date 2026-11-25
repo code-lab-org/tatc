@@ -6,11 +6,13 @@ Base object schemas for space systems.
 
 from __future__ import annotations
 
+import copy
 from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from ..attitude import Attitude, AttitudeSchedule, GlintAttitude, TargetAttitude
+from ..communication import SpacecraftCommunications
 from ..instrument import AllInstruments, InSituInstrument, Instrument
 from ..resources import InstrumentResources, SpacecraftResources
 
@@ -47,6 +49,12 @@ class SpaceSystem(BaseModel):
         default=None,
         description="The mass, power, life, and data handling of the "
         + "spacecraft (of each member, for a constellation), if given.",
+    )
+    communications: SpacecraftCommunications | None = Field(
+        default=None,
+        description="The transmitters of the spacecraft (of each member, for a "
+        + "constellation) and how it generates data, if given (see "
+        + "`tatc.analysis.compute_data_flow`).",
     )
 
     @model_validator(mode="after")
@@ -108,6 +116,21 @@ class SpaceSystem(BaseModel):
         if self.attitude is None:
             return instrument
         return instrument.bind_attitude(self.attitude)
+
+    def _member_fields(self) -> dict[str, Any]:
+        """
+        Gets copies of the fields that a constellation shares with each of its
+        members: the instruments, attitude, resources, and communications.
+
+        Returns:
+            dict[str, Any]: The fields, by name.
+        """
+        return {
+            "instruments": copy.deepcopy(self.instruments),
+            "attitude": copy.deepcopy(self.attitude),
+            "resources": copy.deepcopy(self.resources),
+            "communications": copy.deepcopy(self.communications),
+        }
 
     def get_payload_resources(self) -> InstrumentResources:
         """
