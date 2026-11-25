@@ -665,6 +665,16 @@ class TestLoading(unittest.TestCase):
         system.spacecraft[0].__dict__["name"] = "changed"
         self.assertEqual(get_system("jpss").spacecraft[0].name, "NOAA-20")
 
+    def test_dumped_systems_parse(self):
+        """
+        Test that every system, dumped with its defaults (as its record is checked
+        when written), parses again: values dumped as `None`, such as a
+        spacecraft's unknown storage, need no provenance.
+        """
+        for system_id in get_system_ids():
+            with self.subTest(system_id):
+                parse_system(get_system(system_id).model_dump(mode="json"))
+
     def test_spacecraft_belong_to_one_system(self):
         """
         Test that every spacecraft belongs to one system, and that every platform
