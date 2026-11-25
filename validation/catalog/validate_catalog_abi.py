@@ -72,6 +72,7 @@ GRID = FixedGrid(
     reference="Nadir resolution of the GOES-R Product Definition and Users' Guide "
     "(not gated); fixed grid of ABI-L2-ACMF (2 km)",
     fixture_path=FIXTURES / "abi_pixels.npz",
+    gate_published=False,
 )
 
 

@@ -70,6 +70,7 @@ GRID = FixedGrid(
     reference="Resolution at the sub-satellite point of JMA's Himawari Standard "
     "Data User's Guide (not gated); pixel positions of AHI-L2-FLDK-Clouds (2 km)",
     fixture_path=FIXTURES / "ahi_pixels.npz",
+    gate_published=False,
 )
 
 

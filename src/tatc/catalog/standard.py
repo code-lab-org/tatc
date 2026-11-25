@@ -490,7 +490,11 @@ class EntryValidation:
     """
     The validation status of an entry, computed from its records and the
     standard: of each configuration, and the grades of its class that no
-    configuration serves (`missing_grades`).
+    configuration serves (`missing_grades`). Its tier is set by the
+    configurations at the grades its class requires (see
+    `get_required_grades`); those at an optional grade (the sample size grade
+    of most classes) have their own tiers, and their gaps are listed with the
+    others'.
     """
 
     tier: Tier

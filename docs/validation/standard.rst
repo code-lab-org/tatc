@@ -155,8 +155,10 @@ Tiers
      - Meaning
    * - `validated`
      - All applicable gates pass under the rules above. An entry is validated only
-       if every configuration is, and it has configurations at the grades its
-       class requires.
+       if every configuration at a grade its class requires is, and it has
+       configurations at those grades. Configurations at an optional grade (the
+       sample size grade of every class but cross-track and conical) have their own
+       tiers, which do not set the entry's; their gaps are listed with the entry's.
    * - `partial`
      - Some gates are unmet or untested, or the evidence is incomplete. The entry
        lists each gap.
@@ -168,7 +170,10 @@ Gates
 
 A configuration's grade states its use. Coverage and timing differ only in the
 epoch gate. Cross-track and conical instruments also need a configuration at the
-sample size grade. Orbit error against recorded positions is reported but not
+sample size grade. The sample size grades of the other classes (versions 8 to 11)
+are optional: their configurations are gated, but an entry does not need them to
+be validated, as published sample sizes of these instruments are rarely given
+away from nadir, or only as approximate values of their products. Orbit error against recorded positions is reported but not
 gated, because it grades the element set rather than the instrument. What each
 metric measures, and how, is stated under `Metrics`_.
 
@@ -203,6 +208,12 @@ observes a track displaced from the ground track by the Earth's rotation:
    * - Epoch, 95th percentile (timing)
      - ≤ 1 s
      - ≤ 1 s
+   * - Dimensions within 3% (sample size, optional)
+     - ≥ 90%
+     - ≥ 90%
+   * - Spacing along track, error of the median (sample size, optional)
+     - ≤ 3%
+     - ≤ 3%
 
 .. list-table::
    :header-rows: 1
@@ -262,18 +273,19 @@ observes a track displaced from the ground track by the Earth's rotation:
      -
      - ≥ 0.90
      -
-   * - Pixel position, median (sample size)
+   * - Pixel position, median (sample size; optional but for cross-track)
+     - ≤ 6 km
      - ≤ 6 km
      -
      -
-     -
-     -
-   * - Dimensions within 3% (sample size)
+     - ≤ 6 km
+   * - Dimensions within 3% (sample size; optional but for cross-track and
+       conical)
      - ≥ 90%
-     -
      - ≥ 90%
-     -
-     -
+     - ≥ 90%
+     - ≥ 90%
+     - ≥ 90%
    * - Product limit of local zenith angle
      -
      -
@@ -500,13 +512,31 @@ Sample size
 Published footprint dimensions, along and across track at stated scan angles, are
 compared with the sample sizes that `compute_sample_sizes` predicts for a satellite
 in a circular orbit at the published altitude and inclination, observing at those
-scan angles. Each footprint gives two dimensions, and the metric is the share whose
-relative error is within 3%.
+scan angles (and, for a view pointed fore or aft, at its angle along track). Each
+footprint gives two dimensions, and the metric is the share whose relative error is
+within 3%. For a radar, the sizes are its resolutions (`range_resolution` and
+`azimuth_resolution`), compared with published resolutions. Published dimensions
+that cannot test a configuration are compared without the gate: those from which
+its values come (such as a footprint at nadir from which a pixel's angle is
+derived, or a geostationary grid's sampling distance at the sub-satellite point),
+those whose definitions differ from the configuration's, or those only at nadir or
+only approximate. Their record gives the largest error
+(`sample_size_largest_error`) rather than the share within 3%, so the gate is
+untested and the configuration partial, as its limitations state.
 
 **Pixel position, median** tests where samples fall within the swath. At a sample of
 scans, the position that the instrument projects for each pixel at the middle of
 the scan (`compute_projected_pixel_position`) is compared with the geolocated center
-of the same sample in the product. The gate takes the median distance, in km.
+of the same sample in the product. The gate takes the median distance, in km. The
+pixels of a geostationary imager's fixed grid are projected from the grid's nominal
+position (a geosynchronous orbit at its longitude), to which the products are
+navigated, and compared with the grid's positions.
+
+**Spacing along track, error of the median** tests the spacing of a beam's samples
+(shots or profiles) along its track: the median ratio of the spacing that
+`compute_sample_sizes` predicts to that measured between consecutive samples in the
+product, whose error from one is gated, in percent. The positions of the beams
+are tested at the coverage grade.
 
 Back-Test
 =========

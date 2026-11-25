@@ -83,6 +83,7 @@ GRID = FixedGrid(
     reference="Spatial sampling distance of the MTG End User Requirements Document "
     "(not gated); fixed grid of the FCI Level 2 cloud mask (EO:EUM:DAT:0678, 2 km)",
     fixture_path=FIXTURES / "fci_pixels.npz",
+    gate_published=False,
 )
 
 

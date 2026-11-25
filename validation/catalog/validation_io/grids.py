@@ -37,7 +37,7 @@ class FixedGrid:
     published_footprints: tuple
     reference: str
     fixture_path: pathlib.Path
-    gate_published: bool = False
+    gate_published: bool = True
     samples: int = 2000
     fixture_samples: int = 200
 

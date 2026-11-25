@@ -135,7 +135,8 @@ Instruments and Pointing
        (95th percentile), swath width within 2.6 km, and swath IoU 0.992 (:doc:`catalog`). TMI's three feeds, on
        held-out data: 99.66 to 99.80% of passes predicted, epochs within 0.75 s (95th percentile), swath width within
        2.9 km, and swath IoU 0.995 or more (:doc:`catalog`)
-   * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`)
+   * - Side-looking SAR (`PointedInstrument` with roll, `roll_angle_profile`, `range_resolution`,
+       `azimuth_resolution`)
      - NISAR, Sentinel-1C
      - NISAR's swath edges within 5 to 7 km across track (95th percentile) (:doc:`instruments/ValidateSARNISAR`); roll
        steering profiles bring Sentinel-1C's within 6 to 7 km (:doc:`instruments/ValidateSARSentinel1`).
@@ -147,7 +148,8 @@ Instruments and Pointing
        within 12.1 km (95th percentile) with a fixed field of view, and swath IoU 0.974 (:doc:`catalog`). NISAR's 77 MHz mode, on four held-out days with an element set of each day:
        99.01% of passes predicted, edges within 3.1 km and epochs within 0.13 s (95th percentile); with an element set
        3 to 7 days later, edges within 8.9 km and epochs within 1.28 s, as it lay 1.7 to 9.2 km ahead of the products'
-       orbits along track (:doc:`catalog`)
+       orbits along track (:doc:`catalog`). Sentinel-1's IW resolutions, derived from the look bandwidths and windows
+       of its ground range detected product, within 0.4% of its Product Definition's in each sub-swath (:doc:`catalog`)
    * - Wide-swath interferometer (two rolled instruments)
      - SWOT KaRIn
      - Every pixel 11 to 59 km from the ground track observed by the instrument on its side, none in the nadir gap;
