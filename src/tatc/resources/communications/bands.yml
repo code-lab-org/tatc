@@ -1,0 +1,69 @@
+# Nominal values of the frequency bands of space communications (see
+# tatc.utils.get_band). Each value states its source, as read; a midpoint of
+# a published allocation is derived. The zenith attenuation is the year
+# average of DSN 810-005 module 105 at Canberra for a cumulative distribution
+# of 0.90 ("very cloudy, no rain"), between the DSN's three sites; rain fades
+# are left to the margin of a link.
+bands:
+  S:
+    frequency:
+      value: 2245.0e6
+      source: >-
+        derived: the midpoint of the downlink allocation "2200-2290 MHz ...
+        Primary: Space Operation, Earth Exploration-Satellite, Space
+        Research", NASA Near Earth Network Users' Guide 453-NENUG Rev. 4,
+        Table 16-2
+        (https://explorers.larc.nasa.gov/2021APMIDEX/pdf_files/453-UG-002905.pdf)
+    zenith_attenuation:
+      value: 0.037
+      source: >-
+        nominal: year-average zenith attenuation at 2.3 GHz, Canberra, CD =
+        0.90 "very cloudy, no rain", DSN Telecommunications Link Design
+        Handbook 810-005, module 105 Rev. E, Table 11
+        (https://deepspace.jpl.nasa.gov/dsndocs/810-005/105/105E.pdf)
+  X:
+    frequency:
+      value: 8212.5e6
+      source: >-
+        derived: the midpoint of the downlink allocation "8025-8400 MHz ...
+        Primary: Earth Exploration-Satellite", NASA Near Earth Network
+        Users' Guide 453-NENUG Rev. 4, Table 16-2
+        (https://explorers.larc.nasa.gov/2021APMIDEX/pdf_files/453-UG-002905.pdf)
+    zenith_attenuation:
+      value: 0.057
+      source: >-
+        nominal: year-average zenith attenuation at 8.4 GHz, Canberra, CD =
+        0.90 "very cloudy, no rain", DSN Telecommunications Link Design
+        Handbook 810-005, module 105 Rev. E, Table 14
+        (https://deepspace.jpl.nasa.gov/dsndocs/810-005/105/105E.pdf)
+  Ku:
+    frequency:
+      value: 15.0034e9
+      source: >-
+        nominal: the TDRS single access return, "Space Relay ... Ku-band:
+        15.0034 GHz", NASA Near Space Network services brochure
+        (FS-2022-9-863-GSFC), page 4
+        (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf)
+    zenith_attenuation:
+      value: 0.084
+      source: >-
+        nominal: "Typical One-Way Clear Air Total Zenith Attenuation Values"
+        at 15 GHz and 0 km (21 C, 7.5 g/m3 water vapor), clear air without
+        clouds, Ippolito et al., Propagation Effects Handbook for Satellite
+        Systems Design, NASA RP-1082(04), Table 6.2-1
+        (https://ntrs.nasa.gov/api/citations/19890007689/downloads/19890007689.pdf)
+  Ka:
+    frequency:
+      value: 26.25e9
+      source: >-
+        derived: the midpoint of the downlink allocation "25.5-27.0 GHz ...
+        Primary: Earth Exploration-Satellite, Space Research", NASA Near
+        Earth Network Users' Guide 453-NENUG Rev. 4, Table 16-2
+        (https://explorers.larc.nasa.gov/2021APMIDEX/pdf_files/453-UG-002905.pdf)
+    zenith_attenuation:
+      value: 0.387
+      source: >-
+        nominal: year-average zenith attenuation at 26.0 GHz, Canberra, CD =
+        0.90 "very cloudy, no rain", DSN Telecommunications Link Design
+        Handbook 810-005, module 105 Rev. E, Table 20
+        (https://deepspace.jpl.nasa.gov/dsndocs/810-005/105/105E.pdf)
