@@ -36,6 +36,7 @@ _COLUMNS = [
     "sample_cross",
     "spacing_along",
     "spacing_cross",
+    "sample_azimuth",
 ]
 
 
@@ -91,7 +92,12 @@ def compute_sample_sizes(
     neighboring pixels (`spacing_along` and `spacing_cross`, meters), which
     is larger than the pixel if there are gaps between pixels (a negative
     oversampling). An observation cannot resolve detail finer than the
-    larger of the two. The sizes are those of a `PointedInstrument`'s
+    larger of the two. The along-track size lies on the ground in the
+    direction of the `sample_azimuth` (degrees clockwise from north, see
+    `PointedInstrument.compute_sample_azimuth` and
+    `ConicalInstrument.compute_sample_azimuth`), and the cross-track size
+    about perpendicular to it, which orient the sample's footprint (as to
+    weight a field over it, see `sample_field`). The sizes are those of a `PointedInstrument`'s
     pixels (see `PointedInstrument.compute_sample_size` and
     `PointedInstrument.compute_sample_spacing`) or of a
     `ConicalInstrument`'s beam and samples along its scanned arc (see
@@ -140,7 +146,7 @@ def compute_sample_sizes(
 
     Returns:
         geopandas.GeoDataFrame: the observations, with the sample sizes,
-            spacings, slant ranges, and scan angles.
+            spacings, azimuths, slant ranges, and scan angles.
     """
     lookup = _get_platform_lookup(platforms)
     result = observations.copy()
@@ -204,4 +210,7 @@ def compute_sample_sizes(
                 along, cross = method(track, target)
                 result.iloc[index, columns[f"{prefix}_along"]] = np.atleast_1d(along)
                 result.iloc[index, columns[f"{prefix}_cross"]] = np.atleast_1d(cross)
+            result.iloc[index, columns["sample_azimuth"]] = np.atleast_1d(
+                sized.compute_sample_azimuth(track, target)
+            )
     return result

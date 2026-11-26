@@ -520,27 +520,22 @@ def compute_ground_sample_size(
         tuple[numpy.typing.NDArray, numpy.typing.NDArray]: the along-track
             and cross-track sizes (meters).
     """
-    p_m, _, along, cross = _compute_view_frame(
+    p_m, los, along, cross = _compute_ground_axes(
         orbit_track,
+        target,
+        velocity_frame,
         roll_angle,
         pitch_angle,
-        velocity_frame,
         nadir_reference,
         tilt_angle,
         attitude,
         yaw_angle,
     )
-    p_m, along, cross = (np.reshape(v, (3, -1)) for v in (p_m, along, cross))
-    los = np.reshape(_compute_line_of_sight(target, p_m), (3, -1))
-    los = los / np.linalg.norm(los, axis=0)
     elevation = np.broadcast_to(
         np.atleast_1d(target.elevation.m).astype(float), los.shape[1:]
     )
     sizes = []
-    for axis, angle in ((along, along_track_angle), (cross, cross_track_angle)):
-        # the axis made perpendicular to the line of sight
-        normal = axis - np.sum(axis * los, axis=0) * los
-        normal = normal / np.linalg.norm(normal, axis=0)
+    for normal, angle in ((along, along_track_angle), (cross, cross_track_angle)):
         half = np.radians(angle) / 2
         ends = []
         for sign in (-1, 1):
@@ -554,12 +549,152 @@ def compute_ground_sample_size(
                 end[:, selected] = np.where(found, point, np.nan)
             ends.append(end)
         sizes.append(np.linalg.norm(ends[1] - ends[0], axis=0))
-    if (
-        np.ndim(np.asarray(orbit_track.t.tt)) == 0
-        and np.ndim(target.latitude.degrees) == 0
-    ):
+    if _is_scalar(orbit_track, target):
         return sizes[0][0], sizes[1][0]
     return sizes[0], sizes[1]
+
+
+def _is_scalar(orbit_track: Geocentric, target: GeographicPosition) -> bool:
+    """Whether an orbit track is at one time and the target is one place."""
+    return (
+        np.ndim(np.asarray(orbit_track.t.tt)) == 0
+        and np.ndim(target.latitude.degrees) == 0
+    )
+
+
+def _compute_ground_axes(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: npt.ArrayLike = 0,
+    attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Compute the axes of a view of a target (see `compute_ground_sample_size`):
+    the Earth-fixed position (meters) of the satellite, the unit line of sight
+    to the target, and the view's along-track and cross-track axes (rotated
+    from nadir by the yaw, tilt, roll, and pitch angles, see
+    `_compute_view_frame`), each made perpendicular to the line of sight, all
+    with shape (3, N).
+    """
+    p_m, _, along, cross = _compute_view_frame(
+        orbit_track,
+        roll_angle,
+        pitch_angle,
+        velocity_frame,
+        nadir_reference,
+        tilt_angle,
+        attitude,
+        yaw_angle,
+    )
+    p_m, along, cross = (np.reshape(v, (3, -1)) for v in (p_m, along, cross))
+    los = np.reshape(_compute_line_of_sight(target, p_m), (3, -1))
+    los = los / np.linalg.norm(los, axis=0)
+    p_m = np.broadcast_to(p_m, los.shape)
+    axes = []
+    for axis in (along, cross):
+        # the axis made perpendicular to the line of sight
+        normal = axis - np.sum(axis * los, axis=0) * los
+        axes.append(normal / np.linalg.norm(normal, axis=0))
+    return p_m, los, axes[0], axes[1]
+
+
+def compute_ground_sample_azimuth(
+    orbit_track: Geocentric,
+    target: GeographicPosition,
+    velocity_frame: VelocityFrame = VelocityFrame.EARTH_FIXED,
+    roll_angle: npt.ArrayLike = 0,
+    pitch_angle: npt.ArrayLike = 0,
+    nadir_reference: NadirReference = NadirReference.GEODETIC,
+    tilt_angle: npt.ArrayLike = 0,
+    attitude: Any = None,
+    yaw_angle: npt.ArrayLike = 0,
+) -> npt.NDArray:
+    """
+    Compute the azimuth (degrees clockwise from north) on the ground of a
+    view's along-track axis at a target: the direction in which a sample's
+    along-track size (see `compute_ground_sample_size`) lies, which orients
+    its footprint. The along-track axis (rotated from nadir by the yaw, tilt,
+    roll, and pitch angles, see `_compute_view_frame`), made perpendicular to
+    the line of sight, is projected along the line of sight onto the plane
+    tangent to the WGS 84 ellipsoid at the target, as a small turn of the
+    line of sight about the cross-track axis moves the point it meets on the
+    ground. Its cross-track size lies about perpendicular to it (exactly at
+    nadir; a view pointed obliquely both along and across track skews its
+    axes on the ground). A view grazing the ground gives `NaN`.
+
+    Args:
+        orbit_track (skyfield.positionlib.Geocentric): the satellite orbit track.
+        target (skyfield.toposlib.GeographicPosition): the target position
+            (a single target, or one target for each time of the orbit track).
+        velocity_frame (VelocityFrame): The reference frame of the velocity
+            vector that defines the along-track direction.
+        roll_angle (numpy.typing.ArrayLike): the view's roll angle (degrees).
+        pitch_angle (numpy.typing.ArrayLike): the view's pitch angle (degrees).
+        nadir_reference (NadirReference): The definition of the nadir
+            direction from which the view is rotated.
+        tilt_angle (numpy.typing.ArrayLike): the tilt angle (degrees) of a
+            scan plane about the cross-track axis (positive forward).
+        attitude (Any): The attitude of the spacecraft's body (see
+            `tatc.schemas.Attitude` and `tatc.schemas.AttitudeSchedule`), from
+            which the view is rotated, or `None` for a body aligned with the
+            nadir frame (in `velocity_frame`).
+        yaw_angle (numpy.typing.ArrayLike): the view's yaw angle (degrees)
+            about the nadir axis, applied before the tilt angle.
+
+    Returns:
+        numpy.typing.NDArray: the azimuth(s) (degrees, in [0, 360)).
+    """
+    _, los, along, _ = _compute_ground_axes(
+        orbit_track,
+        target,
+        velocity_frame,
+        roll_angle,
+        pitch_angle,
+        nadir_reference,
+        tilt_angle,
+        attitude,
+        yaw_angle,
+    )
+    shape = los.shape[1:]
+    latitude = np.broadcast_to(
+        np.radians(np.atleast_1d(target.latitude.degrees)), shape
+    )
+    longitude = np.broadcast_to(
+        np.radians(np.atleast_1d(target.longitude.degrees)), shape
+    )
+    up = np.stack(
+        [
+            np.cos(latitude) * np.cos(longitude),
+            np.cos(latitude) * np.sin(longitude),
+            np.sin(latitude),
+        ]
+    )
+    east = np.stack([-np.sin(longitude), np.cos(longitude), np.zeros(shape)])
+    north = np.stack(
+        [
+            -np.sin(latitude) * np.cos(longitude),
+            -np.sin(latitude) * np.sin(longitude),
+            np.cos(latitude),
+        ]
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slant = np.sum(los * up, axis=0)
+        slant = np.where(np.abs(slant) > 1e-9, slant, np.nan)
+        ground = along - np.sum(along * up, axis=0) / slant * los
+    azimuth = (
+        np.degrees(
+            np.arctan2(np.sum(ground * east, axis=0), np.sum(ground * north, axis=0))
+        )
+        % 360
+    )
+    if _is_scalar(orbit_track, target):
+        return azimuth[0]
+    return azimuth
 
 
 def _shift_along_track(orbit_track: Geocentric, seconds: npt.ArrayLike) -> Geocentric:

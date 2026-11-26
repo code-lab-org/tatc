@@ -23,6 +23,7 @@ from ...utils.projection import (
     _compute_projected_rays,
     _shift_along_track,
     compute_cone_and_azimuth,
+    compute_ground_sample_azimuth,
     compute_ground_sample_size,
     compute_projected_ray_position,
 )
@@ -332,6 +333,35 @@ class ConicalInstrument(Instrument):
             target,
             self.beam_width,
             self.beam_width,
+            self.velocity_frame,
+            nadir_reference=self.nadir_reference,
+            attitude=self._attitude,
+        )
+
+    def compute_sample_azimuth(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> npt.NDArray:
+        """
+        Computes the azimuth (degrees clockwise from north) on the ground of
+        the along-track axis of the beam viewing a target (see
+        `tatc.utils.compute_ground_sample_azimuth`), in which its along-track
+        size (see `compute_sample_size`) lies; its cross-track size lies
+        about perpendicular to it. The sizes are measured along the axes of
+        the satellite's motion, so that away from the center of the scanned
+        arc, where the beam's footprint is longer in the direction of the
+        view, the footprint's longer axis lies between them.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            numpy.typing.NDArray: the azimuths (degrees, in [0, 360)).
+        """
+        return compute_ground_sample_azimuth(
+            orbit_track,
+            target,
             self.velocity_frame,
             nadir_reference=self.nadir_reference,
             attitude=self._attitude,

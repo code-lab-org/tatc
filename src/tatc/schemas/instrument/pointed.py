@@ -23,6 +23,7 @@ from ...utils.projection import (
     compute_footprint,
     compute_swept_footprints,
     compute_ground_advance,
+    compute_ground_sample_azimuth,
     compute_ground_sample_size,
     compute_incidence_angle,
     compute_projected_ray_position,
@@ -329,6 +330,77 @@ class PointedInstrument(Instrument):
             cross = np.full(np.shape(cross), np.nan)
         return along, cross
 
+    def _get_ground_view(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> tuple[npt.ArrayLike, npt.ArrayLike, dict]:
+        """
+        Gets the view of a target along whose axes this instrument's extents
+        lie on the ground (see `_compute_ground_extent`): the factors of its
+        along-track and cross-track angular extents, and the arguments of
+        `tatc.utils.compute_ground_sample_size` (and
+        `tatc.utils.compute_ground_sample_azimuth`) that orient the view.
+        """
+        if self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST:
+            roll, pitch = compute_view_angles(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
+                attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
+                along_first=True,
+            )
+            return (
+                np.cos(np.radians(roll)),
+                1,
+                {
+                    "velocity_frame": self.velocity_frame,
+                    "nadir_reference": self.nadir_reference,
+                    "tilt_angle": pitch,
+                    "attitude": self._attitude,
+                    "yaw_angle": self.yaw_angle,
+                },
+            )
+        if ViewGeometry(self.view_geometry).is_scan:
+            # the axes of the view rolled and pitched to the target, in the scan
+            # plane, along which a step of the cross-track angle (about the tilted
+            # along-track axis) moves the line of sight by its cosine of the
+            # target's along-track angle from the plane
+            roll, pitch = compute_view_angles(
+                orbit_track,
+                target,
+                self.velocity_frame,
+                self.nadir_reference,
+                self.get_pitch_angle(orbit_track),
+                attitude=self._attitude,
+                yaw_angle=self.yaw_angle,
+            )
+            return (
+                1,
+                np.cos(np.radians(pitch)),
+                {
+                    "velocity_frame": self.velocity_frame,
+                    "roll_angle": roll,
+                    "pitch_angle": pitch,
+                    "nadir_reference": self.nadir_reference,
+                    "tilt_angle": self.get_pitch_angle(orbit_track),
+                    "attitude": self._attitude,
+                    "yaw_angle": self.yaw_angle,
+                },
+            )
+        return (
+            1,
+            1,
+            {
+                "velocity_frame": self.velocity_frame,
+                "roll_angle": self.get_roll_angle(orbit_track),
+                "pitch_angle": self.get_pitch_angle(orbit_track),
+                "nadir_reference": self.nadir_reference,
+                "attitude": self._attitude,
+                "yaw_angle": self.yaw_angle,
+            },
+        )
+
     def _compute_ground_extent(
         self,
         orbit_track: Geocentric,
@@ -349,66 +421,35 @@ class PointedInstrument(Instrument):
         (about the cross-track axis) moves the line of sight by its cosine of the
         target's cross-track angle.
         """
-        if self.view_geometry == ViewGeometry.SCAN_ALONG_FIRST:
-            roll, pitch = compute_view_angles(
-                orbit_track,
-                target,
-                self.velocity_frame,
-                self.nadir_reference,
-                attitude=self._attitude,
-                yaw_angle=self.yaw_angle,
-                along_first=True,
-            )
-            return compute_ground_sample_size(
-                orbit_track,
-                target,
-                along_track_angle * np.cos(np.radians(roll)),
-                cross_track_angle,
-                self.velocity_frame,
-                nadir_reference=self.nadir_reference,
-                tilt_angle=pitch,
-                attitude=self._attitude,
-                yaw_angle=self.yaw_angle,
-            )
-        if ViewGeometry(self.view_geometry).is_scan:
-            # the axes of the view rolled and pitched to the target, in the scan
-            # plane, along which a step of the cross-track angle (about the tilted
-            # along-track axis) moves the line of sight by its cosine of the
-            # target's along-track angle from the plane
-            roll, pitch = compute_view_angles(
-                orbit_track,
-                target,
-                self.velocity_frame,
-                self.nadir_reference,
-                self.get_pitch_angle(orbit_track),
-                attitude=self._attitude,
-                yaw_angle=self.yaw_angle,
-            )
-            return compute_ground_sample_size(
-                orbit_track,
-                target,
-                along_track_angle,
-                cross_track_angle * np.cos(np.radians(pitch)),
-                self.velocity_frame,
-                roll,
-                pitch,
-                nadir_reference=self.nadir_reference,
-                tilt_angle=self.get_pitch_angle(orbit_track),
-                attitude=self._attitude,
-                yaw_angle=self.yaw_angle,
-            )
+        along, cross, view = self._get_ground_view(orbit_track, target)
         return compute_ground_sample_size(
             orbit_track,
             target,
-            along_track_angle,
-            cross_track_angle,
-            self.velocity_frame,
-            self.get_roll_angle(orbit_track),
-            self.get_pitch_angle(orbit_track),
-            self.nadir_reference,
-            attitude=self._attitude,
-            yaw_angle=self.yaw_angle,
+            along_track_angle * along,
+            cross_track_angle * cross,
+            **view,
         )
+
+    def compute_sample_azimuth(
+        self, orbit_track: Geocentric, target: GeographicPosition
+    ) -> npt.NDArray:
+        """
+        Computes the azimuth (degrees clockwise from north) on the ground of
+        the along-track axis of a pixel viewing a target (see
+        `tatc.utils.compute_ground_sample_azimuth`), in which its along-track
+        size (see `compute_sample_size`) lies; its cross-track size lies
+        about perpendicular to it.
+
+        Args:
+            orbit_track (skyfield.positionlib.Geocentric): The satellite position/velocity.
+            target (skyfield.toposlib.GeographicPosition): The target position
+                (a single target, or one target for each time of the orbit track).
+
+        Returns:
+            numpy.typing.NDArray: the azimuths (degrees, in [0, 360)).
+        """
+        _, _, view = self._get_ground_view(orbit_track, target)
+        return compute_ground_sample_azimuth(orbit_track, target, **view)
 
     def get_cross_track_instantaneous_field_of_view(self) -> float:
         """
