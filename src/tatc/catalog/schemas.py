@@ -35,6 +35,13 @@ from ..schemas import (
     Satellite,
     TargetAttitude,
 )
+from ..schemas.communication import (
+    Receiver,
+    RelayCommunications,
+    SpacecraftCommunications,
+    StationCommunications,
+    Transmitter,
+)
 from ..schemas.orbit import AllOrbits
 from ..schemas.resources import (
     InstrumentPerformance,
@@ -255,6 +262,184 @@ class SpacecraftResourceSpecification(SpacecraftResources):
             SpacecraftResources: The resources.
         """
         return _to_core(self, SpacecraftResources)
+
+
+def _check_described(
+    model: Any, sourced: tuple[str, ...] | None = None, exempt: tuple[str, ...] = ()
+) -> None:
+    """
+    Checks that a model gives a provenance for each value given (and only
+    those) of the `sourced` fields (by default, every field other than its
+    provenance and the `exempt` fields, which describe rather than measure).
+    """
+    names = (
+        sourced
+        if sourced is not None
+        else tuple(n for n in type(model).model_fields if n not in exempt)
+    )
+    given = {
+        name
+        for name in model.model_fields_set & set(names)
+        if name != "provenance" and getattr(model, name) is not None
+    }
+    _check_provenance(given, model.provenance)
+
+
+class TransmitterSpecification(Transmitter):
+    """
+    A transmitter of a spacecraft (see `tatc.schemas.Transmitter`), with the
+    origin of each value given (other than its name and link).
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value given, by its field."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "TransmitterSpecification":
+        _check_described(self, exempt=("type", "name", "link", "provenance"))
+        return self
+
+    def to_transmitter(self) -> Transmitter:
+        """
+        Gets the transmitter without its provenance.
+
+        Returns:
+            Transmitter: The transmitter.
+        """
+        return _to_core(self, Transmitter)
+
+
+class ReceiverSpecification(Receiver):
+    """
+    A receiver of a ground station or relay (see `tatc.schemas.Receiver`),
+    with the origin of each value given.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of each value given, by its field."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "ReceiverSpecification":
+        _check_described(self, exempt=("type", "provenance"))
+        return self
+
+    def to_receiver(self) -> Receiver:
+        """
+        Gets the receiver without its provenance.
+
+        Returns:
+            Receiver: The receiver.
+        """
+        return _to_core(self, Receiver)
+
+
+class SpacecraftCommunicationsSpecification(_CatalogModel):
+    """
+    The transmitters of a spacecraft (see
+    `tatc.schemas.SpacecraftCommunications`), with the origin of each value.
+    The data it generates is that of the instruments it carries (see
+    `tatc.analysis.get_generation_rate`).
+    """
+
+    transmitters: tuple[TransmitterSpecification, ...] = Field(
+        ..., min_length=1, description="The transmitters."
+    )
+
+    def to_communications(self) -> SpacecraftCommunications:
+        """
+        Gets the communications without their provenance.
+
+        Returns:
+            SpacecraftCommunications: The communications.
+        """
+        return SpacecraftCommunications(
+            transmitters=[t.to_transmitter() for t in self.transmitters]
+        )
+
+
+class StationCommunicationsSpecification(_CatalogModel):
+    """
+    The antennas and receivers of a ground station (see
+    `tatc.schemas.StationCommunications`), with the origin of each value.
+    """
+
+    antennas: int = Field(
+        ..., gt=0, description="The number of antennas of the station."
+    )
+    receivers: tuple[ReceiverSpecification, ...] = Field(
+        (), description="The receivers, at most one per band."
+    )
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of the number of antennas."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "StationCommunicationsSpecification":
+        _check_described(self, sourced=("antennas",))
+        self.to_communications()  # (one receiver per band)
+        return self
+
+    def to_communications(self) -> StationCommunications:
+        """
+        Gets the communications without their provenance.
+
+        Returns:
+            StationCommunications: The communications.
+        """
+        return StationCommunications(
+            antennas=self.antennas,
+            receivers=[r.to_receiver() for r in self.receivers],
+        )
+
+
+class RelayServiceSpecification(_CatalogModel):
+    """
+    A service of a data relay (see `tatc.schemas.RelayCommunications`): the
+    number of antennas of each relay satellite that provide it, the receivers
+    of its return link, and the rate at which each relay satellite forwards
+    its data to the ground, with the origin of each value.
+    """
+
+    antennas: int = Field(
+        ..., gt=0, description="The number of antennas of each relay satellite."
+    )
+    receivers: tuple[ReceiverSpecification, ...] = Field(
+        (), description="The receivers of the return link, at most one per band."
+    )
+    feeder_rate: float | None = Field(
+        None,
+        gt=0,
+        description="The rate (bits per second) at which each relay satellite "
+        + "forwards the service's data to the ground, if known.",
+    )
+    provenance: dict[str, Provenance] = Field(
+        ..., description="The origin of the number of antennas and feeder rate."
+    )
+
+    @model_validator(mode="after")
+    def _check_values(self) -> "RelayServiceSpecification":
+        _check_described(self, sourced=("antennas", "feeder_rate"))
+        self.to_communications()  # (one receiver per band)
+        return self
+
+    def to_communications(self) -> RelayCommunications:
+        """
+        Gets the communications of the relay without their provenance.
+
+        Returns:
+            RelayCommunications: The communications.
+        """
+        return RelayCommunications(
+            antennas=self.antennas,
+            receivers=[r.to_receiver() for r in self.receivers],
+            feeder_rate=self.feeder_rate,
+        )
 
 
 class InstrumentSpecification(_CatalogModel):
@@ -1062,6 +1247,7 @@ class InstrumentPayload:
         *,
         name: str,
         resources: SpacecraftResources | None = None,
+        communications: SpacecraftCommunications | None = None,
     ) -> Satellite:
         """
         Builds a satellite that carries the instruments with their attitude.
@@ -1074,18 +1260,26 @@ class InstrumentPayload:
             name (str): The satellite's name.
             resources (SpacecraftResources | None): The spacecraft's resources,
                 if any.
+            communications (SpacecraftCommunications | None): The
+                spacecraft's communications, if any.
 
         Returns:
             Satellite: The satellite.
         """
         if not self.instruments:
-            return Satellite(name=name, orbit=orbit, resources=resources)
+            return Satellite(
+                name=name,
+                orbit=orbit,
+                resources=resources,
+                communications=communications,
+            )
         return Satellite(
             name=name,
             orbit=orbit,
             instruments=self.instruments,
             attitude=self.attitude,
             resources=resources,
+            communications=communications,
         )
 
 
