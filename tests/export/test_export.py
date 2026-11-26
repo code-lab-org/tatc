@@ -134,7 +134,51 @@ class TestIODA(unittest.TestCase):
                 qc = dataset["PreQC"]["airTemperature"]
                 self.assertEqual(qc.dtype, np.int32)
                 np.testing.assert_array_equal(qc[:], [0, 1, 0])
-                np.testing.assert_array_equal(dataset["Location"][:], [0, 1, 2])
+                location = dataset["Location"]
+                self.assertEqual(location.dtype, np.int64)
+                np.testing.assert_array_equal(location[:], [0, 1, 2])
+
+    def test_ioda_attributes(self):
+        """An IODA file has the layout attributes and string types of ioda's
+        own files (as h5py, like ioda, reads them from HDF5)."""
+        h5py = pytest.importorskip("h5py")
+
+        def is_vlen_string(target, name):
+            attribute = h5py.h5a.open(target.id, name.encode())
+            kind = attribute.get_type()
+            return (
+                isinstance(kind, h5py.h5t.TypeStringID)
+                and kind.is_variable_str()
+                and attribute.get_space().shape == (1,)
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "observations.nc4"
+            to_ioda(
+                _observations(),
+                path,
+                variables={"temperature_observed": "airTemperature"},
+                units={"temperature_observed": "K"},
+                global_attributes={"platform": "test", "nchannels": 1},
+            )
+            with h5py.File(path, "r") as file:
+                self.assertEqual(list(file.attrs["_ioda_layout"]), ["ObsGroup"])
+                version = file.attrs["_ioda_layout_version"]
+                self.assertEqual(version.dtype, np.int32)
+                np.testing.assert_array_equal(version, [0])
+                for name in ("_ioda_layout", "converter", "platform"):
+                    self.assertTrue(is_vlen_string(file, name), name)
+                np.testing.assert_array_equal(file.attrs["nchannels"], [1])
+                location = file["Location"]
+                self.assertEqual(location.dtype, np.int64)
+                self.assertTrue(h5py.h5ds.is_scale(location.id))
+                for name in (
+                    "MetaData/dateTime",
+                    "MetaData/latitude",
+                    "ObsValue/airTemperature",
+                ):
+                    self.assertTrue(is_vlen_string(file[name], "units"), name)
+                    self.assertEqual(file[name].dims[0][0].name, "/Location")
 
     def test_profiles(self):
         """The observations of profiles are numbered by their observation."""
@@ -145,13 +189,17 @@ class TestIODA(unittest.TestCase):
                 observations,
                 path,
                 variables={"temperature": "airTemperature"},
-                metadata={"platform_az": "platformAzimuth"},
+                metadata={"platform_az": "platformAzimuth", "flag": "flagNumber"},
+                units={"platform_az": "degree"},
             )
             with netCDF4.Dataset(path) as dataset:
                 np.testing.assert_array_equal(
                     dataset["MetaData"]["sequenceNumber"][:], [0, 0, 1]
                 )
-                self.assertIn("platformAzimuth", dataset["MetaData"].variables)
+                azimuth = dataset["MetaData"]["platformAzimuth"]
+                self.assertEqual(azimuth.units, "degree")
+                # metadata without units has none
+                self.assertNotIn("units", dataset["MetaData"]["flagNumber"].ncattrs())
                 # the error of "temperature" is found by its name
                 self.assertIn("airTemperature", dataset["ObsError"].variables)
 

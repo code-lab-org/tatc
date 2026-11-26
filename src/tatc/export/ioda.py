@@ -4,7 +4,9 @@ assimilation Integration (JEDI), in the layout written by JCSDA's
 ioda-converters (`pyiodaconv/ioda_conv_engines.py`): a dimension `Location`
 of the observations, and groups `MetaData` (places, times, and geometry),
 `ObsValue` (values), `ObsError` (standard deviations of their errors), and
-`PreQC` (quality flags). Requires netCDF4.
+`PreQC` (quality flags). Its types and attributes follow the files of
+ioda-converters' tests and the rules of ioda's validator
+(`share/ioda/yaml/validation/ObsSpace.yaml`). Requires netCDF4.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
@@ -34,6 +36,10 @@ INT64_FILL = np.int64(-9223372036854775806)
 DATETIME_UNITS = "seconds since 1970-01-01T00:00:00Z"
 """The units of `MetaData/dateTime` (int64 seconds, as of ioda-converters)."""
 
+LAYOUT = "ObsGroup"
+"""The data layout of the files (their global attribute `_ioda_layout`, of
+version 0, as of ioda's `ObsGroup`)."""
+
 _GEOMETRY = {
     "sensorZenithAngle": ("platform_alt", True),
     "sensorAzimuthAngle": ("platform_az", False),
@@ -49,6 +55,16 @@ def _float(values: Any) -> np.ndarray:
     """Gets float32 values, with the fill value for missing values."""
     values = np.asarray(values, dtype=float)
     return np.where(np.isfinite(values), values, FLOAT_FILL).astype(np.float32)
+
+
+def _set_attributes(target: Any, attributes: Mapping[str, Any]) -> None:
+    """Sets the attributes of a netCDF4 dataset, group, or variable, with
+    strings as variable-length strings (as ioda writes them)."""
+    for name, value in attributes.items():
+        if isinstance(value, str):
+            target.setncattr_string(name, value)
+        else:
+            target.setncattr(name, value)
 
 
 def _error_column(observations: gpd.GeoDataFrame, column: str) -> str | None:
@@ -87,7 +103,8 @@ def to_ioda(
       (degrees, from the columns `platform_alt`, `platform_az`, `solar_alt`,
       and `solar_az`, if given), `sequenceNumber` (the `observation` of
       profiles, see `tatc.analysis.sample_profiles`), and other numeric
-      columns (`metadata`);
+      columns (`metadata`, with their `units`, which ioda's validator
+      requires);
     - `ObsValue`: the values of each variable (float32), named as JEDI's
       UFO names them (such as `airTemperature`), which the user gives;
     - `ObsError`: the standard deviation of each variable's errors (by
@@ -96,9 +113,14 @@ def to_ioda(
     - `PreQC`: quality flags of each variable (int32), from columns, if given.
 
     Missing values are the fill values of ioda-converters (`FLOAT_FILL`,
-    `INT32_FILL`, and `INT64_FILL`). The variable `Location` holds the index of
-    each observation; ioda-converters leave it to pyioda, whose values were not
-    confirmed. Requires netCDF4.
+    `INT32_FILL`, and `INT64_FILL`). The variable `Location` (int64) holds
+    the index of each observation, which ioda's `ObsSpace` replaces with its
+    own on reading (ioda-converters write zeros). String attributes are
+    variable-length strings, and the global attributes `_ioda_layout`
+    (`LAYOUT`) and `_ioda_layout_version` (0) name the layout, as ioda writes
+    them. The layout was compared with the files of ioda-converters' tests
+    and the source of ioda's reader, but not yet read by JEDI. Requires
+    netCDF4.
 
     Args:
         observations (geopandas.GeoDataFrame): The observations.
@@ -112,7 +134,7 @@ def to_ioda(
         qc (Mapping[str, str] | None): The column of the quality flags of
             each column of values, if any.
         units (Mapping[str, str] | None): The units of each column of
-            values, if any.
+            values or of `metadata`, if any.
         metadata (Mapping[str, str] | None): The IODA name of other numeric
             columns to write to `MetaData`.
         global_attributes (Mapping[str, Any] | None): The global attributes
@@ -144,10 +166,16 @@ def to_ioda(
     count = len(observations)
     with netCDF4.Dataset(path, "w") as dataset:
         dataset.createDimension("Location", count)
-        location = dataset.createVariable("Location", "i4", ("Location",))
-        location[:] = np.arange(count, dtype=np.int32)
-        dataset.setncatts(
-            {"converter": f"TAT-C {__version__}", **dict(global_attributes or {})}
+        location = dataset.createVariable("Location", "i8", ("Location",))
+        location[:] = np.arange(count, dtype=np.int64)
+        _set_attributes(
+            dataset,
+            {
+                "_ioda_layout": LAYOUT,
+                "_ioda_layout_version": np.array([0], dtype=np.int32),
+                "converter": f"TAT-C {__version__}",
+                **dict(global_attributes or {}),
+            },
         )
         groups = {
             name: dataset.createGroup(name)
@@ -165,8 +193,7 @@ def to_ioda(
                 name, dtype, ("Location",), fill_value=fill
             )
             variable[:] = values
-            if attributes:
-                variable.setncatts(attributes)
+            _set_attributes(variable, attributes)
 
         write("MetaData", "latitude", _float(latitude), units="degrees_north")
         write("MetaData", "longitude", _float(longitude), units="degrees_east")
@@ -182,7 +209,8 @@ def to_ioda(
             sequence = np.unique(observations["observation"], return_inverse=True)[1]
             write("MetaData", "sequenceNumber", sequence.astype(np.int32), units="1")
         for column, name in metadata.items():
-            write("MetaData", name, _float(observations[column]))
+            attributes = {"units": units[column]} if column in units else {}
+            write("MetaData", name, _float(observations[column]), **attributes)
         for column, name in variables.items():
             attributes = {"units": units[column]} if column in units else {}
             write("ObsValue", name, _float(observations[column]), **attributes)
