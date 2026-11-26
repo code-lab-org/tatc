@@ -31,7 +31,7 @@ from .data_flow import (
 )
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
-from .field_sampling import sample_field
+from .field_sampling import sample_field, sample_profiles
 from .footprints import (
     collect_footprint_observations,
     collect_footprints,
@@ -160,5 +160,6 @@ __all__ = [
     "reduce_latencies",
     "reduce_observations",
     "sample_field",
+    "sample_profiles",
     "sampling_error_variance",
 ]

@@ -217,9 +217,9 @@ class TestFootprintSampling(unittest.TestCase):
         )
 
     def test_extra_dimensions(self):
-        """Fields with dimensions besides time and grid must be selected first."""
+        """Fields with a vertical dimension need a level or weights."""
         field = _field(lambda h, lon, lat: lon).expand_dims(level=[1000.0, 500.0])
-        with self.assertRaisesRegex(ValueError, "select them first"):
+        with self.assertRaisesRegex(ValueError, "give a level or weights"):
             sample_field(_samples([(2, 0)], 20e3, 20e3, 0), field, method="footprint")
 
     def test_observed_pixels(self):

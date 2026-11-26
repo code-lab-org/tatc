@@ -259,8 +259,13 @@ def _sample_values(
             ),
         }
         if method == "linear":
-            return field.interp(where).to_numpy().astype(float)
-        values = field.sel(where, method="nearest").to_numpy().astype(float)
+            return field.interp(where).transpose("sample", ...).to_numpy().astype(float)
+        values = (
+            field.sel(where, method="nearest")
+            .transpose("sample", ...)
+            .to_numpy()
+            .astype(float)
+        )
         outside = _outside_field(
             field, lat_dim, lon_dim, latitude, where[lon_dim].to_numpy()
         )
@@ -273,7 +278,7 @@ def _sample_values(
         }
         for name, position in zip(grid.dims, grid.unravel(index)):
             indexers[name] = xr.DataArray(position, dims="sample")
-        values = field.isel(indexers).to_numpy().astype(float)
+        values = field.isel(indexers).transpose("sample", ...).to_numpy().astype(float)
     values[outside | _outside_period(field, time_dim, sample_times)] = np.nan
     return values
 
@@ -628,6 +633,94 @@ def _chunked(weights: _Weights, rows: np.ndarray):
         start += len(chunk)
 
 
+def _get_vertical(
+    field: Any, grid: FieldGrid, time_dim: str, dimensions: Mapping[str, str]
+) -> str | None:
+    """
+    Gets the vertical dimension of a field: its dimension besides time and
+    those of its grid (named `level` of the dimensions, if given), or `None`
+    if it has none.
+    """
+    other = [dim for dim in field.dims if dim != time_dim and dim not in grid.dims]
+    given = dimensions.get("level")
+    if given is not None:
+        if given not in other:
+            raise ValueError(f"the field has no vertical dimension named {given!r}")
+        other.remove(given)
+    if other and (given is not None or len(other) > 1):
+        raise ValueError(
+            "the field must have no dimensions besides time, those of its grid "
+            + f"{grid.dims}, and a vertical dimension, not {other}: select them first"
+        )
+    return given or (str(other[0]) if other else None)
+
+
+def _select_level(field: Any, vertical: str, level: float) -> Any:
+    """
+    Selects a level of a field: the values at a value of its vertical
+    coordinate, interpolated linearly between the levels around it (`NaN`
+    beyond its levels).
+    """
+    coordinate = field[vertical].to_numpy()
+    if np.any(coordinate == level):
+        return field.sel({vertical: level})
+    return field.interp({vertical: level})
+
+
+def _get_weights(weights: Any, field: Any, vertical: str, count: int) -> np.ndarray:
+    """
+    Gets the weights of a field's levels: along its vertical dimension (by
+    its coordinate, if the weights have one), for every observation or along
+    a dimension `observation` (in the order of the observations), with shape
+    (levels,) or (observations, levels).
+    """
+    other = set(weights.dims) - {vertical, "observation"}
+    if vertical not in weights.dims or other:
+        raise ValueError(
+            f"weights must be over the field's vertical dimension {vertical!r} "
+            + f"(and optionally 'observation'), not {tuple(weights.dims)}"
+        )
+    if vertical in weights.coords:
+        weights = weights.sel({vertical: field[vertical].to_numpy()})
+    elif weights.sizes[vertical] != field.sizes[vertical]:
+        raise ValueError(
+            f"weights must have the {field.sizes[vertical]} levels of the field"
+        )
+    if "observation" in weights.dims:
+        if weights.sizes["observation"] != count:
+            raise ValueError(
+                f"weights must have the {count} observations along 'observation'"
+            )
+        return weights.transpose("observation", vertical).to_numpy().astype(float)
+    return weights.to_numpy().astype(float)
+
+
+def _weigh_field(field: Any, vertical: str, weights: np.ndarray) -> Any:
+    """
+    Sums the levels of a field weighted by their weights (see
+    `_weigh_levels`), over the levels with values, as a field without its
+    vertical dimension.
+    """
+    # pylint: disable=import-outside-toplevel
+    import xarray as xr
+
+    weight = xr.DataArray(weights, dims=vertical)
+    total = field.fillna(0).dot(weight, dim=vertical)
+    return total.where(field.notnull().any(vertical)).rename(field.name)
+
+
+def _weigh_levels(values: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """
+    Sums the values of levels (with shape (observations, levels)) weighted by
+    their weights, over the levels with values (as of pressure levels below
+    the ground), or `NaN` if none has a value.
+    """
+    weights = np.broadcast_to(weights, values.shape)
+    finite = np.isfinite(values)
+    total = np.sum(np.where(finite, weights * values, 0), axis=1)
+    return np.where(np.any(finite, axis=1), total, np.nan)
+
+
 def sample_field(
     observations: gpd.GeoDataFrame,
     field: Any,
@@ -638,6 +731,8 @@ def sample_field(
     footprint: str = "gaussian",
     time_method: str = "nearest",
     min_valid_fraction: float = 0.5,
+    level: float | None = None,
+    weights: Any = None,
 ) -> gpd.GeoDataFrame:
     """
     Samples a field (such as a variable of a nature run) at the time and place
@@ -687,6 +782,20 @@ def sample_field(
     share (`NaN`). Footprints are found in the plane tangent to the Earth at
     their centers, which suits footprints much smaller than the Earth.
 
+    A field with a vertical dimension (such as the levels of a nature run,
+    besides time and those of its grid) is sampled at a `level` (a value of
+    its vertical coordinate, such as a pressure, interpolated linearly between
+    levels), or as the sum of its levels weighted by `weights` (an
+    `xarray.DataArray` over its vertical dimension, as of a column amount's
+    layer thicknesses or an instrument's weighting function or averaging
+    kernel, which the user gives; levels without values, as below the
+    ground, are left out of the sum). Weights over the vertical dimension
+    alone are applied to the field before sampling it (by any method);
+    weights that vary by observation (along a dimension `observation`, in
+    the order of the observations, as of averaging kernels that depend on the
+    scene) are applied to the nearest or interpolated values of each
+    observation's levels. See `sample_profiles` for the values of each level.
+
     The time of a footprint or region is that of the nearest time step of the
     field (`time_method="nearest"`, as suits a field of means over intervals
     centered on its times), or its values are interpolated linearly between
@@ -714,13 +823,19 @@ def sample_field(
         dimensions (Mapping[str, str] | None): The names of the field's
             `time` dimension and of its latitudes (`lat`) and longitudes
             (`lon`): the dimensions of a regular grid, or the coordinates of
-            another grid, if not the defaults.
+            another grid, if not the defaults; and of its vertical dimension
+            (`level`), if it has others.
         footprint (str): The shape of footprints (`method="footprint"`):
             `"gaussian"` or `"uniform"`.
         time_method (str): The times of footprints and regions: `"nearest"`
             or `"linear"`.
         min_valid_fraction (float): The least share of a footprint's or
             region's weight on cells with values for it to have a value.
+        level (float | None): The value of the field's vertical coordinate
+            at which to sample it, if it has a vertical dimension.
+        weights (xarray.DataArray | None): The weights of the field's levels
+            (over its vertical dimension, and optionally `observation`), by
+            which to sum them, if it has a vertical dimension.
 
     Returns:
         geopandas.GeoDataFrame: the observations, with the sampled values
@@ -745,6 +860,35 @@ def sample_field(
         if weighted:
             result[f"{name}_valid_fraction"] = pd.Series(dtype=float)
         return result
+    dimensions = dict(dimensions or {})
+    time_dim = _get_dimension(field, ["time"], dimensions.get("time"))
+    vertical = _get_vertical(
+        field, _get_grid(field, dimensions, time_dim), time_dim, dimensions
+    )
+    if vertical is None and (level is not None or weights is not None):
+        raise ValueError("a level or weights need a field with a vertical dimension")
+    if vertical is not None and level is not None:
+        if weights is not None:
+            raise ValueError("give a level or weights, not both")
+        field, vertical = _select_level(field, vertical, level), None
+    if vertical is not None and weights is None:
+        raise ValueError(
+            f"the field has a vertical dimension {vertical!r}: give a level or "
+            + "weights to sample it (or see sample_profiles)"
+        )
+    level_weights = (
+        None
+        if vertical is None
+        else _get_weights(weights, field, vertical, len(observations))
+    )
+    if level_weights is not None and level_weights.ndim == 1:
+        # weights of the levels alone: the weighted column, sampled by any method
+        field = _weigh_field(field, vertical, level_weights)
+        level_weights, vertical = None, None
+    if level_weights is not None and weighted:
+        raise ValueError(
+            "weights that vary by observation need method 'nearest' or 'linear'"
+        )
     times = _get_observation_times(observations, time_column)
     if weighted:
         result[name], result[f"{name}_valid_fraction"] = _sample_weighted(
@@ -755,9 +899,234 @@ def sample_field(
             footprint,
             time_method,
             min_valid_fraction,
-            dict(dimensions or {}),
+            dimensions,
         )
         return result
     longitude, latitude = _get_points(observations.geometry)
-    result[name] = _sample_values(field, times, longitude, latitude, method, dimensions)
+    values = _sample_values(field, times, longitude, latitude, method, dimensions)
+    if level_weights is not None:
+        values = _weigh_levels(values, level_weights)
+    result[name] = values
     return result
+
+
+def _interpolate_heights(
+    heights: np.ndarray, values: np.ndarray, target: np.ndarray
+) -> np.ndarray:
+    """
+    Interpolates values linearly in height at target heights, for each row of
+    heights and values (with shape (rows, levels), in any order of height,
+    as of levels from the top down), with `NaN` beyond each row's heights.
+    """
+    heights = np.where(np.isfinite(values), heights, np.nan)
+    order = np.argsort(np.where(np.isfinite(heights), heights, np.inf), axis=1)
+    heights = np.take_along_axis(heights, order, axis=1)
+    values = np.take_along_axis(values, order, axis=1)
+    count = np.sum(np.isfinite(heights), axis=1)
+    target = target[:, None]
+    above = np.sum(heights < target, axis=1)
+    # a target at the lowest height is between it and the next
+    above = np.where((above == 0) & (heights[:, 0] == target[:, 0]), 1, above)
+    valid = (above > 0) & (above < np.maximum(count, 1)) | (
+        (count == 1) & (heights[:, 0] == target[:, 0])
+    )
+    upper = np.clip(above, 1, heights.shape[1] - 1) if heights.shape[1] > 1 else 0
+    lower = np.maximum(upper - 1, 0) if heights.shape[1] > 1 else 0
+    rows = np.arange(len(heights))
+    h_low, h_high = heights[rows, lower], heights[rows, upper]
+    v_low, v_high = values[rows, lower], values[rows, upper]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        share = np.where(h_high > h_low, (target[:, 0] - h_low) / (h_high - h_low), 0)
+    result = v_low + share * (v_high - v_low)
+    return np.where(valid, result, np.nan)
+
+
+def sample_profiles(
+    observations: gpd.GeoDataFrame,
+    field: Any,
+    name: str | None = None,
+    heights: Any = None,
+    method: str = "nearest",
+    time_column: str | None = None,
+    dimensions: Mapping[str, str] | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Samples the levels of a field with a vertical dimension (such as a
+    nature run on pressure or model levels) at the time and place of each
+    observation (see `sample_field`, by the nearest value or by linear
+    interpolation in time and space), in long format: a row for each level
+    of each observation, with its `observation` (the index of the
+    observation, whose other columns it repeats), and its `level` (the value
+    of the field's vertical coordinate) or `height`, and the sampled value.
+
+    The points of an observation at heights (the vertices of a point or
+    multipoint with z-coordinates, as the tangent points of a limb scan, see
+    `collect_limb_observations`, or the positions of an aircraft) are each
+    sampled at their height (meters above the WGS 84 ellipsoid), interpolated
+    linearly in height between the levels around it (`NaN` beyond them),
+    each a row with its `height` (and no `level`). The heights of the levels
+    are those of `heights` (such as the geopotential height of each level,
+    sampled as the field, which may vary in time and space), or else the
+    field's vertical coordinate (in meters). Nature runs usually give heights
+    above the geoid (mean sea level) rather than the ellipsoid: they differ
+    by up to about 100 meters (see `tatc.utils.compute_geoid_height`).
+
+    Other observations (points without heights, and regions, at their
+    representative points) are sampled at every level, each a row with its
+    `level` (and its `height`, from `heights`, if given), as the profile of a
+    sounding below a satellite. The geometry of each row is the point at
+    which it is sampled.
+
+    Args:
+        observations (geopandas.GeoDataFrame): The observations, with the time
+            (`time_column`) of each.
+        field (xarray.DataArray): The field, with a dimension of time, the
+            latitudes and longitudes of its grid (see `sample_field`), and a
+            vertical dimension.
+        name (str | None): The column of the sampled values, or `None` for the
+            field's name (or `"value"`).
+        heights (xarray.DataArray | None): The heights (meters) of the field's
+            levels, over its vertical dimension (and optionally its time and
+            grid), or `None` for the field's vertical coordinate.
+        method (str): `"nearest"` or `"linear"` (of a regular grid), in time
+            and space.
+        time_column (str | None): The column of the times of the samples,
+            or `None` (default) for the first of `epoch`, `time`, or
+            `closest_time`, or else the midpoint of `start` and `end`.
+        dimensions (Mapping[str, str] | None): The names of the field's
+            dimensions (see `sample_field`), including its vertical dimension
+            (`level`), if not the defaults.
+
+    Returns:
+        geopandas.GeoDataFrame: a row for each level (or height) of each
+            observation
+    """
+    if method not in ("nearest", "linear"):
+        raise ValueError(f"method must be 'nearest' or 'linear', not {method!r}")
+    name = name or field.name or "value"
+    dimensions = dict(dimensions or {})
+    time_dim = _get_dimension(field, ["time"], dimensions.get("time"))
+    vertical = _get_vertical(
+        field, _get_grid(field, dimensions, time_dim), time_dim, dimensions
+    )
+    if vertical is None:
+        raise ValueError("profiles need a field with a vertical dimension")
+    levels = field[vertical].to_numpy()
+    times = _get_observation_times(observations, time_column).reset_index(drop=True)
+    geometry = observations.geometry.to_numpy()
+    # the vertices of points and multipoints, at heights or not
+    pointed = np.isin(
+        shapely.get_type_id(geometry),
+        [shapely.GeometryType.POINT, shapely.GeometryType.MULTIPOINT],
+    )
+    coordinates, owner = shapely.get_coordinates(
+        np.where(pointed, geometry, None), include_z=True, return_index=True
+    )
+    at_height = np.isfinite(coordinates[:, 2]) if len(coordinates) else np.zeros(0)
+    vertex_owner = owner[at_height.astype(bool)]
+    vertices = coordinates[at_height.astype(bool)]
+    # the other observations: at their representative points
+    elevated = np.zeros(len(observations), dtype=bool)
+    elevated[vertex_owner] = True
+    flat = np.flatnonzero(~elevated)
+    flat_longitude, flat_latitude = _get_points(observations.geometry.iloc[flat])
+    frames = []
+    columns = observations.drop(columns=observations.geometry.name)
+    if len(vertices):
+        values = _sample_values(
+            field,
+            times.iloc[vertex_owner],
+            vertices[:, 0],
+            vertices[:, 1],
+            method,
+            dimensions,
+        )
+        level_heights = _sample_heights(
+            heights,
+            field,
+            vertical,
+            times.iloc[vertex_owner],
+            vertices,
+            method,
+            dimensions,
+        )
+        frame = columns.iloc[vertex_owner].reset_index(names="observation")
+        frame["level"] = np.nan
+        frame["height"] = vertices[:, 2]
+        frame[name] = _interpolate_heights(level_heights, values, vertices[:, 2])
+        frame["geometry"] = shapely.points(vertices)
+        frames.append(frame)
+    if len(flat):
+        values = _sample_values(
+            field,
+            times.iloc[flat],
+            flat_longitude,
+            flat_latitude,
+            method,
+            dimensions,
+        )
+        frame = columns.iloc[np.repeat(flat, len(levels))].reset_index(
+            names="observation"
+        )
+        frame["level"] = np.tile(levels, len(flat))
+        if heights is None:
+            frame["height"] = np.nan
+        else:
+            positions = np.column_stack(
+                [flat_longitude, flat_latitude, np.zeros(len(flat))]
+            )
+            frame["height"] = _sample_heights(
+                heights,
+                field,
+                vertical,
+                times.iloc[flat],
+                positions,
+                method,
+                dimensions,
+            ).ravel()
+        frame[name] = np.reshape(values, -1)
+        frame["geometry"] = np.repeat(
+            shapely.points(flat_longitude, flat_latitude), len(levels)
+        )
+        frames.append(frame)
+    if not frames:
+        frame = columns.iloc[:0].reset_index(names="observation")
+        for column in ("level", "height", name):
+            frame[column] = pd.Series(dtype=float)
+        frame["geometry"] = pd.Series(dtype=object)
+        frames.append(frame)
+    result = pd.concat(frames, ignore_index=True)
+    order = np.argsort(
+        pd.Index(observations.index).get_indexer(result["observation"]), kind="stable"
+    )
+    return gpd.GeoDataFrame(
+        result.iloc[order].reset_index(drop=True),
+        geometry="geometry",
+        crs=observations.crs,
+    )
+
+
+def _sample_heights(
+    heights: Any,
+    field: Any,
+    vertical: str,
+    times: pd.Series,
+    positions: np.ndarray,
+    method: str,
+    dimensions: Mapping[str, str],
+) -> np.ndarray:
+    """
+    Gets the heights of a field's levels at times and positions (see
+    `sample_profiles`): those of `heights`, over the vertical dimension alone
+    or sampled as the field, or else the field's vertical coordinate.
+    """
+    count = len(positions)
+    if heights is None:
+        heights = field[vertical]
+    if set(heights.dims) == {vertical}:
+        values = heights.sel({vertical: field[vertical].to_numpy()}).to_numpy()
+        return np.broadcast_to(values.astype(float), (count, len(values))).copy()
+    sampled = _sample_values(
+        heights, times, positions[:, 0], positions[:, 1], method, dimensions
+    )
+    return np.reshape(sampled, (count, -1))
