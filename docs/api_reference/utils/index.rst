@@ -34,6 +34,8 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_ground_sample_size
 
+.. autofunction:: tatc.utils.compute_ground_sample_azimuth
+
 .. autofunction:: tatc.utils.compute_ground_advance
 
 .. autofunction:: tatc.utils.compute_specular_point

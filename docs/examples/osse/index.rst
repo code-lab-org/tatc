@@ -21,6 +21,12 @@ monsoon OSSE, so read that one first:
    each sensor would record, and a trade of the satellites and orbit planes of
    a constellation for this scene.
 
+The notebook :doc:`SimulateObservations` simulates the observations of an OSSE
+that a data assimilation system takes: the samples of ATMS and CrIS and their
+quality, the nature run averaged over each footprint, observation errors,
+profiles at the tangent points of a limb sounder, and IODA files for JEDI,
+including the sets of a data denial experiment.
+
 The notebook :doc:`VisualizeSensingGeometry` draws the sensing geometry of
 the sounders of these OSSEs: their scans, the size and spacing of their
 footprints from nadir to the edge of the swath, a day of their swaths, and
@@ -38,4 +44,5 @@ Each OSSE downloads the part of its nature run that it needs once, to a
   RunOSSEMonsoon.ipynb
   RunOSSEHurricane.ipynb
   RunOSSEColdPools.ipynb
+  SimulateObservations.ipynb
   VisualizeSensingGeometry.ipynb

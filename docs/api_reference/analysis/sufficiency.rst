@@ -10,11 +10,11 @@ Estimate Sampling Errors
 
 .. autofunction:: tatc.analysis.sampling_error_variance
 
-Sample Fields
--------------
-.. autofunction:: tatc.analysis.sample_field
-
+Compare Sampled Means
+---------------------
 .. autofunction:: tatc.analysis.compare_sampled_means
+
+(See :doc:`field_sampling` for :func:`tatc.analysis.sample_field`.)
 
 Revisits and Local Times
 ------------------------

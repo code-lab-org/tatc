@@ -31,6 +31,7 @@ from .data_flow import (
 )
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
+from .field_sampling import sample_field, sample_profiles
 from .footprints import (
     collect_footprint_observations,
     collect_footprints,
@@ -56,6 +57,10 @@ from .link_sampling import (
 from .limb_sampling import (
     ScanDirection,
     collect_limb_observations,
+)
+from .observation_quality import (
+    compute_observation_quality,
+    simulate_observation_errors,
 )
 from .orbit_track import (
     OrbitCoordinate,
@@ -88,7 +93,6 @@ from .sufficiency import (
     compute_local_time_coverage,
     compute_revisit_statistics,
     estimate_sampling_error,
-    sample_field,
     sampling_error_variance,
 )
 from .surface_track import (
@@ -141,6 +145,7 @@ __all__ = [
     "compute_ground_track",
     "compute_latencies",
     "compute_local_time_coverage",
+    "compute_observation_quality",
     "compute_platform_track",
     "compute_radar_track",
     "compute_region_access_periods",
@@ -158,5 +163,7 @@ __all__ = [
     "reduce_latencies",
     "reduce_observations",
     "sample_field",
+    "sample_profiles",
     "sampling_error_variance",
+    "simulate_observation_errors",
 ]
