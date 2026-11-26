@@ -380,10 +380,7 @@ def _simulate(
             np.zeros(n_sats, dtype=bool)
             if model.streaming
             else (capacity > 0)
-            & (
-                later
-                >= (backlog + generation[:, k] * (1 + rest / step_s)) * (1 - 1e-9)
-            )
+            & (later >= (backlog + generation[:, k] * (1 + rest / step_s)) * (1 - 1e-9))
         )
         # first in, first out storage, losing data generated while it is full
         sendable = np.where(holding, backlog - held, backlog + generation[:, k])
