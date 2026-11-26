@@ -21,6 +21,10 @@ Compute Sample Sizes
 --------------------
 .. autofunction:: tatc.analysis.compute_sample_sizes
 
+Compute Observation Quality
+---------------------------
+.. autofunction:: tatc.analysis.compute_observation_quality
+
 Aggregate Observations
 ----------------------
 .. autofunction:: tatc.analysis.aggregate_observations

@@ -50,7 +50,8 @@ def _get_sized_instrument(
     platform's instrument (by name): the given instrument (or that given for
     the name), or else the observing instrument, either bound to the
     platform's attitude (see `get_instrument`), or `None` for a platform
-    without instruments (a radar station).
+    without instruments (a radar station) or observations without them (such
+    as limb soundings, without an `instrument` column).
 
     Args:
         platform (AllPlatforms): The observing platform.
@@ -68,6 +69,9 @@ def _get_sized_instrument(
     if sized is not None:
         # bound as the platform's own instrument would be
         return platform.model_copy(update={"instruments": [sized]}).get_instrument(0)
+    if name is None or pd.isna(name):
+        # observations without instruments (such as limb soundings)
+        return None
     index = next(
         (i for i, carried in enumerate(platform.instruments) if carried.name == name),
         None,
@@ -117,7 +121,9 @@ def compute_sample_sizes(
     the direction of motion (see `tatc.utils.compute_view_angles`),
     measured from the body's axes if the platform has an attitude, which
     gives its position in the swath. A radar station has no instruments: its
-    observations have a slant range only.
+    observations have a slant range only, as do observations without an
+    `instrument` column (such as limb soundings, see
+    `collect_limb_observations`), unless `instrument` gives one.
 
     The observations may be of any kind of platform (satellites, aircraft,
     fixed surface platforms, or radar stations), each named in the column of

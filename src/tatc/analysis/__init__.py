@@ -58,6 +58,7 @@ from .limb_sampling import (
     ScanDirection,
     collect_limb_observations,
 )
+from .observation_quality import compute_observation_quality
 from .orbit_track import (
     OrbitCoordinate,
     OrbitOutput,
@@ -141,6 +142,7 @@ __all__ = [
     "compute_ground_track",
     "compute_latencies",
     "compute_local_time_coverage",
+    "compute_observation_quality",
     "compute_platform_track",
     "compute_radar_track",
     "compute_region_access_periods",
