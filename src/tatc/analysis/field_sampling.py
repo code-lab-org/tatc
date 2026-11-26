@@ -1,7 +1,9 @@
 """
 Methods to sample fields (such as the variables of a nature run in an
 observing system simulation experiment, OSSE) at the times and places of
-observations.
+observations: at their points, over the footprints of their samples, inside
+their regions, at levels or by weights of levels, and as profiles at heights,
+on regular, curvilinear, and unstructured grids.
 
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """

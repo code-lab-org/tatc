@@ -10,6 +10,7 @@ Analysis functions simulate mission operation to compute key performance metrics
   architecture
   coverage
   sufficiency
+  field_sampling
   track
   coincidence
   feature_coverage
