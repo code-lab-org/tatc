@@ -35,13 +35,14 @@ DATETIME_UNITS = "seconds since 1970-01-01T00:00:00Z"
 """The units of `MetaData/dateTime` (int64 seconds, as of ioda-converters)."""
 
 _GEOMETRY = {
-    "sensorZenithAngle": ("platform_alt", lambda angle: 90 - angle),
-    "sensorAzimuthAngle": ("platform_az", lambda angle: angle),
-    "solarZenithAngle": ("solar_alt", lambda angle: 90 - angle),
-    "solarAzimuthAngle": ("solar_az", lambda angle: angle),
+    "sensorZenithAngle": ("platform_alt", True),
+    "sensorAzimuthAngle": ("platform_az", False),
+    "solarZenithAngle": ("solar_alt", True),
+    "solarAzimuthAngle": ("solar_az", False),
 }
 """The `MetaData` of the viewing geometry: each from a column of
-observations (see `tatc.analysis.collect_observations`), in degrees."""
+observations (see `tatc.analysis.collect_observations`), in degrees, and
+whether it is a zenith angle (90 degrees less an elevation angle)."""
 
 
 def _float(values: Any) -> np.ndarray:
@@ -121,7 +122,7 @@ def to_ioda(
             `time`, or `closest_time`, or else the midpoint of `start` and
             `end`.
     """
-    # pylint: disable=import-outside-toplevel,too-many-locals
+    # pylint: disable=import-outside-toplevel,too-many-locals,no-member
     import netCDF4
 
     errors = dict(errors or {})
@@ -172,9 +173,10 @@ def to_ioda(
         write("MetaData", "dateTime", seconds, units=DATETIME_UNITS)
         if np.any(np.isfinite(height)):
             write("MetaData", "height", _float(height), units="m")
-        for name, (column, convert) in _GEOMETRY.items():
+        for name, (column, zenith) in _GEOMETRY.items():
             if column in observations.columns:
-                values = convert(observations[column].to_numpy(dtype=float))
+                values = observations[column].to_numpy(dtype=float)
+                values = 90 - values if zenith else values
                 write("MetaData", name, _float(values), units="degree")
         if "observation" in observations.columns:
             sequence = np.unique(observations["observation"], return_inverse=True)[1]
