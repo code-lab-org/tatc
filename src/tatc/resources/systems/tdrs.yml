@@ -136,7 +136,7 @@ services:
     provenance:
       antennas:
         kind: nominal
-        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252if_/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): customer service links per satellite \"SSA 2\", \"KuSA 2\", and KaSA \"2/TDRS\"; \"Ku and Ka-band return services cannot be supported simultaneously through the same SA antenna.\""
+        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): customer service links per satellite \"SSA 2\", \"KuSA 2\", and KaSA \"2/TDRS\"; \"Ku and Ka-band return services cannot be supported simultaneously through the same SA antenna.\""
   multiple_access:
     description: The S-band multiple access return service through the phased array of each satellite.
     antennas: 5
@@ -157,7 +157,7 @@ services:
     provenance:
       antennas:
         kind: nominal
-        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252if_/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): MA customer service links \"5/TDRS up to 20/WSC\""
+        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): MA customer service links \"5/TDRS up to 20/WSC\""
 default_configuration: slot
 configurations:
   slot:
