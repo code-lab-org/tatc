@@ -132,3 +132,92 @@ def compute_observation_quality(
             np.isnan(resolution), nominal, resolution
         )
     return result
+
+
+def _get_values(
+    frame: pd.DataFrame, value: float | str | None, default: float
+) -> np.ndarray:
+    """
+    Gets a value for each row of a frame: a number for every row, the values
+    of a column (by name), or a default (for `None`).
+    """
+    if value is None:
+        return np.full(len(frame), default)
+    if isinstance(value, str):
+        if value not in frame.columns:
+            raise ValueError(f"the observations have no column {value!r}")
+        return frame[value].to_numpy(dtype=float)
+    return np.full(len(frame), float(value))
+
+
+def simulate_observation_errors(
+    sampled: gpd.GeoDataFrame,
+    name: str,
+    standard_deviation: float | str,
+    noise_scale: bool | str = True,
+    bias: float | str | None = None,
+    seed: int | np.random.Generator | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Simulates the errors of observations of sampled values (such as a field
+    of a nature run sampled at observations, see `sample_field`): random
+    errors drawn from a normal distribution with a standard deviation (an
+    instrument's error at its reference altitude, as a noise equivalent
+    temperature difference, which the user gives), scaled by each
+    observation's noise scale (see `compute_observation_quality`), plus an
+    optional bias. Gives the standard deviation of each observation's error
+    (`{name}_error_std`) and its observed value (`{name}_observed`: the
+    sampled value plus the bias and the error), as the observations of an
+    observing system simulation experiment (OSSE) and their error, which a
+    data assimilation system takes. The errors are independent; errors
+    correlated between observations (such as those of a scan) are not
+    simulated.
+
+    Args:
+        sampled (geopandas.GeoDataFrame): The observations, with the sampled
+            values (`name`).
+        name (str): The column of the sampled values.
+        standard_deviation (float | str): The standard deviation of the
+            errors at the reference altitude of the instrument's performance,
+            for every observation or by a column (as of errors that depend on
+            the scene).
+        noise_scale (bool | str): `True` (default) to scale the standard
+            deviation by each observation's `noise_scale` (see
+            `compute_observation_quality`; observations without one, `NaN`,
+            are not scaled), `False` not to, or the name of a column of the
+            scale.
+        bias (float | str | None): The bias of the observations, for every
+            observation or by a column, or `None` for none.
+        seed (int | numpy.random.Generator | None): The seed of the random
+            errors (or a generator of them), for reproducible errors.
+
+    Returns:
+        geopandas.GeoDataFrame: the observations, with the standard deviation
+            of their errors and their observed values
+    """
+    if name not in sampled.columns:
+        raise ValueError(f"the observations have no column {name!r}")
+    if noise_scale is True:
+        if "noise_scale" not in sampled.columns:
+            raise ValueError(
+                "the observations have no noise_scale: see "
+                + "tatc.analysis.compute_observation_quality (or noise_scale=False)"
+            )
+        scale = np.nan_to_num(sampled["noise_scale"].to_numpy(dtype=float), nan=1.0)
+    elif noise_scale is False:
+        scale = np.ones(len(sampled))
+    else:
+        scale = _get_values(sampled, noise_scale, 1.0)
+    error_std = _get_values(sampled, standard_deviation, 0.0) * scale
+    if np.any(error_std < 0):
+        raise ValueError("the standard deviation of errors must not be negative")
+    generator = (
+        seed if isinstance(seed, np.random.Generator) else np.random.default_rng(seed)
+    )
+    error = generator.standard_normal(len(sampled)) * error_std
+    result = sampled.copy()
+    result[f"{name}_error_std"] = error_std
+    result[f"{name}_observed"] = (
+        sampled[name].to_numpy(dtype=float) + _get_values(sampled, bias, 0.0) + error
+    )
+    return result

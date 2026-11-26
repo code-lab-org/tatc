@@ -58,7 +58,10 @@ from .limb_sampling import (
     ScanDirection,
     collect_limb_observations,
 )
-from .observation_quality import compute_observation_quality
+from .observation_quality import (
+    compute_observation_quality,
+    simulate_observation_errors,
+)
 from .orbit_track import (
     OrbitCoordinate,
     OrbitOutput,
@@ -162,4 +165,5 @@ __all__ = [
     "sample_field",
     "sample_profiles",
     "sampling_error_variance",
+    "simulate_observation_errors",
 ]

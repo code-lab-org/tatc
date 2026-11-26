@@ -14,6 +14,10 @@ Sample Fields
 -------------
 .. autofunction:: tatc.analysis.sample_field
 
+.. autofunction:: tatc.analysis.sample_profiles
+
+.. autofunction:: tatc.analysis.simulate_observation_errors
+
 .. autofunction:: tatc.analysis.compare_sampled_means
 
 Revisits and Local Times

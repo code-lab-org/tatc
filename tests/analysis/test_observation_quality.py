@@ -5,6 +5,7 @@ Unit tests for the quality of observations in tatc.analysis.
 import unittest
 from datetime import datetime, timedelta, timezone
 
+import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point
 
@@ -14,6 +15,7 @@ from tatc.analysis import (
     collect_limb_observations,
     collect_observations,
     compute_observation_quality,
+    simulate_observation_errors,
 )
 from tatc.schemas import (
     Aircraft,
@@ -186,3 +188,65 @@ class TestObservationQuality(unittest.TestCase):
         quality = compute_observation_quality(observations, self.satellite)
         self.assertEqual(len(quality), 0)
         self.assertIn("noise_scale", quality.columns)
+
+
+class TestObservationErrors(unittest.TestCase):
+    """
+    Unit tests for `simulate_observation_errors`.
+    """
+
+    def setUp(self):
+        count = 20000
+        self.sampled = gpd.GeoDataFrame(
+            {
+                "value": np.linspace(0, 1, count),
+                "noise_scale": np.where(np.arange(count) % 2 == 0, 1.0, 2.0),
+                "sigma": np.full(count, 0.5),
+            },
+            geometry=[Point(0, 0)] * count,
+            crs="EPSG:4326",
+        )
+
+    def test_scaled_errors(self):
+        """Errors are scaled by the noise scale, with the standard deviation given."""
+        result = simulate_observation_errors(self.sampled, "value", 0.3, seed=1)
+        np.testing.assert_allclose(
+            result.value_error_std, 0.3 * self.sampled.noise_scale
+        )
+        error = result.value_observed - result.value
+        even = np.arange(len(error)) % 2 == 0
+        self.assertAlmostEqual(np.std(error[even]), 0.3, delta=0.01)
+        self.assertAlmostEqual(np.std(error[~even]), 0.6, delta=0.02)
+        self.assertAlmostEqual(np.mean(error), 0.0, delta=0.01)
+
+    def test_reproducible(self):
+        """Errors of the same seed are the same."""
+        first = simulate_observation_errors(self.sampled, "value", 0.3, seed=7)
+        second = simulate_observation_errors(self.sampled, "value", 0.3, seed=7)
+        third = simulate_observation_errors(self.sampled, "value", 0.3, seed=8)
+        np.testing.assert_array_equal(first.value_observed, second.value_observed)
+        self.assertFalse(np.allclose(first.value_observed, third.value_observed))
+
+    def test_columns_and_bias(self):
+        """Standard deviations and biases may be columns; scaling may be off."""
+        result = simulate_observation_errors(
+            self.sampled, "value", "sigma", noise_scale=False, bias=1.0, seed=2
+        )
+        np.testing.assert_allclose(result.value_error_std, 0.5)
+        error = result.value_observed - result.value
+        self.assertAlmostEqual(np.mean(error), 1.0, delta=0.02)
+        result = simulate_observation_errors(
+            self.sampled, "value", 0.0, noise_scale="sigma", bias="sigma"
+        )
+        np.testing.assert_allclose(result.value_observed, result.value + 0.5)
+
+    def test_without_noise_scale(self):
+        """Without a noise scale column, scaling needs compute_observation_quality."""
+        sampled = self.sampled.drop(columns="noise_scale")
+        with self.assertRaisesRegex(ValueError, "compute_observation_quality"):
+            simulate_observation_errors(sampled, "value", 0.3)
+        missing = self.sampled.assign(noise_scale=np.nan)
+        result = simulate_observation_errors(missing, "value", 0.3)
+        np.testing.assert_allclose(result.value_error_std, 0.3)
+        with self.assertRaisesRegex(ValueError, "no column"):
+            simulate_observation_errors(self.sampled, "other", 0.3)
