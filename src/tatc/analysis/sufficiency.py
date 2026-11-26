@@ -30,12 +30,11 @@ import pandas as pd
 from .check import _get_observation_times
 from .coverage_metrics import _get_naive_utc, _get_targets, _group_overlapping
 from .field_sampling import (
-    _field_longitudes,
     _field_times,
     _get_dimension,
     _get_points,
-    _outside_field,
     _sample_values,
+    _select_places,
 )
 
 
@@ -632,9 +631,11 @@ def compare_sampled_means(
             a data frame of targets (such as a `point_id` or a weight,
             except those named as the results), or `None` for those
             observed.
-        method (str): `"nearest"` or `"linear"`, for the field at the targets.
+        method (str): `"nearest"` or `"linear"` (of a regular grid), for the
+            field at the targets.
         dimensions (Mapping[str, str] | None): The names of the field's
-            dimensions of `time`, `lat`, and `lon`, if not the defaults.
+            time dimension and of its latitudes and longitudes (see
+            `sample_field`), if not the defaults.
         merge_overlapping (bool): `False` (default) to count each sample;
             `True` to count the overlapping samples of a target (as by
             several platforms at once) as one sample, with the mean of their
@@ -652,34 +653,18 @@ def compare_sampled_means(
     Returns:
         geopandas.GeoDataFrame: a row per target
     """
-    # pylint: disable=import-outside-toplevel
-    import xarray as xr
-
     name = name or field.name or "value"
     dimensions = dict(dimensions or {})
     time_dim = _get_dimension(field, ["time"], dimensions.get("time"))
-    lat_dim = _get_dimension(field, ["lat", "latitude"], dimensions.get("lat"))
-    lon_dim = _get_dimension(field, ["lon", "longitude"], dimensions.get("lon"))
     result = _get_targets(sampled, targets)
     window = _field_times(field, time_dim, pd.Series([start, end]))
     period = field.sel({time_dim: slice(window[0], window[1])})
     longitude, latitude = _get_points(result.geometry)
-    where = {
-        lat_dim: xr.DataArray(latitude, dims="target"),
-        lon_dim: xr.DataArray(
-            _field_longitudes(field, lon_dim, longitude), dims="target"
-        ),
-    }
-    at_targets = (
-        period.sel(where, method="nearest")
-        if method == "nearest"
-        else period.interp(where)
+    at_targets, outside = _select_places(
+        period, longitude, latitude, method, dimensions, time_dim, "target"
     )
     true_mean = at_targets.mean(dim=time_dim).to_numpy().astype(float)
-    if method == "nearest":
-        true_mean[
-            _outside_field(field, lat_dim, lon_dim, latitude, where[lon_dim].to_numpy())
-        ] = np.nan
+    true_mean[outside] = np.nan
     result["true_mean"] = true_mean
     samples = _get_samples(
         sampled, time_column, merge_overlapping, name, sample_interval

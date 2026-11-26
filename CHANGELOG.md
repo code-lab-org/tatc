@@ -12,6 +12,10 @@ Added:
  - Sourced communications in the catalog: the transmitters of the stored mission data of the spacecraft of JPSS (NOAA-20 and NOAA-21), Landsat 8, Sentinel-1, -2, -3, -5P, and -6, Metop, Metop-SG A1, NISAR, SWOT, PACE, ICESat-2, SMAP, OCO-2, GCOM-W, EarthCARE, COSMIC-2, GOES-19, Himawari-9, and MTG-I1, and the crosslinks to TDRS of GPM, Terra, and TRMM; the single and multiple access services of TDRS (`build_relay(service="single_access")`); the 13 m antennas of NOAA's Fairbanks and Wallops stations; and a new catalog system `near_earth_network`: the antennas of NASA's Near Earth Network, NASA's own and those of KSAT, SSC, and SANSA (configurations `all`, `ksat`, `ssc`, and `nasa`), each with its position, G/T, and maximum rates. The systems page lists them.
  - Example notebook `ComputeDataFlow`: the latency of a constellation's observations through the flow of its data, with link budgets of an X-band downlink to KSAT's antennas of the Near Earth Network, and the value of adding a TDRS relay with a Ka-band crosslink, with figures of storage, links, and latency distributions and an animation of the data flow.
  - Validation notebook `ValidateLatencyNOAA20` tests the data flow of NOAA-20 (its cataloged instrument data rates and Ka-band playback) against the order and times its granules are created (data observed during contacts played back at their ends, without streaming), and its granule times are compared in the unit of its contacts (it failed with pandas 3).
+ - `analysis.sample_field` and `compare_sampled_means` sample fields on curvilinear grids (two-dimensional latitude and longitude coordinates, as of WRF) and unstructured grids (coordinates of a dimension of cells, as of MPAS, in degrees or radians) at their nearest cells, found on the sphere (requires scipy). `sample_field` moved to the new module `analysis.field_sampling` (still exported by `tatc.analysis`).
+
+Changed:
+ - `analysis.sample_field` (nearest) gives the values of times up to half a time step before a field's first time or after its last, as its extent reaches half a spacing beyond its outer latitudes and longitudes, rather than none.
 
 ## 3.8.0
 
