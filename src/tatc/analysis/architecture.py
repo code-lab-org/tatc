@@ -838,7 +838,8 @@ def _evaluate(
     if data_flow is not None and during_contact != "end":
         warn(
             "during_contact is ignored with a data flow model, through which "
-            + "data is delivered as links allow"
+            + "data is delivered as links allow (see DataFlow.streaming for "
+            + "data generated during a contact)"
         )
     seed = ArchitectureEvaluation(
         architecture,

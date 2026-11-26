@@ -448,7 +448,8 @@ class DataFlow(BaseModel):
     Options of a data flow analysis (see `tatc.analysis.compute_data_flow`):
     the step of the grid of time on which links are scheduled and storage is
     tracked (the accuracy of times), the backlog of data stored on each
-    spacecraft at the start, and when links are released.
+    spacecraft at the start, when links are released, and whether data
+    generated during a link is streamed.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -475,6 +476,15 @@ class DataFlow(BaseModel):
         ge=0,
         description="The volume (bits) stored above which a spacecraft "
         + 'requests a link, with `release="empty"`.',
+    )
+    streaming: bool = Field(
+        True,
+        description="Whether a spacecraft sends the data it generates during "
+        + "a link as it is generated, or records it and plays it back at the "
+        + "end of the link's contact, after the data stored before (as on a "
+        + "scheduled pass): once the capacity left in the contact (at the "
+        + "link's current rate) no longer exceeds the data stored and still "
+        + "to generate in it, holding the link until then.",
     )
     strict: bool = Field(
         False,

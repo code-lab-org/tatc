@@ -342,10 +342,14 @@ def _simulate(
     )
     backlog = np.minimum(np.full(n_sats, float(model.initial_backlog)), limits)
     initial = backlog.copy()
+    # without streaming, the data generated during a link's contact (the
+    # newest stored), held until the end of the contact
+    held = np.zeros(n_sats)
     lost = np.zeros((n_sats, n_cells))
     delivered = np.zeros((n_sats, n_cells))
     stored = np.zeros((n_sats, n_cells))
     links = _Links(rates, satellites, endpoints, n_cells, model.step)
+    step_s = model.step.total_seconds()
 
     active: dict[int, int] = {}  # the contact of each transmitter's link
     waiting = np.full(n_sats, np.inf)  # the cell since which each has waited
@@ -360,24 +364,46 @@ def _simulate(
         )
         grants = links.schedule(k, wants, waiting, active)
         capacity = np.zeros(n_sats)
+        later = np.zeros(n_sats)  # the capacity left in contacts after the cell
+        rest = np.zeros(n_sats)  # the time left in contacts after the cell
         for row, rate in grants:
-            capacity[links.satellite[row]] += rate * links.seconds[row]
+            s, left = links.satellite[row], links.remaining[row] - links.seconds[row]
+            capacity[s] += rate * links.seconds[row]
+            later[s] += rate * left
+            rest[s] = max(rest[s], left)
         waiting[(capacity > 0) | ~wants] = np.inf
-        # first in, first out storage, losing data generated while it is full
-        level = np.maximum(0.0, backlog + generation[:, k] - capacity)
-        lost[:, k] = np.maximum(0.0, level - limits)
-        level = np.minimum(level, limits)
-        delivered[:, k] = np.maximum(
-            0.0, backlog + generation[:, k] - lost[:, k] - level
+        # without streaming, links hold the data generated during their
+        # contacts while the capacity left (at the current rates) can carry
+        # the data stored and still to generate, to play it back at the ends
+        # of the contacts
+        holding = (
+            np.zeros(n_sats, dtype=bool)
+            if model.streaming
+            else (capacity > 0)
+            & (
+                later
+                >= (backlog + generation[:, k] * (1 + rest / step_s)) * (1 - 1e-9)
+            )
         )
-        stored[:, k] = backlog = level
+        # first in, first out storage, losing data generated while it is full
+        sendable = np.where(holding, backlog - held, backlog + generation[:, k])
+        delivered[:, k] = np.minimum(capacity, sendable)
+        level = backlog + generation[:, k] - delivered[:, k]
+        lost[:, k] = np.maximum(0.0, level - limits)
+        stored[:, k] = backlog = np.minimum(level, limits)
+        held = np.where(holding, held + generation[:, k] - lost[:, k], 0.0)
         for row, rate in grants:
             s = links.satellite[row]
             # the volume delivered through each link, by its share of capacity
             share = rate * links.seconds[row] / capacity[s] if capacity[s] > 0 else 0
             taken.append((links.order[row], rate, share * delivered[s, k]))
-            if model.release == "empty" and backlog[s] <= 0:
-                # released once the satellite's storage empties
+            if (
+                model.release == "empty"
+                and backlog[s] <= 0
+                and (model.streaming or generation[s, k] <= 0)
+            ):
+                # released once the satellite's storage empties (without
+                # streaming, held while it generates data to play back)
                 active.pop(links.transmitter[row], None)
     storages = {
         s.name: _Storage(
@@ -873,7 +899,12 @@ def compute_data_flow(
     `release="end"`). Satellites that request links take free antennas in
     the order they began to wait (then in the order given), each its fastest
     link first, if its contact lasts at least the endpoint's
-    `min_access_time`.
+    `min_access_time`. Data generated during a link is sent as it is
+    generated, or, with the model's `streaming=False`, recorded and played
+    back at the end of the link's contact, after the data stored before:
+    once the capacity left in the contact (at the link's current rate) no
+    longer exceeds the data stored and still to generate in it, the link
+    being held until then.
 
     The analysis is on a grid of time from `start` with the model's `step`,
     which sets the accuracy of times, starting with the model's

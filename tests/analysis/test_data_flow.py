@@ -154,6 +154,86 @@ class TestStorage(unittest.TestCase):
         )
         self.assertAlmostEqual(result.summary["final_backlog"][0], 0)
 
+    def test_recorded(self):
+        """
+        Tests that without streaming, data generated during a contact is played
+        back in its last cell, after the data stored before.
+        """
+        contacts = [("a", "g", 50, 59)]
+        streamed = _analyze(contacts, [_satellite("a")], [_station("g")])
+        recorded = _analyze(
+            contacts, [_satellite("a")], [_station("g")], streaming=False
+        )
+        # the 500 Mbit stored before the contact is delivered first either way
+        for result in [streamed, recorded]:
+            found = _find(result, "a", [49])
+            self.assertEqual(found["downlinked"][0], START + timedelta(seconds=549))
+        # the 560th Mbit (observed at 560 s) is streamed once the stored data
+        # is, or played back in the contact's last cell, after the 90 Mbit held
+        # from cells 50 to 58: 60 Mbit into its 100 Mbit
+        self.assertEqual(
+            _find(streamed, "a", [56])["downlinked"][0],
+            START + timedelta(seconds=560),
+        )
+        self.assertEqual(
+            _find(recorded, "a", [56])["downlinked"][0],
+            START + timedelta(seconds=596),
+        )
+        for result in [streamed, recorded]:
+            summary = result.summary.iloc[0]
+            self.assertAlmostEqual(summary["delivered"], 6e8)
+            self.assertAlmostEqual(summary["final_backlog"], 4e8)
+        # the link is held to the end of the contact
+        self.assertEqual(len(recorded.schedule), 1)
+        self.assertEqual(recorded.schedule["end"][0], START + STEP * 60)
+
+    def test_recorded_long_playback(self):
+        """
+        Tests that without streaming, the data generated during a contact is
+        played back from when the capacity left can just carry it.
+        """
+        result = _analyze(
+            [("a", "g", 50, 79)],
+            [_satellite("a", generation=3e6)],
+            [_station("g")],
+            streaming=False,
+        )
+        # 1500 Mbit stored at the start, played back in cells 50 to 64; the
+        # 30 Mbit per cell generated during the contact is held until cell 71,
+        # from which 100 Mbit per cell for 9 cells carries the 630 Mbit stored
+        # and the 270 Mbit still to generate
+        summary = result.summary.iloc[0]
+        self.assertAlmostEqual(summary["final_backlog"], 20 * 30e6)
+        delivered = result.storage["delivered"].diff().to_numpy()
+        np.testing.assert_allclose(delivered[65:71], 0, atol=1)
+        np.testing.assert_allclose(delivered[71:80], 100e6)
+        # the data observed at the contact's start is delivered in cell 71
+        found = _find(result, "a", [50.1])
+        self.assertEqual(found["downlinked"][0], START + STEP * 71.03)
+
+    def test_recorded_overflow(self):
+        """
+        Tests that without streaming, data generated during a contact too
+        short to play back the data stored before is sent in order, and lost
+        once the storage is full.
+        """
+        result = _analyze(
+            [("a", "g", 50, 59)],
+            [_satellite("a", downlink=0.5e6, storage=520e6)],
+            [_station("g")],
+            streaming=False,
+        )
+        summary = result.summary.iloc[0]
+        # 500 Mbit stored at the contact's start grows by 5 Mbit per cell, to
+        # the limit in cell 53; then 5 Mbit per cell is lost during the contact,
+        # and 10 Mbit per cell after it
+        self.assertAlmostEqual(summary["delivered"], 5e7)
+        self.assertAlmostEqual(summary["lost"], 6 * 5e6 + 40 * 1e7)
+        self.assertAlmostEqual(summary["final_backlog"], 5.2e8)
+        # in cell 54, the last half of the data generated is lost
+        found = _find(result, "a", [54.2, 54.8])
+        np.testing.assert_array_equal(found["lost"].to_numpy(), [False, True])
+
     def test_initial_backlog(self):
         """
         Tests that data stored at the start is delivered first.
@@ -240,6 +320,21 @@ class TestContention(unittest.TestCase):
         self.assertEqual(list(schedule["satellite"]), ["a", "b"])
         self.assertEqual(schedule.iloc[0]["end"], START + STEP * 80)
         self.assertEqual(schedule.iloc[1]["start"], START + STEP * 80)
+
+    def test_recorded_holds_link(self):
+        """
+        Tests that without streaming, a satellite holds its link to the end of
+        its contact, to play back the data generated during it.
+        """
+        contacts = [("a", "g", 50, 59), ("b", "g", 55, 69)]
+        station = [_station("g", antennas=1)]
+        streamed = _analyze(contacts, self.satellites, station)
+        recorded = _analyze(contacts, self.satellites, station, streaming=False)
+        # a empties its storage in cell 55, then b (waiting since) takes the antenna
+        b = streamed.schedule[streamed.schedule["satellite"] == "b"]
+        self.assertEqual(b["start"].iloc[0], START + STEP * 56)
+        b = recorded.schedule[recorded.schedule["satellite"] == "b"]
+        self.assertEqual(b["start"].iloc[0], START + STEP * 60)
 
     def test_two_antennas(self):
         """
