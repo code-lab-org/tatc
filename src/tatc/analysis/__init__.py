@@ -31,6 +31,7 @@ from .data_flow import (
 )
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
+from .field_sampling import sample_field
 from .footprints import (
     collect_footprint_observations,
     collect_footprints,
@@ -88,7 +89,6 @@ from .sufficiency import (
     compute_local_time_coverage,
     compute_revisit_statistics,
     estimate_sampling_error,
-    sample_field,
     sampling_error_variance,
 )
 from .surface_track import (
