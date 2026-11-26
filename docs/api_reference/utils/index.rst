@@ -140,6 +140,16 @@ Utility Functions
 
 .. autodata:: tatc.utils.MAX_DENSITY_ALTITUDE
 
+.. autofunction:: tatc.utils.compute_orbit_lifetime
+
+.. autofunction:: tatc.utils.compute_orbit_decay
+
+.. autofunction:: tatc.utils.compute_decay_rates
+
+.. autofunction:: tatc.utils.compute_drag_delta_v
+
+.. autodata:: tatc.utils.DEFAULT_DRAG_COEFFICIENT
+
 .. autofunction:: tatc.utils.geodetic_to_rectangular
 
 .. autofunction:: tatc.utils.rectangular_to_geodetic

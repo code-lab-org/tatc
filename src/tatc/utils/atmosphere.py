@@ -19,7 +19,7 @@ import pandas as pd
 from numba import njit
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..constants import resources_dir
+from ..constants import STANDARD_GRAVITY, resources_dir
 
 # U.S. Standard Atmosphere (1976) layer definitions, valid from 0 to 86 km
 # geopotential altitude: for each of the seven layers, the base altitude
@@ -37,7 +37,6 @@ _LAYER_BASE_PRESSURE = (
     3.957095749749069,
 )
 
-_STANDARD_GRAVITY = 9.80665  # m/s^2
 _MOLAR_MASS_AIR = 0.0289644  # kg/mol
 _GAS_CONSTANT = 8.3144598  # J/(mol*K)
 _MAX_ALTITUDE = 86000.0  # m, upper bound of the standard atmosphere model
@@ -72,10 +71,10 @@ def altitude_to_pressure(altitude: float) -> float:
     p_b = _LAYER_BASE_PRESSURE[layer]
     if l_b == 0.0:
         return p_b * np.exp(
-            -_STANDARD_GRAVITY * _MOLAR_MASS_AIR * (h - h_b) / (_GAS_CONSTANT * t_b)
+            -STANDARD_GRAVITY * _MOLAR_MASS_AIR * (h - h_b) / (_GAS_CONSTANT * t_b)
         )
     return p_b * (t_b / (t_b + l_b * (h - h_b))) ** (
-        _STANDARD_GRAVITY * _MOLAR_MASS_AIR / (_GAS_CONSTANT * l_b)
+        STANDARD_GRAVITY * _MOLAR_MASS_AIR / (_GAS_CONSTANT * l_b)
     )
 
 
@@ -110,10 +109,10 @@ def pressure_to_altitude(pressure: float) -> float:
     p_b = _LAYER_BASE_PRESSURE[layer]
     if l_b == 0.0:
         return h_b - (_GAS_CONSTANT * t_b) / (
-            _STANDARD_GRAVITY * _MOLAR_MASS_AIR
+            STANDARD_GRAVITY * _MOLAR_MASS_AIR
         ) * np.log(p / p_b)
     return h_b + (t_b / l_b) * (
-        (p / p_b) ** (-_GAS_CONSTANT * l_b / (_STANDARD_GRAVITY * _MOLAR_MASS_AIR)) - 1
+        (p / p_b) ** (-_GAS_CONSTANT * l_b / (STANDARD_GRAVITY * _MOLAR_MASS_AIR)) - 1
     )
 
 

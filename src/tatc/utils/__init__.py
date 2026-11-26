@@ -24,6 +24,13 @@ from .ellipsoid import (
     rectangular_to_geodetic,
 )
 from .formatting import zero_pad
+from .decay import (
+    DEFAULT_DRAG_COEFFICIENT,
+    compute_decay_rates,
+    compute_drag_delta_v,
+    compute_orbit_decay,
+    compute_orbit_lifetime,
+)
 from .geoid import compute_geoid_height
 from .geometry import (
     geodesic_destination,
@@ -131,6 +138,11 @@ __all__ = [
     "get_g_over_t",
     "get_link_modes",
     "compute_geoid_height",
+    "DEFAULT_DRAG_COEFFICIENT",
+    "compute_decay_rates",
+    "compute_drag_delta_v",
+    "compute_orbit_decay",
+    "compute_orbit_lifetime",
     "compute_along_track_field_of_view",
     "NadirReference",
     "VelocityFrame",
