@@ -36,12 +36,36 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Copernicus Sentinel-3: \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 520000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-3 (the series): \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-3 (the series): \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
   - id: sentinel-3b
     name: Sentinel-3B
     norad_id: 43437
     status: operational
     as_of: 2026-11-17
     resources: *resources_sentinel_3
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 520000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-3 (the series): \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-3 (the series): \"The X-band provide the payload data downlink at a rate of 520 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-3)"
 default_configuration: plane
 configurations:
   plane:

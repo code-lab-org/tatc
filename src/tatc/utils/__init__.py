@@ -27,6 +27,21 @@ from .glint import (
     compute_specular_point,
     compute_subsolar_latitude,
 )
+from .link_budget import (
+    BandDefaults,
+    compute_antenna_gain,
+    compute_atmospheric_loss,
+    compute_carrier_to_noise_density,
+    compute_free_space_path_loss,
+    compute_link_rate,
+    compute_mode_rate,
+    compute_shannon_rate,
+    get_band,
+    get_eirp,
+    get_frequency,
+    get_g_over_t,
+    get_link_modes,
+)
 from .observation import (
     compute_along_track_field_of_view,
     compute_field_of_regard,
@@ -89,6 +104,19 @@ from .surface import compute_number_samples
 from .time import to_datetime64_ns
 
 __all__ = [
+    "BandDefaults",
+    "compute_antenna_gain",
+    "compute_atmospheric_loss",
+    "compute_carrier_to_noise_density",
+    "compute_free_space_path_loss",
+    "compute_link_rate",
+    "compute_mode_rate",
+    "compute_shannon_rate",
+    "get_band",
+    "get_eirp",
+    "get_frequency",
+    "get_g_over_t",
+    "get_link_modes",
     "compute_geoid_height",
     "compute_along_track_field_of_view",
     "NadirReference",

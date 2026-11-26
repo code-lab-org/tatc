@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from pydantic import Field
 
+from ..communication import StationCommunications
 from .point import Point
 
 
@@ -28,4 +29,10 @@ class GroundStation(Point):
         default=timedelta(0),
         description="Minimum access (integration) time required for satellite communication.",
         examples=[timedelta(seconds=10)],
+    )
+    communications: StationCommunications | None = Field(
+        default=None,
+        description="The antennas and receivers of the station, or `None` for "
+        + "any number of antennas without a link budget (see "
+        + "`tatc.analysis.compute_data_flow`).",
     )

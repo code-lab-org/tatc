@@ -6,7 +6,6 @@ Object schema for mutual orbiting group (MOG) constellations.
 
 from __future__ import annotations
 
-import copy
 from typing import Literal
 
 import numpy as np
@@ -157,9 +156,7 @@ class MOGConstellation(BaseConstellation):
             Satellite(
                 name=zero_pad(self.name, self.number_satellites, i + 1),
                 orbit=orbit,
-                instruments=copy.deepcopy(self.instruments),
-                attitude=copy.deepcopy(self.attitude),
-                resources=copy.deepcopy(self.resources),
+                **self._member_fields(),
             )
             for i, orbit in enumerate(orbits)
         ]

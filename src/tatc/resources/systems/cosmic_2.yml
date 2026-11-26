@@ -32,36 +32,132 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data ... 2048 kbps Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
   - id: formosat-7-2
     name: FORMOSAT-7/COSMIC-2 FM2
     norad_id: 44351
     status: operational
     as_of: 2026-11-15
     resources: *resources_formosat_7
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
   - id: formosat-7-3
     name: FORMOSAT-7/COSMIC-2 FM3
     norad_id: 44343
     status: retired
     as_of: 2026-11-15
     resources: *resources_formosat_7
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
   - id: formosat-7-4
     name: FORMOSAT-7/COSMIC-2 FM4
     norad_id: 44350
     status: operational
     as_of: 2026-10-16
     resources: *resources_formosat_7
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
   - id: formosat-7-5
     name: FORMOSAT-7/COSMIC-2 FM5
     norad_id: 44358
     status: operational
     as_of: 2026-11-15
     resources: *resources_formosat_7
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
   - id: formosat-7-6
     name: FORMOSAT-7/COSMIC-2 FM6
     norad_id: 44353
     status: operational
     as_of: 2026-11-15
     resources: *resources_formosat_7
+    communications:
+      transmitters:
+        - name: S-band telemetry and data
+          band: S
+          frequency: 2264000000.0
+          max_data_rate: 2048000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, COSMIC-2: \"TM & Raw Data | S-E | 2264 MHz | 4000 kHz | RHCP | D | 2048 kbps | Telemetry, sensor data\" (https://space.oscar.wmo.int/satellites/view/cosmic_2)"
 default_configuration: plane
 configurations:
   plane:

@@ -140,3 +140,29 @@ Utility Functions
 .. autofunction:: tatc.utils.compute_radar_footprint
 
 .. autofunction:: tatc.utils.compute_radar_footprint_profile
+
+.. autofunction:: tatc.utils.compute_link_rate
+
+.. autofunction:: tatc.utils.compute_free_space_path_loss
+
+.. autofunction:: tatc.utils.compute_antenna_gain
+
+.. autofunction:: tatc.utils.compute_atmospheric_loss
+
+.. autofunction:: tatc.utils.compute_carrier_to_noise_density
+
+.. autofunction:: tatc.utils.compute_mode_rate
+
+.. autofunction:: tatc.utils.compute_shannon_rate
+
+.. autofunction:: tatc.utils.get_band
+
+.. autofunction:: tatc.utils.get_link_modes
+
+.. autofunction:: tatc.utils.get_eirp
+
+.. autofunction:: tatc.utils.get_frequency
+
+.. autofunction:: tatc.utils.get_g_over_t
+
+.. autoclass:: tatc.utils.BandDefaults

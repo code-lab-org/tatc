@@ -36,6 +36,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, TIMED: \"High-rate modulation 4 Mbit/s with DQPSK modulation\" (https://www.eoportal.org/satellite-missions/timed)"
+    communications:
+      transmitters:
+        - name: S-band downlink
+          band: S
+          frequency: 2214970000.0
+          max_data_rate: 4000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, TIMED: \"4 Mbit/s with DQPSK modulation\" (https://www.eoportal.org/satellite-missions/timed)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, TIMED: \"4 Mbit/s with DQPSK modulation\" (https://www.eoportal.org/satellite-missions/timed)"
+            frequency:
+              kind: nominal
+              source: "eoPortal, TIMED: \"2214.97 MHz (S-Band), 3 W\" (https://www.eoportal.org/satellite-missions/timed)"
 default_configuration: plane
 configurations:
   plane:

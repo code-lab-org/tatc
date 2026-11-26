@@ -32,6 +32,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "WMO OSCAR/Space, GOES-18: \"Raw Data Link ... 120000 kbps Raw data\" (https://space.oscar.wmo.int/satellites/view/goes_18); the same for GOES-19"
+    communications:
+      transmitters:
+        - name: X-band raw data link
+          band: X
+          frequency: 8220000000.0
+          max_data_rate: 120000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, GOES-19: \"Raw Data Link | S-E | 8220 MHz | 120000 kHz | linear | D | 120000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/goes_19)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, GOES-19: \"Raw Data Link | S-E | 8220 MHz | 120000 kHz | linear | D | 120000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/goes_19)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, GOES-19: \"Raw Data Link | S-E | 8220 MHz | 120000 kHz | linear | D | 120000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/goes_19)"
   - id: goes-18
     name: GOES-18
     norad_id: 51850

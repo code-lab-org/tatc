@@ -6,7 +6,6 @@ Object schemas for Walker constellations.
 
 from __future__ import annotations
 
-import copy
 import math
 from enum import Enum
 from typing import Literal
@@ -191,9 +190,7 @@ class WalkerConstellation(BaseConstellation):
                     (i // self.get_satellites_per_plane())
                     * self.get_delta_raan_between_planes(),
                 ),
-                instruments=copy.deepcopy(self.instruments),
-                attitude=copy.deepcopy(self.attitude),
-                resources=copy.deepcopy(self.resources),
+                **self._member_fields(),
             )
             for i in range(self.number_satellites)
         ]

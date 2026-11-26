@@ -28,6 +28,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Copernicus Sentinel-5P: \"X-band science data downlink at 310 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+    communications:
+      transmitters:
+        - name: X-band science data
+          band: X
+          max_data_rate: 310000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-5P: \"X-band science data downlink at 310 Mbit/s OQPSK.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-5P: \"X-band science data downlink at 310 Mbit/s OQPSK.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-5p)"
 default_configuration: plane
 configurations:
   plane:

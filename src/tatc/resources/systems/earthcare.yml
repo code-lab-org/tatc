@@ -28,6 +28,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, EarthCARE: \"Payload data will be transferred at a rate of up to 150 Mbit/s via X-band\" (https://www.eoportal.org/satellite-missions/earthcare)"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 150000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, EarthCARE: \"Payload data will be transferred at a rate of up to 150 Mbit/s via X-band frequencies.\" (https://www.eoportal.org/satellite-missions/earthcare)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, EarthCARE: \"Payload data will be transferred at a rate of up to 150 Mbit/s via X-band frequencies.\" (https://www.eoportal.org/satellite-missions/earthcare)"
 default_configuration: plane
 configurations:
   plane:

@@ -46,8 +46,51 @@ configurations:
         kind: nominal
         source: NESDIS's pages of the GOES-R ground system (WCDAS is the primary site for space-to-ground communications) and of FCDAS (backup support for GOES-West)
       min_elevation_angle: *min_elevation
+terminals:
+  FCDAS:
+    antennas: 3
+    receivers:
+      - band: S
+        g_over_t: 23
+        provenance:
+          band:
+            kind: nominal
+            source: "NESDIS OSPO, Fairbanks Command and Data Acquisition Station: G/T (dB/K) of L/S/X \"13 METER 1/A ... 20/24/38\", \"13 METER 2/B ... 19/24/37\", \"13 METER 3/C ... 20/23/36\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas)"
+          g_over_t:
+            kind: derived
+            source: "The least of the 13 m antennas, NESDIS OSPO, Fairbanks Command and Data Acquisition Station: G/T (dB/K) of L/S/X \"13 METER 1/A ... 20/24/38\", \"13 METER 2/B ... 19/24/37\", \"13 METER 3/C ... 20/23/36\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas); no elevation angle is stated"
+      - band: X
+        g_over_t: 36
+        provenance:
+          band:
+            kind: nominal
+            source: "NESDIS OSPO, Fairbanks Command and Data Acquisition Station: G/T (dB/K) of L/S/X \"13 METER 1/A ... 20/24/38\", \"13 METER 2/B ... 19/24/37\", \"13 METER 3/C ... 20/23/36\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas)"
+          g_over_t:
+            kind: derived
+            source: "The least of the 13 m antennas, NESDIS OSPO, Fairbanks Command and Data Acquisition Station: G/T (dB/K) of L/S/X \"13 METER 1/A ... 20/24/38\", \"13 METER 2/B ... 19/24/37\", \"13 METER 3/C ... 20/23/36\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas); no elevation angle is stated"
+      - band: Ka
+        g_over_t: 28
+        provenance:
+          band:
+            kind: nominal
+            source: "NESDIS OSPO, Fairbanks Command and Data Acquisition Station: \"4.06 METER KA | Ka | 28\" (receive bands and G/T in dB/K) (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas); no elevation angle is stated"
+          g_over_t:
+            kind: nominal
+            source: "NESDIS OSPO, Fairbanks Command and Data Acquisition Station: \"4.06 METER KA | Ka | 28\" (receive bands and G/T in dB/K) (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas); no elevation angle is stated"
+    provenance:
+      antennas:
+        kind: nominal
+        source: "The three 13 m L/S/X antennas of NESDIS OSPO, Fairbanks Command and Data Acquisition Station: G/T (dB/K) of L/S/X \"13 METER 1/A ... 20/24/38\", \"13 METER 2/B ... 19/24/37\", \"13 METER 3/C ... 20/23/36\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/fairbanks-command-and-data-acquisition-station-fcdas); its other antennas (26 m, 21 m, and 5 m) are not included, and its 4.06 m Ka-band antenna gives the Ka-band receiver"
+  WCDAS:
+    antennas: 2
+    provenance:
+      antennas:
+        kind: nominal
+        source: "The two 13 m L/S/X antennas of NESDIS OSPO, Wallops Command and Data Acquisition Station: \"13 METER A L/S/X\" and \"13 METER B L/S/X\" (https://www.nesdis.noaa.gov/about/our-offices/office-of-satellite-and-product-operations-ospo/wallops-command-and-data-acquisition-station); WCDAS publishes antenna gains, not G/T, so its receivers are not given"
 limitations:
   - Each station is at the position of one of its antennas (published positions, not compared with an independent source); the antennas of a station are within about a kilometer of each other.
   - The ground elevations of SvalSat and McMurdo are not published with their positions and are taken as sea level (their antennas are higher, which changes the time in view of a satellite negligibly); those of FCDAS and WCDAS are the elevations of their antennas, and TrollSat's the height of its antenna.
+  - "FCDAS's terminal counts its three 13 m antennas, and its Ka-band receiver is its one 4.06 m Ka-band antenna, so it may receive up to three satellites at once in Ka-band rather than one."
+  - "Only FCDAS and WCDAS give terminals (their 13 m antennas, and FCDAS's G/T): the antennas that KSAT and NSF operate for NOAA at SvalSat, McMurdo, and TrollSat are not published, so these stations receive any number of satellites in any band without a link budget."
   - The minimum elevation angle is an assumption, not a station's horizon mask (such as the terrain about FCDAS or SvalSat).
   - Only stations that receive NOAA's satellites for NESDIS are included, not the facilities of NOAA's ground system without receiving antennas of record (the NOAA Satellite Operations Facility in Suitland and the Consolidated Backup facility in Fairmont), the direct broadcast sites of field terminals, or EUMETSAT's stations for Metop.

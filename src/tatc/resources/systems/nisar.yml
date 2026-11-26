@@ -32,6 +32,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, NISAR: \"data downlink per orbit at 3.5 Gbit/s data rate\" (https://www.eoportal.org/satellite-missions/nisar)"
+    communications:
+      transmitters:
+        - name: Ka-band science data to NASA
+          band: Ka
+          max_data_rate: 3450000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, NISAR: \"The Ka-band downlink to NASA ground stations will be at 4.0 Gbit/s with and information rate of 3.45 Gbit/s\" (https://www.eoportal.org/satellite-missions/nisar)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, NISAR: \"The Ka-band downlink to NASA ground stations will be at 4.0 Gbit/s with and information rate of 3.45 Gbit/s\" (https://www.eoportal.org/satellite-missions/nisar)"
 default_configuration: plane
 configurations:
   plane:

@@ -28,6 +28,19 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, GPM: \"~2.3 Mbit/s in SA mode\" (https://www.eoportal.org/satellite-missions/gpm); through TDRS"
+    communications:
+      transmitters:
+        - name: S-band single access to TDRS
+          link: crosslink
+          band: S
+          max_data_rate: 2300000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, GPM: \"The GPM Core Observatory uses an S-band communications system for data exchange with the ground.\" (https://www.eoportal.org/satellite-missions/gpm)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, GPM: \"Stored science data is downlinked via the SA (Single-Access) service of TDRSS\"; \"The data rate is ~230 kbit/s in MA mode and ~2.3 Mbit/s in SA mode.\" (https://www.eoportal.org/satellite-missions/gpm)"
 default_configuration: plane
 configurations:
   plane:

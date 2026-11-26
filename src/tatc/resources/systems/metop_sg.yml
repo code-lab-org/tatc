@@ -28,6 +28,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, MetOp-SG: \"Ka-band downlink (Mbit/s) 781 (2 channels)\" (https://www.eoportal.org/satellite-missions/metop-sg)"
+    communications:
+      transmitters:
+        - name: Ka-band stored mission data
+          band: Ka
+          max_data_rate: 781000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, MetOp-SG: Ka-band downlink (Mbit/s) \"781 (2 channels)\" for Satellite A (https://www.eoportal.org/satellite-missions/metop-sg)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, MetOp-SG: Ka-band downlink (Mbit/s) \"781 (2 channels)\" for Satellite A (https://www.eoportal.org/satellite-missions/metop-sg)"
 default_configuration: plane
 configurations:
   plane:

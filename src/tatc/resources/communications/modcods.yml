@@ -1,0 +1,54 @@
+# Modulations and codes of standards (see tatc.utils.get_link_modes): the
+# spectral efficiency (information bits per symbol) and the required energy
+# per symbol (required_esn0) or per bit (required_ebn0) to noise density.
+standards:
+  dvb-s2:
+    source: >-
+      nominal: "Table 13: Es/No performance at Quasi Error Free PER = 10-7
+      (AWGN channel)", ideal values for normal FECFRAMEs (64 800 bits) without
+      pilots ("For short FECFRAMEs an additional degradation of 0,2 dB to
+      0,3 dB has to be taken into account"), ETSI EN 302 307-1 V1.4.1
+      (https://www.etsi.org/deliver/etsi_en/302300_302399/30230701/01.04.01_60/en_30230701v010401p.pdf)
+    modes:
+      - {name: QPSK 1/4, spectral_efficiency: 0.490243, required_esn0: -2.35}
+      - {name: QPSK 1/3, spectral_efficiency: 0.656448, required_esn0: -1.24}
+      - {name: QPSK 2/5, spectral_efficiency: 0.789412, required_esn0: -0.30}
+      - {name: QPSK 1/2, spectral_efficiency: 0.988858, required_esn0: 1.00}
+      - {name: QPSK 3/5, spectral_efficiency: 1.188304, required_esn0: 2.23}
+      - {name: QPSK 2/3, spectral_efficiency: 1.322253, required_esn0: 3.10}
+      - {name: QPSK 3/4, spectral_efficiency: 1.487473, required_esn0: 4.03}
+      - {name: QPSK 4/5, spectral_efficiency: 1.587196, required_esn0: 4.68}
+      - {name: QPSK 5/6, spectral_efficiency: 1.654663, required_esn0: 5.18}
+      - {name: QPSK 8/9, spectral_efficiency: 1.766451, required_esn0: 6.20}
+      - {name: QPSK 9/10, spectral_efficiency: 1.788612, required_esn0: 6.42}
+      - {name: 8PSK 3/5, spectral_efficiency: 1.779991, required_esn0: 5.50}
+      - {name: 8PSK 2/3, spectral_efficiency: 1.980636, required_esn0: 6.62}
+      - {name: 8PSK 3/4, spectral_efficiency: 2.228124, required_esn0: 7.91}
+      - {name: 8PSK 5/6, spectral_efficiency: 2.478562, required_esn0: 9.35}
+      - {name: 8PSK 8/9, spectral_efficiency: 2.646012, required_esn0: 10.69}
+      - {name: 8PSK 9/10, spectral_efficiency: 2.679207, required_esn0: 10.98}
+      - {name: 16APSK 2/3, spectral_efficiency: 2.637201, required_esn0: 8.97}
+      - {name: 16APSK 3/4, spectral_efficiency: 2.966728, required_esn0: 10.21}
+      - {name: 16APSK 4/5, spectral_efficiency: 3.165623, required_esn0: 11.03}
+      - {name: 16APSK 5/6, spectral_efficiency: 3.300184, required_esn0: 11.61}
+      - {name: 16APSK 8/9, spectral_efficiency: 3.523143, required_esn0: 12.89}
+      - {name: 16APSK 9/10, spectral_efficiency: 3.567342, required_esn0: 13.13}
+      - {name: 32APSK 3/4, spectral_efficiency: 3.703295, required_esn0: 12.73}
+      - {name: 32APSK 4/5, spectral_efficiency: 3.951571, required_esn0: 13.64}
+      - {name: 32APSK 5/6, spectral_efficiency: 4.119540, required_esn0: 14.28}
+      - {name: 32APSK 8/9, spectral_efficiency: 4.397854, required_esn0: 15.69}
+      - {name: 32APSK 9/10, spectral_efficiency: 4.453027, required_esn0: 16.05}
+  ccsds:
+    source: >-
+      nominal, read from figures (about 0.2 dB): the bit error rate of 1e-6
+      with QPSK, "Figure 25. Relative Performance of Supported Codes", DSN
+      Telecommunications Link Design Handbook 810-005, module 208 Rev. C
+      (https://deepspace.jpl.nasa.gov/dsndocs/810-005/208/208C.pdf), as in
+      Figure 3-5 of CCSDS 130.1-G-3 (https://public.ccsds.org/Pubs/130x1g3e1.pdf);
+      the efficiencies are derived from the code rates (Reed-Solomon 223/255,
+      LDPC (8160,7136) "rate 0.87451")
+    modes:
+      - {name: uncoded QPSK, spectral_efficiency: 2.0, required_ebn0: 10.5}
+      - {name: convolutional 1/2 QPSK, spectral_efficiency: 1.0, required_ebn0: 4.9}
+      - {name: Reed-Solomon convolutional 1/2 QPSK, spectral_efficiency: 0.874510, required_ebn0: 2.5}
+      - {name: LDPC 7/8 QPSK, spectral_efficiency: 1.749020, required_ebn0: 4.0}

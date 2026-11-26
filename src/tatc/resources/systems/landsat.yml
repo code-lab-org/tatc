@@ -35,6 +35,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Landsat-8/LDCM: \"to maintain a 384 Mbit/s downlink\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+    communications:
+      transmitters:
+        - name: X-band mission data
+          band: X
+          frequency: 8200500000.0
+          max_data_rate: 384000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Landsat-8/LDCM: \"This clock is provided to the PIE XIB to clock mission data up to a 384Mbit/s data rate to the transmitter.\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Landsat-8/LDCM: \"This clock is provided to the PIE XIB to clock mission data up to a 384Mbit/s data rate to the transmitter.\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
+            frequency:
+              kind: nominal
+              source: "eoPortal, Landsat-8/LDCM: \"The serial data output is set at 440.825 Mbit/s and is up-converted to 8200.5 MHz.\" (https://www.eoportal.org/satellite-missions/landsat-8-ldcm)"
   - id: landsat-9
     name: Landsat 9
     norad_id: 49260

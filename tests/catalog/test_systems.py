@@ -362,6 +362,48 @@ EXPECTED_SYSTEM_STATUS = {
         },
         [],
     ),
+    "near_earth_network": (
+        "nominal",
+        {
+            "all": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            ),
+            "ksat": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            ),
+            "ssc": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            ),
+            "nasa": (
+                "nominal",
+                None,
+                [
+                    "horizontal_error_p95",
+                    "reference_matched",
+                    "no comparison with reference data",
+                ],
+            ),
+        },
+        [],
+    ),
     "nexrad": (
         "validated",
         {

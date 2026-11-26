@@ -28,15 +28,22 @@ from tatc.schemas import (
     ActiveWindow,
     Aircraft,
     Architecture,
+    DataFlow,
+    DataGeneration,
     GeosynchronousOrbit,
     GroundStation,
     Instrument,
     RadarStation,
     Relay,
+    RelayCommunications,
     Satellite,
+    SpacecraftCommunications,
+    SpacecraftResources,
+    StationCommunications,
     SunSynchronousOrbit,
     SurfacePlatform,
     Trajectory,
+    Transmitter,
 )
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -426,6 +433,174 @@ class TestEvaluateArchitecture(unittest.TestCase):
     def test_empty(self):
         evaluation = Architecture().evaluate(self.points, START, END, _metrics)
         self.assertEqual(evaluation.metrics["observations"], 0)
+
+
+def _flow_satellite(name, crossing="10:30", rate=20e6, crosslink=False):
+    """A satellite that generates data at a rate and downlinks it at 150 Mbps."""
+    transmitters = [Transmitter(band="X", max_data_rate=150e6)]
+    if crosslink:
+        transmitters.append(
+            Transmitter(band="Ka", link="crosslink", max_data_rate=300e6)
+        )
+    return _satellite(name, crossing).model_copy(
+        update={
+            "resources": SpacecraftResources(storage=100e9),
+            "communications": SpacecraftCommunications(
+                transmitters=transmitters, generation=DataGeneration(rate=rate)
+            ),
+        }
+    )
+
+
+def _flow_metrics(observations):
+    return {
+        "latency": observations["latency"].mean(),
+        "lost": int(observations["lost"].sum()) if "lost" in observations else 0,
+    }
+
+
+class TestDataFlowArchitecture(unittest.TestCase):
+    """Tests the evaluation of architectures with a data flow model."""
+
+    def setUp(self):
+        self.points = generate_points_fibonacci_lattice(count=60)
+        self.station = GroundStation(
+            name="svalbard",
+            latitude=78.2,
+            longitude=15.4,
+            min_elevation_angle=5,
+            communications=StationCommunications(antennas=1),
+        )
+        self.satellites = [_flow_satellite("s1"), _flow_satellite("s2", "10:35")]
+        self.architecture = Architecture(
+            satellites=self.satellites, ground_stations=[self.station]
+        )
+
+    def test_default_unchanged(self):
+        """
+        Tests that communications do not change an evaluation by timing alone.
+        """
+        plain = Architecture(
+            satellites=[_satellite("s1"), _satellite("s2", "10:35")],
+            ground_stations=[self.station.model_copy(update={"communications": None})],
+        )
+        expected = evaluate_architecture(plain, self.points, START, END)
+        evaluation = evaluate_architecture(self.architecture, self.points, START, END)
+        pd.testing.assert_frame_equal(evaluation.observations, expected.observations)
+        self.assertIsNone(evaluation.flow)
+        self.assertNotIn("lost", evaluation.observations.columns)
+
+    def test_data_flow(self):
+        """
+        Tests the downlinks of observations through the flow of data.
+        """
+        evaluation = evaluate_architecture(
+            self.architecture,
+            self.points,
+            START,
+            END,
+            _flow_metrics,
+            data_flow=DataFlow(),
+        )
+        observations = evaluation.observations
+        self.assertIn("lost", observations.columns)
+        self.assertIsNotNone(evaluation.flow)
+        self.assertEqual(set(evaluation.flow.summary["satellite"]), {"s1", "s2"})
+        delivered = observations["downlinked"].notna()
+        self.assertTrue(delivered.any())
+        self.assertTrue(
+            (observations.loc[delivered, "ground_station"] == "svalbard").all()
+        )
+        # one antenna serves one satellite at a time
+        schedule = evaluation.flow.schedule
+        for _, run in schedule.iterrows():
+            overlapping = schedule[
+                (schedule["start"] < run["end"]) & (schedule["end"] > run["start"])
+            ]
+            self.assertEqual(len(overlapping), 1)
+
+    def test_leave_one_out(self):
+        """
+        Tests that leaving out a satellite that competes for an antenna
+        reduces the other's loss and latency.
+        """
+        evaluation = evaluate_architecture(
+            self.architecture,
+            self.points,
+            START,
+            END,
+            _flow_metrics,
+            data_flow=DataFlow(),
+        )
+        both = evaluation.flow.summary.set_index("satellite")
+        alone = evaluation.without_members("s2")
+        self.assertIsNotNone(alone.flow)
+        one = alone.flow.summary.set_index("satellite")
+        self.assertLessEqual(one.loc["s1", "lost"], both.loc["s1", "lost"])
+        self.assertGreater(one.loc["s1", "delivered"], both.loc["s1", "delivered"])
+        table = evaluation.leave_one_out(["s2"])
+        self.assertIn("latency contribution", table.columns)
+
+    def test_add_relay(self):
+        """
+        Tests that adding a relay with a crosslink reduces latency.
+        """
+        satellites = [
+            _flow_satellite("s1", crosslink=True),
+            _flow_satellite("s2", "10:35", crosslink=True),
+        ]
+        architecture = Architecture(
+            satellites=satellites, ground_stations=[self.station]
+        )
+        relay = Relay(
+            name="relay",
+            satellites=[
+                Satellite(name=f"geo{i}", orbit=GeosynchronousOrbit(longitude=lon))
+                for i, lon in enumerate([-41, 174, 62])
+            ],
+            communications=RelayCommunications(antennas=1, feeder_rate=300e6),
+        )
+        evaluation = evaluate_architecture(
+            architecture,
+            self.points,
+            START,
+            END,
+            _flow_metrics,
+            data_flow=DataFlow(),
+        )
+        table = evaluation.add_one([relay])
+        self.assertLess(table.loc["relay", "latency"], evaluation.metrics["latency"])
+        self.assertLessEqual(table.loc["relay", "lost"], evaluation.metrics["lost"])
+
+    def test_window(self):
+        """
+        Tests that a satellite generates data only in its window.
+        """
+        architecture = self.architecture.model_copy(
+            update={"windows": {"s2": ActiveWindow(start=START + 6 * HOUR)}}
+        )
+        evaluation = evaluate_architecture(
+            architecture, self.points, START, END, data_flow=DataFlow()
+        )
+        storage = evaluation.flow.storage
+        s2 = storage[storage["satellite"] == "s2"]
+        early = s2[s2["time"] <= pd.Timestamp(START + 6 * HOUR)]
+        self.assertEqual(early["generated"].max(), 0)
+        self.assertAlmostEqual(s2["generated"].iloc[-1], 20e6 * 6 * 3600)
+
+    def test_during_contact_warning(self):
+        """
+        Tests a warning that during_contact is ignored with a data flow model.
+        """
+        with self.assertWarns(UserWarning):
+            evaluate_architecture(
+                self.architecture,
+                self.points,
+                START,
+                START + HOUR,
+                data_flow=DataFlow(),
+                during_contact="next",
+            )
 
 
 if __name__ == "__main__":

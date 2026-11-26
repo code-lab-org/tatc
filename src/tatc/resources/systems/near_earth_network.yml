@@ -1,0 +1,745 @@
+id: near_earth_network
+name: NASA Near Earth Network
+aliases: [NEN, Near Space Network ground stations, KSAT, SSC, Kongsberg Satellite Services, Swedish Space Corporation]
+system_class: ground_network
+selection: The direct-to-Earth antennas of NASA's Near Earth Network (now part of the Near Space Network) as its users' guide of 2019 publishes them, NASA's own and the commercial antennas of KSAT, SSC, and SANSA that serve its missions, with their G/T and maximum rates, for the latency and data flow of concept studies.
+operator: NASA Space Communications and Navigation (SCaN), with Kongsberg Satellite Services (KSAT), the Swedish Space Corporation (SSC), and the South African National Space Agency (SANSA)
+stations:
+  file: near_earth_network.csv
+  as_of: 2019-03-14
+  provenance:
+    kind: nominal
+    source: "The position of each antenna in Table 2-1 (\"NEN Overview\") of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf), or in its section where the table disagrees with it (TR2's longitude, and WS1, as cataloged in nasa_space_network); heights above sea level of TR3 and the Santiago antennas from their sections, and of South Point from SSC (\"situated 367M above sea level\", https://sscspace.com/services/satellite-ground-stations/our-stations/south-point-station/)"
+default_configuration: all
+configurations:
+  all:
+    grade: siting
+    description: Every antenna of the network that receives data from satellites.
+    members: [AS1, AS2, AS3, USAK01, USAK03, USAK04, USAK05, USHI01, USHI02, AUWA01, KU1S, KU2S, SA1, SA2, SA3, SG1, SG2, SG3, TR2, TR3, SI1, HBK01, HBK02, MG1, WG1, WG2, KUS, PDL, WS1]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: "The receiving antennas of Table 2-1 of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      min_elevation_angle: &min_elevation
+        kind: placeholder
+        source: An assumption of the elevation above which an antenna contacts a satellite (the guide states G/T at 5 deg in S-band and 10 deg in X-band), not a published mask; give the angle of a study when building stations (build(min_elevation_angle=...))
+  ksat:
+    grade: siting
+    description: The antennas of Kongsberg Satellite Services (KSAT), at Svalbard, TrollSat, and Singapore.
+    members: [SG1, SG2, SG3, TR2, TR3, SI1]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: "The operators of the antennas in Table 2-1 of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      min_elevation_angle: *min_elevation
+  ssc:
+    grade: siting
+    description: The antennas of the Swedish Space Corporation (SSC), at North Pole, South Point, Dongara, Esrange, and Santiago.
+    members: [USAK01, USAK03, USAK04, USAK05, USHI01, USHI02, AUWA01, KU1S, KU2S, SA1, SA2, SA3]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: "The operators of the antennas in Table 2-1 of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      min_elevation_angle: *min_elevation
+  nasa:
+    grade: siting
+    description: The antennas of NASA, at the Alaska Satellite Facility, McMurdo, Wallops, the Kennedy area, and White Sands.
+    members: [AS1, AS2, AS3, MG1, WG1, WG2, KUS, PDL, WS1]
+    min_elevation_angle: 5
+    provenance:
+      members:
+        kind: nominal
+        source: "The operators of the antennas in Table 2-1 of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      min_elevation_angle: *min_elevation
+terminals:
+  AS1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.2, Table 7-2: \"G/T 22 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.2, Table 7-2: \"G/T 22 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.2
+        max_data_rate: 350000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.2, Table 7-3: \"G/T 37.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.2, Table 7-3: \"G/T 37.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.2, Table 7-3: \"1 Mbps - 350 Mbps (QPSK, OQPSK) per ch\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: &one_antenna
+        kind: nominal
+        source: "Each station is one antenna, as Table 2-1 of the NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019) lists the antennas of each site (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+  AS2:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 21.2
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.3, Table 7-6: \"G/T 21.2 dB/K (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.3, Table 7-6: \"G/T 21.2 dB/K (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 36.2
+        max_data_rate: 350000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.3, Table 7-7: \"G/T 36.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.3, Table 7-7: \"G/T 36.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.3, Table 7-7: \"1 Mbps - 350 Mbps (QPSK, OQPSK) per ch\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  AS3:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.9
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.4, Table 7-10: \"G/T 22.9 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.4, Table 7-10: \"G/T 22.9 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 36.2
+        max_data_rate: 350000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.4, Table 7-11: \"G/T 36.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.4, Table 7-11: \"G/T 36.2 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 7.4, Table 7-11: \"1 Mbps - 350 Mbps (QPSK, OQPSK) per ch\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USAK01:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.1, Table 6-2: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.1, Table 6-2: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.7
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.1, Table 6-3: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.1, Table 6-3: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.1, Table 6-3: \"Data Rate 1 Mbps - 150 Mbps Uncoded\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USAK03:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 17.2
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.2, Table 6-5: \"G/T 17.2 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.2, Table 6-5: \"G/T 17.2 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 31.5
+        max_data_rate: 400000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.2, X-band telemetry table: \"G/T 31.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.2, X-band telemetry table: \"G/T 31.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.2, X-band telemetry table: \"Data Rate 40 Mbps - 400 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USAK04:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 19.6
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.3, Table 6-7: \"G/T 19.6 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.3, Table 6-7: \"G/T 19.6 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 31.0
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.3, Table 6-8: \"G/T 31.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.3, Table 6-8: \"G/T 31.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.3, Table 6-8: \"Data Rate 10 Mbps - 150 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USAK05:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.2
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.4, Table 6-11: \"G/T include Radome 23.2 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.4, Table 6-11: \"G/T include Radome 23.2 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 34.0
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.4, Table 6-12: \"G/T include Radome 34.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.4, Table 6-12: \"G/T include Radome 34.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.4, Table 6-12: \"Data Rate 10 Mbps - 150 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USHI01:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.5: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.5: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.7
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.5: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.5: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.5: \"Data Rate 1 Mbps - 150 Mbps, Uncoded\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  USHI02:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.6: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.6: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.7
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.6: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.6: \"G/T 37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.6: \"Data Rate 1 Mbps - 150 Mbps, Uncoded\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  AUWA01:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.7: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.7: \"G/T 23.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.7
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.7: \"37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.7: \"37.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 6.7: \"Data Rate 1 Mbps - 150 Mbps, Uncoded\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  KU1S:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.3, Table 12-4: \"23 dB/K (S-band) (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.3, Table 12-4: \"23 dB/K (S-band) (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.3, Table 12-4: \"37.5 dB/K (X-band) (clear sky and 10° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.3, Table 12-4: \"37.5 dB/K (X-band) (clear sky and 10° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  KU2S:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.2, Table 12-2: \"G/T include radome 22.5 dB/K (S-band) (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.2, Table 12-2: \"G/T include radome 22.5 dB/K (S-band) (clear sky and 5° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.2, Table 12-2: \"37.5 dB/K (X-band) (clear sky and 10° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 12.2, Table 12-2: \"37.5 dB/K (X-band) (clear sky and 10° elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SA1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA1 \"G/T 23.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA1 \"G/T 23.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SA2:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 24.4
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA2 \"G/T 24.4 dB/deg K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA2 \"G/T 24.4 dB/deg K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SA3:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 25.7
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA3 \"G/T 25.7 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 10: SA3 \"G/T 25.7 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SG1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.1
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.2, Table 3-2: \"G/T include radome 22.1 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.2, Table 3-2: \"G/T include radome 22.1 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 36.8
+        max_data_rate: 320000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.2, Table 3-3: \"G/T include radome 36.8 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.2, Table 3-3: \"G/T include radome 36.8 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.2, Table 3-3: \"Data Rate 2 - 320 Mbps; 160 Mbps per channel\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SG2:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.6
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.3, Table 3-6: \"G/T include radome 22.6 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.3, Table 3-6: \"G/T include radome 22.6 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 35.7
+        max_data_rate: 150000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.3, Table 3-7: \"35.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.3, Table 3-7: \"35.7 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.3, Table 3-7: \"Data Rate 1 Mbps - 150 Mbps; Capable of 320 Mbps with upgrade)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SG3:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 23.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.4, Table 3-10: \"G/T include radome 23.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.4, Table 3-10: \"G/T include radome 23.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 37.8
+        max_data_rate: 470000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.4, Table 3-11: \"37.8 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.4, Table 3-11: \"37.8 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.4, Table 3-11: \"QPSK, OQPSK (SQPSK): 2 Mbps - 470 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  TR2:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 19.4
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.5, Table 3-14: \"G/T 19.4 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.5, Table 3-14: \"G/T 19.4 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 32
+        max_data_rate: 470000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.5, Table 3-15: \"G/T include radome 32 dB/K (clear sky at 10 elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.5, Table 3-15: \"G/T include radome 32 dB/K (clear sky at 10 elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.5, Table 3-15: \"QPSK, OQPSK (SQPSK): 2 Mbps - 470 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  TR3:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 19.4
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.6, with the tables of TR2 (\"Table 3-14 identifies the S-band telemetry characteristics of the TR3 antenna\"), Table 3-14: \"G/T 19.4 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.6, with the tables of TR2 (\"Table 3-14 identifies the S-band telemetry characteristics of the TR3 antenna\"), Table 3-14: \"G/T 19.4 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 32
+        max_data_rate: 470000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.6, with the tables of TR2, Table 3-15: \"G/T include radome 32 dB/K (clear sky at 10 elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.6, with the tables of TR2, Table 3-15: \"G/T include radome 32 dB/K (clear sky at 10 elevation)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.6, with the tables of TR2, Table 3-15: \"QPSK, OQPSK (SQPSK): 2 Mbps - 470 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  SI1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 20.5
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.7, Table 3-17: \"G/T 20.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.7, Table 3-17: \"G/T 20.5 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 35.4
+        max_data_rate: 470000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.7, Table 3-18: \"G/T 35.4 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.7, Table 3-18: \"G/T 35.4 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 3.7, Table 3-18: \"QPSK, OQPSK (SQPSK): 2 Mbps - 470 Mbps\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  HBK01:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.4
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"HBK01 ... Dish diameter: 12m ... G/T: 22.4 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"HBK01 ... Dish diameter: 12m ... G/T: 22.4 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  HBK02:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 21.4
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"Rx1: 2.2 - 2.4 GHz [G/T: 21.4 dB/K]\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"Rx1: 2.2 - 2.4 GHz [G/T: 21.4 dB/K]\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 31.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"Rx2: 8.0 - 8.5 GHz [G/T: 31.0 dB/K]\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 11 (\"For Information only\"): \"Rx2: 8.0 - 8.5 GHz [G/T: 31.0 dB/K]\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  MG1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 21
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 5.1, Table 5-2: \"G/T include radome 21 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 5.1, Table 5-2: \"G/T include radome 21 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 32.0
+        max_data_rate: 350000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 5.1, Table 5-3: \"G/T include radome 32.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 5.1, Table 5-3: \"G/T include radome 32.0 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 5.1, Table 5-3: \"1 Mbps - 350 Mbps (QPSK, OQPSK) per ch\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  WG1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 22.8
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.2, Table 4-2: \"G/T 22.8 dB/K (clear sky & 41° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.2, Table 4-2: \"G/T 22.8 dB/K (clear sky & 41° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: X
+        g_over_t: 34.5
+        max_data_rate: 350000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.2, Table 4-3: \"G/T 34.5 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.2, Table 4-3: \"G/T 34.5 dB/K (clear sky & 10° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.2, Table 4-3: \"1 Mbps - 350 Mbps (QPSK, OQPSK) per ch\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  WG2:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 17.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.3, Table 4-7: \"G/T 17.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 4.3, Table 4-7: \"G/T 17.0 dB/K (clear sky & 5° elevation angle)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  KUS:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 17.2
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 8: \"G/T 17.2 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 8: \"G/T 17.2 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  PDL:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 17.2
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 8: \"G/T 17.2 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 8: \"G/T 17.2 dB/K\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+  WS1:
+    antennas: 1
+    receivers:
+      - band: S
+        g_over_t: 29.6
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 9, Table 9-2: \"G/T 29.6 dB/K (minimum at 5° elevation, clear sky)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 9, Table 9-2: \"G/T 29.6 dB/K (minimum at 5° elevation, clear sky)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+      - band: Ka
+        g_over_t: 46.98
+        max_data_rate: 470000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 9, Table 9-3: \"G/T 46.98 dB/K, 10° elevation, clear sky\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 9, Table 9-3: \"G/T 46.98 dB/K, 10° elevation, clear sky\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Earth Network Users' Guide (453-NENUG, Revision 4, 2019), Sec. 9, Table 9-3: \"Data Rate 235 Mbps single decoder mode 470 Mbps dual decoder (I&Q)\" (https://essp.larc.nasa.gov/EVI-6/pdf_files/453-UG-002905.pdf)"
+    provenance:
+      antennas: *one_antenna
+limitations:
+  - "The guide (Revision 4, 2019) expired in 2024 and the network, now part of the Near Space Network, relies on a changing set of commercial antennas, so stations may have been added, upgraded, or retired; KSAT's and SSC's other sites (such as Inuvik, Awarua, Punta Arenas, and Mauritius) are not in the guide and are not included."
+  - "G/T is stated clear sky, at 5 deg elevation in S-band and 10 deg in X-band (WG1's S-band at 41 deg); the station sections' values are used where they differ from Table 2-1 (SG2, SI1, AS1, AS3, USAK03, KU1S, HBK02, WS1), and HBK01 and HBK02 are given by the guide for information only."
+  - "The maximum rate of a receiver is the X-band (or Ka-band) demodulator's published range (per channel where so stated); no S-band maximum is given, and KU1S's, KU2S's, and HBK02's X-band rates are not stated."
+  - "Heights above sea level are published only for TR3, the Santiago antennas, and South Point; the others are taken as sea level (their antennas are higher, which changes the time in view of a satellite negligibly)."
+  - "Each antenna is a station with one antenna, so antennas at one site are scheduled independently (a site's antennas may share a backhaul, which is not modeled)."

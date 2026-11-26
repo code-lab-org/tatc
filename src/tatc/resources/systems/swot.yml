@@ -32,6 +32,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, SWOT: \"an X-band downlink of 800 Mbit/s\" (https://www.eoportal.org/satellite-missions/swot)"
+    communications:
+      transmitters:
+        - name: X-band science data
+          band: X
+          max_data_rate: 620000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, SWOT: \"Using an LGA at the 8.025-8.400 GHz band allocated for Earth-exploration satellite service\" (https://www.eoportal.org/satellite-missions/swot)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, SWOT: \"This requires a downlink data rate of 620 Mbit/s to deliver this volume\" (https://www.eoportal.org/satellite-missions/swot); in two channels of 310 Mbit/s (the page's summary also gives 800 Mbit/s)"
 default_configuration: plane
 configurations:
   plane:

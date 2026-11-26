@@ -32,6 +32,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "WMO OSCAR/Space, Meteosat-12: \"MDA ... 165000 kbps Mission Data Acquisition\" (https://space.oscar.wmo.int/satellites/view/meteosat_12)"
+    communications:
+      transmitters:
+        - name: Ka-band mission data
+          band: Ka
+          frequency: 26360000000.0
+          max_data_rate: 163890000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "Data handling architecture of MTG-I, EDHPC 2023: \"Memory buffering sufficient to provide 163.89 Mbps constant through 8 parallel LVDS data flows to the PDD OQPSK modulators for MTG-I Ka band downlink.\" (https://indico.esa.int/event/445/contributions/8332/attachments/5523/9397/EDHPC%202023%20-%20MTG-I%20DH%20architecture%20-%20paper%20v2.pdf)"
+            max_data_rate:
+              kind: nominal
+              source: "Data handling architecture of MTG-I, EDHPC 2023: \"Memory buffering sufficient to provide 163.89 Mbps constant through 8 parallel LVDS data flows to the PDD OQPSK modulators for MTG-I Ka band downlink.\" (https://indico.esa.int/event/445/contributions/8332/attachments/5523/9397/EDHPC%202023%20-%20MTG-I%20DH%20architecture%20-%20paper%20v2.pdf)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, Meteosat-12: \"MDA | S-E | 26360 MHz | 287000 kHz | RHCP&LHCP | D | 165000 kbps | Mission Data Acquisition\" (https://space.oscar.wmo.int/satellites/view/meteosat_12)"
 default_configuration: slot
 configurations:
   slot:

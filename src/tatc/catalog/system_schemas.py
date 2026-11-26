@@ -44,7 +44,10 @@ from .records import ValidationRecord, _CatalogModel, _get_days_apart
 from .schemas import (
     InstrumentSpecification,
     Provenance,
+    RelayServiceSpecification,
+    SpacecraftCommunicationsSpecification,
     SpacecraftResourceSpecification,
+    StationCommunicationsSpecification,
     _check_provenance,
 )
 from .standard import EntryValidation, Grade, InstrumentClass, Tier
@@ -96,6 +99,13 @@ class Spacecraft(_CatalogModel):
         + "handling, with their provenance, which the satellites built of it "
         + "have (see `SatelliteSystem.build`). They are not validated and are "
         + "not part of a configuration's digest.",
+    )
+    communications: SpacecraftCommunicationsSpecification | None = Field(
+        default=None,
+        description="The spacecraft's transmitters, with their provenance, "
+        + "which the satellites built of it have (see `SatelliteSystem.build` "
+        + "and `tatc.analysis.compute_data_flow`). They are not validated and "
+        + "are not part of a configuration's digest.",
     )
 
 
@@ -894,6 +904,19 @@ class SatelliteSystem(SystemEntry):
     configurations: dict[str, OrbitConfiguration] = Field(
         ..., min_length=1, description="The ways of modeling it, by identifier."
     )
+    services: dict[str, RelayServiceSpecification] = Field(
+        default={},
+        description="The services of a relaying system, by identifier (such as "
+        + "a single access service in a band), each with the antennas and "
+        + "receivers of its satellites (see `build_relay`). They are not "
+        + "validated and are not part of a configuration's digest.",
+    )
+
+    @model_validator(mode="after")
+    def _check_services(self) -> SatelliteSystem:
+        if self.services and self.role != "relaying":
+            raise ValueError("only a relaying system has services")
+        return self
 
     @model_validator(mode="after")
     def _check_orbits(self) -> SatelliteSystem:
@@ -1112,6 +1135,11 @@ class SatelliteSystem(SystemEntry):
             resources = (
                 None if member.resources is None else member.resources.to_resources()
             )
+            communications = (
+                None
+                if member.communications is None
+                else member.communications.to_communications()
+            )
             if not references[member.id]:
                 if payload is not False:
                     carried = (
@@ -1125,7 +1153,12 @@ class SatelliteSystem(SystemEntry):
                         stacklevel=2,
                     )
                 satellites.append(
-                    Satellite(name=member.name, orbit=orbit, resources=resources)
+                    Satellite(
+                        name=member.name,
+                        orbit=orbit,
+                        resources=resources,
+                        communications=communications,
+                    )
                 )
                 continue
             try:
@@ -1147,7 +1180,12 @@ class SatelliteSystem(SystemEntry):
                     ) from error
                 raise
             satellites.append(
-                built.to_satellite(orbit, name=member.name, resources=resources)
+                built.to_satellite(
+                    orbit,
+                    name=member.name,
+                    resources=resources,
+                    communications=communications,
+                )
             )
         return satellites
 
@@ -1163,6 +1201,7 @@ class SatelliteSystem(SystemEntry):
         min_grazing_altitude: float = 0,
         max_range: float | None = None,
         min_access_time: timedelta = timedelta(0),
+        service: str | None = None,
     ) -> Relay:
         """
         Builds the relay of a system whose `role` is `relaying` (see
@@ -1188,17 +1227,27 @@ class SatelliteSystem(SystemEntry):
                 line of sight between a satellite and a relay satellite.
             max_range (float | None): The maximum range (meters), if any.
             min_access_time (timedelta): The minimum duration of a contact.
+            service (str | None): The service (see `services`) whose antennas
+                and receivers the relay's satellites have (see
+                `tatc.schemas.RelayCommunications`), or `None` for none (any
+                number of antennas, without a link budget).
 
         Returns:
             Relay: The relay.
 
         Raises:
-            ValueError: If the system's role is not `relaying`.
+            ValueError: If the system's role is not `relaying`, or the service
+                is unknown.
         """
         # pylint: disable=too-many-arguments
         if self.role != "relaying":
             raise ValueError(
                 f"{self.id}'s satellites are not relays (its role is {self.role})"
+            )
+        if service is not None and service not in self.services:
+            raise ValueError(
+                f"{self.id} has no service {service!r}; its services are "
+                + f"{sorted(self.services)}"
             )
         satellites = self.build(
             configuration, grade=grade, members=members, epoch=epoch, payload=False
@@ -1210,6 +1259,9 @@ class SatelliteSystem(SystemEntry):
             min_grazing_altitude=min_grazing_altitude,
             max_range=max_range,
             min_access_time=min_access_time,
+            communications=(
+                None if service is None else self.services[service].to_communications()
+            ),
         )
 
 
@@ -1451,6 +1503,12 @@ class GroundNetwork(_NetworkSystem):
     configurations: dict[str, GroundConfiguration] = Field(
         ..., min_length=1, description="The ways of modeling it, by identifier."
     )
+    terminals: dict[str, StationCommunicationsSpecification] = Field(
+        default={},
+        description="The antennas and receivers of stations, by identifier, "
+        + "which the stations built have (see `build`). They are not validated "
+        + "and are not part of a configuration's digest.",
+    )
 
     @model_validator(mode="after")
     def _check_members(self) -> GroundNetwork:
@@ -1459,6 +1517,9 @@ class GroundNetwork(_NetworkSystem):
             unknown = set(configuration.members) - stations
             if unknown:
                 raise ValueError(f"{key}: unknown stations {sorted(unknown)}")
+        unknown = set(self.terminals) - stations
+        if unknown:
+            raise ValueError(f"terminals of unknown stations {sorted(unknown)}")
         return self
 
     def build(
@@ -1469,6 +1530,7 @@ class GroundNetwork(_NetworkSystem):
         members: str | Sequence[str] | None = None,
         region: BaseGeometry | None = None,
         min_elevation_angle: float | None = None,
+        communications: bool = True,
     ) -> list[GroundStation]:
         """
         Builds the ground stations of a configuration (see
@@ -1490,6 +1552,8 @@ class GroundNetwork(_NetworkSystem):
                 (longitude and latitude) within which to build stations.
             min_elevation_angle (float | None): The minimum elevation angle
                 (degrees) of a contact, instead of the configuration's.
+            communications (bool): Whether the stations have their antennas
+                and receivers (see `terminals`), if cataloged.
 
         Returns:
             list[GroundStation]: The stations.
@@ -1513,6 +1577,11 @@ class GroundNetwork(_NetworkSystem):
                 longitude=row.longitude,
                 elevation=float(elevation),
                 min_elevation_angle=angle,
+                communications=(
+                    self.terminals[row.id].to_communications()
+                    if communications and row.id in self.terminals
+                    else None
+                ),
             )
             for row, elevation in zip(table.itertuples(), ground)
         ]

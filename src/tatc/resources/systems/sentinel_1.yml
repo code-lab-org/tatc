@@ -36,12 +36,36 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Copernicus Sentinel-1: \"a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1); of the Sentinel-1 platform"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 520000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-1 (the series): \"The PDHT subsystem has a storage capacity of 1410 Gbit and a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-1 (the series): \"The PDHT subsystem has a storage capacity of 1410 Gbit and a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1)"
   - id: sentinel-1d
     name: Sentinel-1D
     norad_id: 66315
     status: operational
     as_of: 2026-11-05
     resources: *resources_sentinel_1cd
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 520000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-1 (the series): \"The PDHT subsystem has a storage capacity of 1410 Gbit and a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-1 (the series): \"The PDHT subsystem has a storage capacity of 1410 Gbit and a 520 Mbit/s X-band downlink capacity\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-1)"
 default_configuration: plane
 configurations:
   plane:
