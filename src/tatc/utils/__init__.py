@@ -75,6 +75,7 @@ from .observation import (
 )
 from .orbital import (
     compute_apoapsis_radius,
+    compute_hohmann_delta_v,
     compute_argument_of_latitude,
     compute_ascending_argument_of_latitude,
     compute_ground_inertial_velocity,
@@ -161,6 +162,7 @@ __all__ = [
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",
+    "compute_hohmann_delta_v",
     "compute_argument_of_latitude",
     "compute_ascending_argument_of_latitude",
     "compute_cone_and_azimuth",

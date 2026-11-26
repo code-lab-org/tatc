@@ -150,6 +150,8 @@ Utility Functions
 
 .. autodata:: tatc.utils.DEFAULT_DRAG_COEFFICIENT
 
+.. autofunction:: tatc.utils.compute_hohmann_delta_v
+
 .. autofunction:: tatc.utils.geodetic_to_rectangular
 
 .. autofunction:: tatc.utils.rectangular_to_geodetic
