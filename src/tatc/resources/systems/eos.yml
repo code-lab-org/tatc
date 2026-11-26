@@ -32,6 +32,19 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Terra: \"The science data recorded onboard are transmitted via Ku-band at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/terra); through TDRS"
+    communications:
+      transmitters:
+        - name: Ku-band single access to TDRS
+          link: crosslink
+          band: Ku
+          max_data_rate: 150000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Terra: \"The science data recorded onboard are transmitted via Ku-band at 150 Mbit/s.\"; \"The nominal mode of operation is to acquire two 12 minute TDRSS contacts per orbit.\" (https://www.eoportal.org/satellite-missions/terra)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Terra: \"The science data recorded onboard are transmitted via Ku-band at 150 Mbit/s.\"; \"The nominal mode of operation is to acquire two 12 minute TDRSS contacts per orbit.\" (https://www.eoportal.org/satellite-missions/terra)"
   - id: aqua
     name: Aqua
     norad_id: 27424

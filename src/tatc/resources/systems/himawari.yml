@@ -31,6 +31,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Himawari-8/9: \"payload data is transmitted in Ka-band, with a data rate of 66 Mbit/s for AHI\" (https://www.eoportal.org/satellite-missions/himawari-8-9)"
+    communications:
+      transmitters:
+        - name: Ka-band raw data
+          band: Ka
+          frequency: 18284600000.0
+          max_data_rate: 66000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Himawari-8 and -9: \"Ka-band for payload data transmission. The data rate is 66 Mbit/s for AHI\" (https://www.eoportal.org/satellite-missions/himawari-8-9)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Himawari-8 and -9: \"Ka-band for payload data transmission. The data rate is 66 Mbit/s for AHI\" (https://www.eoportal.org/satellite-missions/himawari-8-9)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, Himawari-9: \"CDAS | S-E | 18284.6 MHz | 110000 kHz | linear | D | 66000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/himawari_9)"
 default_configuration: slot
 configurations:
   slot:

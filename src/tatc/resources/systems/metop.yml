@@ -36,6 +36,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, MetOp: \"Instrument data is downlinked in X-band at a rate of 70 Mbit/s.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+    communications:
+      transmitters:
+        - name: X-band global data dump
+          band: X
+          frequency: 7800000000.0
+          max_data_rate: 70000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, MetOp: \"Global data dump | X-band, 7.750-7.900 GHz | QPSK | 70 Mbit/s\" (https://www.eoportal.org/satellite-missions/metop)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, MetOp: \"Global data dump | X-band, 7.750-7.900 GHz | QPSK | 70 Mbit/s\" (https://www.eoportal.org/satellite-missions/metop)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, Metop-B: \"GDS | S-E | 7800 MHz | 63000 kHz | RHCP | D | 70000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/metop_b)"
   - id: metop-c
     name: Metop-C
     norad_id: 43689
@@ -67,6 +83,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, MetOp: \"Instrument data is downlinked in X-band at a rate of 70 Mbit/s.\" (https://www.eoportal.org/satellite-missions/metop); of the MetOp series"
+    communications:
+      transmitters:
+        - name: X-band global data dump
+          band: X
+          frequency: 7800000000.0
+          max_data_rate: 70000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, MetOp: \"Global data dump | X-band, 7.750-7.900 GHz | QPSK | 70 Mbit/s\" (https://www.eoportal.org/satellite-missions/metop)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, MetOp: \"Global data dump | X-band, 7.750-7.900 GHz | QPSK | 70 Mbit/s\" (https://www.eoportal.org/satellite-missions/metop)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, Metop-C: \"GDS | S-E | 7800 MHz | 63000 kHz | RHCP | D | 70000 kbps | Raw data\" (https://space.oscar.wmo.int/satellites/view/metop_c)"
 default_configuration: plane
 configurations:
   plane:

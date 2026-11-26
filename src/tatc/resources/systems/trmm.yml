@@ -32,6 +32,23 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, TRMM: \"Via TDRS, 32 kbit/s (real time), 2 Mbit/s (playback)\" (https://www.eoportal.org/satellite-missions/trmm)"
+    communications:
+      transmitters:
+        - name: S-band playback to TDRS
+          link: crosslink
+          band: S
+          frequency: 2255500000.0
+          max_data_rate: 2000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, TRMM: \"RF communications | Via TDRS, 32 kbit/s (real time), 2 Mbit/s (playback)\" (https://www.eoportal.org/satellite-missions/trmm)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, TRMM: \"RF communications | Via TDRS, 32 kbit/s (real time), 2 Mbit/s (playback)\" (https://www.eoportal.org/satellite-missions/trmm)"
+            frequency:
+              kind: nominal
+              source: "eoPortal, TRMM: \"The return (transmitting) frequency is also in S-band (2255.5 MHz).\" (https://www.eoportal.org/satellite-missions/trmm)"
 default_configuration: plane
 configurations:
   plane:

@@ -36,18 +36,54 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Copernicus Sentinel-2: \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 560000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
   - id: sentinel-2b
     name: Sentinel-2B
     norad_id: 42063
     status: operational
     as_of: 2026-10-03
     resources: *resources_sentinel_2
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 560000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
   - id: sentinel-2c
     name: Sentinel-2C
     norad_id: 60989
     status: operational
     as_of: 2026-10-03
     resources: *resources_sentinel_2
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 560000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-2 (the series): \"X-band payload data downlink at 560 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-2)"
 default_configuration: plane
 configurations:
   plane:

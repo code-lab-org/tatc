@@ -28,6 +28,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "Asbury and Scott, JPSS-1, 34th Space Symposium (2018): \"a gimbaled Ka-band antenna providing a 300 Mbit/s downlink\" (https://www.spacesymposium.org/wp-content/uploads/2017/10/Asbury-Scott_JPSS-1-Building-the-Nations-Next-Generation-Operational-Weather-Satellite.pdf)"
+    communications:
+      transmitters:
+        - name: Ka-band stored mission data
+          band: Ka
+          frequency: 26703400000.0
+          max_data_rate: 300000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, NOAA-20: \"SMD | S-E | 26703.4 MHz | 300000 kHz | RHCP | D | 300000 kbps | Stored Mission Data\" (https://space.oscar.wmo.int/satellites/view/noaa_20)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, NOAA-20: \"Data transmission relies on a Ka-band antenna, delivering a 300 Mbit/s downlink to Common Ground System (CGS) stations\" (https://www.eoportal.org/satellite-missions/noaa-20)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, NOAA-20: \"SMD | S-E | 26703.4 MHz | 300000 kHz | RHCP | D | 300000 kbps | Stored Mission Data\" (https://space.oscar.wmo.int/satellites/view/noaa_20)"
   - id: noaa-21
     name: NOAA-21
     norad_id: 54234
@@ -51,6 +67,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "WMO OSCAR/Space, NOAA-21: \"SMD ... 261000 kbps Stored Mission Data (info data rate)\" (https://space.oscar.wmo.int/satellites/view/noaa_21)"
+    communications:
+      transmitters:
+        - name: Ka-band stored mission data
+          band: Ka
+          frequency: 26703400000.0
+          max_data_rate: 261000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "WMO OSCAR/Space, NOAA-21: \"SMD | S-E | 26553.4 MHz - 26853.4 MHz | - | RHCP | D | 261000 kbps | Stored Mission Data (info data rate)\" (https://space.oscar.wmo.int/satellites/view/noaa_21)"
+            max_data_rate:
+              kind: nominal
+              source: "WMO OSCAR/Space, NOAA-21: \"SMD | S-E | 26553.4 MHz - 26853.4 MHz | - | RHCP | D | 261000 kbps | Stored Mission Data (info data rate)\" (https://space.oscar.wmo.int/satellites/view/noaa_21)"
+            frequency:
+              kind: derived
+              source: "The middle of the band of WMO OSCAR/Space, NOAA-21: \"SMD | S-E | 26553.4 MHz - 26853.4 MHz | - | RHCP | D | 261000 kbps | Stored Mission Data (info data rate)\" (https://space.oscar.wmo.int/satellites/view/noaa_21)"
   - id: suomi-npp
     name: Suomi NPP
     norad_id: 37849

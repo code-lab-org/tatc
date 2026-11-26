@@ -32,6 +32,22 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, GCOM: \"the payload downlink is conducted over the X-band, at a data rate of 20 Mbit/s\" (https://www.eoportal.org/satellite-missions/gcom)"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          frequency: 8105000000.0
+          max_data_rate: 20000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, GCOM: \"The payload data downlink in X-band (8105 MHz) with a data rate of 20 Mbit/s\" (https://eoportal.org/satellite-missions/gcom)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, GCOM: \"The payload data downlink in X-band (8105 MHz) with a data rate of 20 Mbit/s\" (https://eoportal.org/satellite-missions/gcom)"
+            frequency:
+              kind: nominal
+              source: "eoPortal, GCOM: \"The payload data downlink in X-band (8105 MHz) with a data rate of 20 Mbit/s\" (https://eoportal.org/satellite-missions/gcom)"
 default_configuration: plane
 configurations:
   plane:

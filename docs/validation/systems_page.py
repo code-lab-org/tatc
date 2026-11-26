@@ -126,6 +126,114 @@ def render_configuration(entry, key: str) -> str:
     return "\n".join(parts)
 
 
+def _sources_of(model) -> str:
+    """Writes the distinct sources of a model of sourced values."""
+    sources = dict.fromkeys(f"{p.kind}: {p.source}" for p in model.provenance.values())
+    return " ".join(escape(source) for source in sources)
+
+
+def _receiver_rows(name: str, antennas: int, receivers) -> list[list[str]]:
+    """Writes the rows of the receivers of a station or service."""
+    if not receivers:
+        return [[name, str(antennas), "any", "", "", "(no receivers published)"]]
+    return [
+        [
+            name,
+            str(antennas),
+            r.band,
+            f"{r.g_over_t:g}" if r.g_over_t is not None else "",
+            f"{r.max_data_rate / 1e6:g}" if r.max_data_rate else "",
+            _sources_of(r),
+        ]
+        for r in receivers
+    ]
+
+
+def render_communications(entry) -> str:
+    """
+    Writes the communications of a system: the transmitters of its
+    spacecraft, the services of a relay, or the terminals of ground stations.
+
+    Args:
+        entry: The system.
+
+    Returns:
+        str: The tables, or an empty string without communications.
+    """
+    parts = []
+    header = [
+        "Station",
+        "Antennas",
+        "Band",
+        "G/T (dB/K)",
+        "Max rate (Mbit/s)",
+        "Source",
+    ]
+    widths = [12, 8, 6, 8, 10, 56]
+    if isinstance(entry, SatelliteSystem):
+        rows = [
+            [
+                escape(spacecraft.name),
+                escape(t.get_name()),
+                t.band,
+                f"{t.frequency / 1e9:g}" if t.frequency else "",
+                f"{t.max_data_rate / 1e6:g}" if t.max_data_rate else "",
+                _sources_of(t),
+            ]
+            for spacecraft in entry.spacecraft
+            if spacecraft.communications is not None
+            for t in spacecraft.communications.transmitters
+        ]
+        if rows:
+            parts.append(
+                "Transmitters of mission data, down to ground stations or across "
+                "to relays (nominal, and not validated):\n"
+            )
+            parts.append(
+                list_table(
+                    [
+                        "Spacecraft",
+                        "Transmitter",
+                        "Band",
+                        "Frequency (GHz)",
+                        "Rate (Mbit/s)",
+                        "Source",
+                    ],
+                    rows,
+                    [14, 16, 6, 8, 8, 48],
+                )
+            )
+        for key, service in entry.services.items():
+            parts.append(
+                f'Service ``{key}`` (``build_relay(service="{key}")``): '
+                + escape(service.description or "")
+                + f" Antennas of each satellite: {service.antennas} "
+                + f"({_sources_of(service)}).\n"
+            )
+            header[0] = "Service"
+            parts.append(
+                list_table(
+                    header,
+                    _receiver_rows(key, service.antennas, service.receivers),
+                    widths,
+                )
+            )
+    elif getattr(entry, "terminals", None):
+        rows = []
+        for station, terminal in entry.terminals.items():
+            rows += _receiver_rows(
+                escape(station), terminal.antennas, terminal.receivers
+            )
+        parts.append(
+            "Terminals of stations (their antennas and receivers, nominal, and "
+            "not validated; antennas: "
+            + "; ".join(dict.fromkeys(_sources_of(t) for t in entry.terminals.values()))
+            + "):\n"
+        )
+        parts.append(list_table(header, rows, widths))
+    return "\n".join(parts)
+
+
 def render_entry(entry) -> str:
     """
     Writes the section of a system.
@@ -192,6 +300,9 @@ def render_entry(entry) -> str:
             f"(`{table.file} <{REPOSITORY}{path}>`_), from: "
             f"{escape(table.provenance.source)}.\n"
         )
+    communications = render_communications(entry)
+    if communications:
+        parts.append(communications)
     if validation.missing_grades:
         parts.append(
             "Gaps of the system:\n\n"

@@ -270,17 +270,23 @@ def _check_described(
     """
     Checks that a model gives a provenance for each value given (and only
     those) of the `sourced` fields (by default, every field other than its
-    provenance and the `exempt` fields, which describe rather than measure).
+    provenance and the `exempt` fields, which describe rather than measure),
+    other than values at their defaults.
     """
     names = (
         sourced
         if sourced is not None
         else tuple(n for n in type(model).model_fields if n not in exempt)
     )
+    fields = type(model).model_fields
+    # (a value at its default, as a model dumped with its defaults gives it,
+    # is not given)
     given = {
         name
         for name in model.model_fields_set & set(names)
-        if name != "provenance" and getattr(model, name) is not None
+        if name != "provenance"
+        and getattr(model, name) is not None
+        and getattr(model, name) != fields[name].default
     }
     _check_provenance(given, model.provenance)
 
@@ -406,6 +412,7 @@ class RelayServiceSpecification(_CatalogModel):
     its data to the ground, with the origin of each value.
     """
 
+    description: str | None = Field(None, description="What the service is.")
     antennas: int = Field(
         ..., gt=0, description="The number of antennas of each relay satellite."
     )

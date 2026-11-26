@@ -32,6 +32,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, OCO-2: \"returned to the ground at 150 Mbit/s using an L3 Communications X-band transmitter\" (https://www.eoportal.org/satellite-missions/oco-2)"
+    communications:
+      transmitters:
+        - name: X-band science data
+          band: X
+          max_data_rate: 150000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, OCO-2: \"Both science and housekeeping data are usually returned to the ground at 150 Mbit/s\", \"using an L3 Communications X-band transmitter and a body-mounted X-band patch antenna.\" (https://www.eoportal.org/satellite-missions/oco-2)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, OCO-2: \"Both science and housekeeping data are usually returned to the ground at 150 Mbit/s\", \"using an L3 Communications X-band transmitter and a body-mounted X-band patch antenna.\" (https://www.eoportal.org/satellite-missions/oco-2)"
 default_configuration: plane
 configurations:
   plane:

@@ -89,6 +89,75 @@ spacecraft:
     status: operational
     as_of: 2026-05-22
     resources: *resources_tdrs_third
+services:
+  single_access:
+    description: The single access return services (SSA, KuSA, and KaSA) through the two single access antennas of each satellite, each serving one user at a time in one band.
+    antennas: 2
+    receivers:
+      - band: S
+        g_over_t: 9.5
+        max_data_rate: 14100000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Return max data rate (prior to encoding): 'S-band MA: 1 Mbps / S-band SA: 14.1 Mbps / Ku/Ka-band: 600 Mbps / Ka-band (Wide): 1200 Mbps'\""
+      - band: Ku
+        g_over_t: 24.4
+        max_data_rate: 600000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Return max data rate (prior to encoding): 'S-band MA: 1 Mbps / S-band SA: 14.1 Mbps / Ku/Ka-band: 600 Mbps / Ka-band (Wide): 1200 Mbps'\""
+      - band: Ka
+        g_over_t: 26.5
+        max_data_rate: 600000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Return max data rate (prior to encoding): 'S-band MA: 1 Mbps / S-band SA: 14.1 Mbps / Ku/Ka-band: 600 Mbps / Ka-band (Wide): 1200 Mbps'\""
+    provenance:
+      antennas:
+        kind: nominal
+        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252if_/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): customer service links per satellite \"SSA 2\", \"KuSA 2\", and KaSA \"2/TDRS\"; \"Ku and Ka-band return services cannot be supported simultaneously through the same SA antenna.\""
+  multiple_access:
+    description: The S-band multiple access return service through the phased array of each satellite.
+    antennas: 5
+    receivers:
+      - band: S
+        g_over_t: 3.2
+        max_data_rate: 1000000.0
+        provenance:
+          band:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          g_over_t:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Antenna system G/T (dB/K): 'S-band MA: 3.2 (for LEO) / S-band SA: 9.5 (for LEO) / Ku-band: 24.4 (for LEO) / Ka-band: 26.5 (for LEO)'\""
+          max_data_rate:
+            kind: nominal
+            source: "NASA Near Space Network Services Brochure (457-BROC-0001, Rev. 1.2, 2023), Space Relay (https://explorers.larc.nasa.gov/APSMEX25/SMEX/pdf_files/Prog05e_NSN_Services_Brochure.pdf): \"Return max data rate (prior to encoding): 'S-band MA: 1 Mbps / S-band SA: 14.1 Mbps / Ku/Ka-band: 600 Mbps / Ka-band (Wide): 1200 Mbps'\""
+    provenance:
+      antennas:
+        kind: nominal
+        source: "Space Network Users' Guide (450-SNUG), Revision 10 (2012), Table 3-2 (https://web.archive.org/web/20160305123252if_/http://esc.gsfc.nasa.gov/assets/files/450-SNUG.pdf): MA customer service links \"5/TDRS up to 20/WSC\""
 default_configuration: slot
 configurations:
   slot:

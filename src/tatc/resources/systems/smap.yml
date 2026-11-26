@@ -24,6 +24,18 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, SMAP: \"The payload downlink is in X-band at 130 Mbit/s\" (https://www.eoportal.org/satellite-missions/smap)"
+    communications:
+      transmitters:
+        - name: X-band payload data
+          band: X
+          max_data_rate: 130000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, SMAP: \"The payload downlink is in X-band at 130 Mbit/s, the TT&C data link is in S-band at 2.5 Mbit/s.\" (https://www.eoportal.org/satellite-missions/smap)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, SMAP: \"The payload downlink is in X-band at 130 Mbit/s, the TT&C data link is in S-band at 2.5 Mbit/s.\" (https://www.eoportal.org/satellite-missions/smap)"
 default_configuration: plane
 configurations:
   plane:

@@ -32,12 +32,40 @@ spacecraft:
         downlink_rate:
           kind: nominal
           source: "eoPortal, Copernicus Sentinel-6: \"transmitting them at 150 Mbit/s\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
+    communications:
+      transmitters:
+        - name: X-band data downlink
+          band: X
+          frequency: 8090000000.0
+          max_data_rate: 150000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-6 (the series): \"The XDA modulates the data onto the X-band carrier for transmission to the ground, transmitting them at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-6 (the series): \"The XDA modulates the data onto the X-band carrier for transmission to the ground, transmitting them at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
+            frequency:
+              kind: nominal
+              source: "WMO OSCAR/Space, Sentinel-6A: \"XDD | S-E | 8090 MHz | 120000 kHz | RHCP&LHCP | D | 150000 kbps | Data Downlink\" (https://space.oscar.wmo.int/satellites/view/sentinel_6a)"
   - id: sentinel-6b
     name: Sentinel-6B
     norad_id: 66514
     status: operational
     as_of: 2026-11-09
     resources: *resources_sentinel_6
+    communications:
+      transmitters:
+        - name: X-band data downlink
+          band: X
+          max_data_rate: 150000000.0
+          provenance:
+            band:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-6 (the series): \"The XDA modulates the data onto the X-band carrier for transmission to the ground, transmitting them at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
+            max_data_rate:
+              kind: nominal
+              source: "eoPortal, Copernicus Sentinel-6 (the series): \"The XDA modulates the data onto the X-band carrier for transmission to the ground, transmitting them at 150 Mbit/s.\" (https://www.eoportal.org/satellite-missions/copernicus-sentinel-6)"
 default_configuration: plane
 configurations:
   plane:

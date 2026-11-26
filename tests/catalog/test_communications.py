@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import yaml
 from pydantic import ValidationError
 
-from tatc.catalog import get_system, loader
+from tatc.catalog import get_system, get_system_ids, loader
 from tatc.catalog.schemas import (
     ReceiverSpecification,
     RelayServiceSpecification,
@@ -209,8 +209,39 @@ class TestSystemCommunications(unittest.TestCase):
 
     def test_cataloged(self):
         """
-        Tests that the cataloged communications are sourced and build.
+        Tests that every cataloged value of communications states its source,
+        and that the cataloged relay services and terminals build.
         """
-        for system_id in ["tdrs", "noaa_ground_stations", "nasa_space_network"]:
+        sources = []
+        for system_id in get_system_ids():
             system = get_system(system_id)
-            self.assertIsNotNone(system)
+            for spacecraft in getattr(system, "spacecraft", ()):
+                if spacecraft.communications is not None:
+                    for transmitter in spacecraft.communications.transmitters:
+                        sources += transmitter.provenance.values()
+                        transmitter.to_transmitter()
+            for service in getattr(system, "services", {}).values():
+                sources += service.provenance.values()
+                for receiver in service.receivers:
+                    sources += receiver.provenance.values()
+            for terminal in getattr(system, "terminals", {}).values():
+                sources += terminal.provenance.values()
+                for receiver in terminal.receivers:
+                    sources += receiver.provenance.values()
+        self.assertGreater(len(sources), 100)
+        for provenance in sources:
+            self.assertIn("(https://", provenance.source)
+        tdrs = get_system("tdrs")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            relay = tdrs.build_relay(service="single_access")
+            self.assertEqual(relay.communications.antennas, 2)
+            self.assertEqual(
+                {r.band for r in relay.communications.receivers}, {"S", "Ku", "Ka"}
+            )
+            network = get_system("near_earth_network")
+            stations = network.build("ksat")
+        self.assertEqual(
+            [s.name for s in stations], ["SG1", "SG2", "SG3", "TR2", "TR3", "SI1"]
+        )
+        self.assertTrue(all(s.communications.antennas == 1 for s in stations))
