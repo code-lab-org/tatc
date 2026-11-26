@@ -4,7 +4,19 @@ Utility functions for the TATC library.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from .atmosphere import altitude_to_pressure, pressure_to_altitude
+from .atmosphere import (
+    MAX_DENSITY_ALTITUDE,
+    MIN_DENSITY_ALTITUDE,
+    SOLAR_ACTIVITY_LEVELS,
+    SolarActivity,
+    SolarCycle,
+    altitude_to_pressure,
+    compute_atmospheric_density,
+    get_solar_activity,
+    get_years_between,
+    interpolate_density,
+    pressure_to_altitude,
+)
 from .ellipsoid import (
     compute_ellipsoid_intersection,
     compute_tangent_point,
@@ -12,6 +24,13 @@ from .ellipsoid import (
     rectangular_to_geodetic,
 )
 from .formatting import zero_pad
+from .decay import (
+    DEFAULT_DRAG_COEFFICIENT,
+    compute_decay_rates,
+    compute_drag_delta_v,
+    compute_orbit_decay,
+    compute_orbit_lifetime,
+)
 from .geoid import compute_geoid_height
 from .geometry import (
     geodesic_destination,
@@ -56,6 +75,7 @@ from .observation import (
 )
 from .orbital import (
     compute_apoapsis_radius,
+    compute_hohmann_delta_v,
     compute_argument_of_latitude,
     compute_ascending_argument_of_latitude,
     compute_ground_inertial_velocity,
@@ -119,15 +139,30 @@ __all__ = [
     "get_g_over_t",
     "get_link_modes",
     "compute_geoid_height",
+    "DEFAULT_DRAG_COEFFICIENT",
+    "compute_decay_rates",
+    "compute_drag_delta_v",
+    "compute_orbit_decay",
+    "compute_orbit_lifetime",
     "compute_along_track_field_of_view",
     "NadirReference",
     "VelocityFrame",
     "ViewGeometry",
     "align_element_switches",
+    "MAX_DENSITY_ALTITUDE",
+    "MIN_DENSITY_ALTITUDE",
+    "SOLAR_ACTIVITY_LEVELS",
+    "SolarActivity",
+    "SolarCycle",
     "altitude_to_pressure",
+    "compute_atmospheric_density",
+    "get_solar_activity",
+    "get_years_between",
+    "interpolate_density",
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",
+    "compute_hohmann_delta_v",
     "compute_argument_of_latitude",
     "compute_ascending_argument_of_latitude",
     "compute_cone_and_azimuth",

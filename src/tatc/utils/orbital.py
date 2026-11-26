@@ -253,6 +253,31 @@ def compute_apoapsis_radius(semimajor_axis: float, eccentricity: float) -> float
 
 
 @njit(cache=True)
+def compute_hohmann_delta_v(radius: float, other_radius: float) -> float:
+    """
+    Fast computation of the velocity (the sum of the magnitudes of its two
+    burns) of a Hohmann transfer between coplanar circular orbits: a burn
+    onto an ellipse whose apsides are the two radii, and a burn at its other
+    apsis onto the other circular orbit.
+
+    Args:
+        radius (float): The radius (meters) of the first orbit.
+        other_radius (float): The radius (meters) of the other orbit.
+
+    Returns:
+        float: The velocity (meters/second).
+    """
+    # as floats, since integers can overflow when compiled
+    r_1, r_2 = radius * 1.0, other_radius * 1.0
+    v_1 = np.sqrt(constants.EARTH_MU / r_1)
+    v_2 = np.sqrt(constants.EARTH_MU / r_2)
+    transfer = 2 / (r_1 + r_2)
+    return abs(v_1 * (np.sqrt(r_2 * transfer) - 1)) + abs(
+        v_2 * (1 - np.sqrt(r_1 * transfer))
+    )
+
+
+@njit(cache=True)
 def compute_j2_raan_rate(
     semimajor_axis: float, inclination: float, eccentricity: float
 ) -> float:

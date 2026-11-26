@@ -5,10 +5,20 @@ Unit tests for the tatc.utils.atmosphere module.
 """
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from tatc.utils import altitude_to_pressure, pressure_to_altitude
+from tatc.utils import (
+    MAX_DENSITY_ALTITUDE,
+    MIN_DENSITY_ALTITUDE,
+    SolarCycle,
+    altitude_to_pressure,
+    compute_atmospheric_density,
+    get_solar_activity,
+    get_years_between,
+    pressure_to_altitude,
+)
 
 
 class TestAtmosphere(unittest.TestCase):
@@ -119,3 +129,110 @@ class TestAtmosphere(unittest.TestCase):
             with self.subTest(hpa=hpa):
                 altitude_km = pressure_to_altitude(hpa * 100) / 1e3
                 self.assertAlmostEqual(altitude_km, expected_km, delta=tolerance_km)
+
+
+class TestAtmosphericDensity(unittest.TestCase):
+    """
+    Unit tests for the density of the thermosphere.
+    """
+
+    def test_rows_of_the_table(self):
+        """
+        Test that the density at an altitude of the table is its value.
+        """
+        self.assertAlmostEqual(compute_atmospheric_density(400e3) / 3.41451e-12, 1)
+        self.assertAlmostEqual(
+            compute_atmospheric_density(800e3, "low") / 2.49246e-15, 1
+        )
+        self.assertAlmostEqual(
+            compute_atmospheric_density(200e3, "high") / 3.89472e-10, 1
+        )
+
+    def test_log_linear_interpolation(self):
+        """
+        Test that the density between rows (altitudes) and levels of activity
+        is interpolated log-linearly: halfway, the geometric mean.
+        """
+        lower, upper = compute_atmospheric_density([400e3, 405e3])
+        self.assertAlmostEqual(
+            compute_atmospheric_density(402.5e3) / np.sqrt(lower * upper), 1
+        )
+        low, moderate = (
+            compute_atmospheric_density(500e3, level) for level in ("low", "moderate")
+        )
+        self.assertAlmostEqual(
+            compute_atmospheric_density(500e3, 0.25) / np.sqrt(low * moderate), 1
+        )
+
+    def test_levels_of_activity(self):
+        """
+        Test that the density decreases with altitude and grows with the
+        activity, whose levels are indices 0, 0.5, and 1.
+        """
+        altitudes = np.arange(100e3, 1500e3 + 1, 25e3)
+        by_level = {
+            level: compute_atmospheric_density(altitudes, level)
+            for level in ("low", "moderate", "high")
+        }
+        for level, index in (("low", 0), ("moderate", 0.5), ("high", 1)):
+            np.testing.assert_allclose(
+                compute_atmospheric_density(altitudes, index), by_level[level]
+            )
+            self.assertTrue(np.all(np.diff(by_level[level]) < 0))
+        self.assertTrue(np.all(by_level["low"] < by_level["moderate"]))
+        self.assertTrue(np.all(by_level["moderate"] < by_level["high"]))
+
+    def test_outside_the_table(self):
+        """
+        Test that the density is NaN below the table and zero above it.
+        """
+        self.assertTrue(np.isnan(compute_atmospheric_density(MIN_DENSITY_ALTITUDE - 1)))
+        self.assertEqual(compute_atmospheric_density(MAX_DENSITY_ALTITUDE + 1), 0)
+        self.assertGreater(compute_atmospheric_density(MIN_DENSITY_ALTITUDE), 0)
+        self.assertGreater(compute_atmospheric_density(MAX_DENSITY_ALTITUDE), 0)
+
+    def test_invalid_activity(self):
+        """
+        Test that unknown levels, indices outside [0, 1], and solar cycles
+        without times raise errors.
+        """
+        with self.assertRaises(ValueError):
+            compute_atmospheric_density(400e3, "extreme")
+        with self.assertRaises(ValueError):
+            compute_atmospheric_density(400e3, 1.5)
+        with self.assertRaises(ValueError):
+            compute_atmospheric_density(400e3, SolarCycle())
+
+    def test_solar_cycle(self):
+        """
+        Test that a solar cycle is low at its minima and high halfway
+        between them, with times without time zones in UTC.
+        """
+        cycle = SolarCycle(minimum=datetime(2020, 1, 1, tzinfo=timezone.utc), period=10)
+        year = timedelta(days=365.25)
+        self.assertAlmostEqual(cycle.get_activity(cycle.minimum), 0)
+        self.assertAlmostEqual(cycle.get_activity(cycle.minimum + 5 * year), 1)
+        self.assertAlmostEqual(cycle.get_activity(cycle.minimum + 10 * year), 0)
+        self.assertAlmostEqual(cycle.get_activity(datetime(2020, 1, 1) + 5 * year), 1)
+        np.testing.assert_allclose(
+            cycle.get_activity([cycle.minimum + k * 2.5 * year for k in range(3)]),
+            [0, 0.5, 1],
+            atol=1e-12,
+        )
+        self.assertEqual(
+            compute_atmospheric_density(400e3, cycle, cycle.minimum + 5 * year),
+            compute_atmospheric_density(400e3, "high"),
+        )
+        self.assertEqual(get_solar_activity(cycle, cycle.minimum), 0)
+
+    def test_years_between(self):
+        """
+        Test that the years between times are Julian years.
+        """
+        start = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        self.assertAlmostEqual(
+            get_years_between(start, start + timedelta(days=365.25)), 1
+        )
+        self.assertAlmostEqual(
+            get_years_between(datetime(2020, 1, 1), start - timedelta(days=730.5)), -2
+        )

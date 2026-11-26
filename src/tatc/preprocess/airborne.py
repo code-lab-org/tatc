@@ -23,6 +23,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from .._warnings import warn
+from ..constants import STANDARD_GRAVITY
 from ..schemas import Aircraft, PointedInstrument, Trajectory
 from ..schemas.air.trajectory import (
     _TIME_TOLERANCE,
@@ -34,7 +35,6 @@ from ..utils.geoid import compute_geoid_height
 
 _METERS_PER_FOOT = 0.3048
 _METERS_PER_SECOND_PER_KNOT = 1852 / 3600
-_GRAVITY = 9.80665  # standard gravity (meters per second squared)
 _MIN_PITCH_SPEED = 1e-6  # meters per second, below which the pitch is level
 
 _STATE_COLUMNS = ["time", "latitude", "longitude", "altitude", "track", "ground_speed"]
@@ -235,7 +235,7 @@ def estimate_attitude(
         turn_rate[part] = _smooth(np.gradient(track, t), time.iloc[part], smoothing)
         climb_rate[part] = _smooth(np.gradient(altitude, t), time.iloc[part], smoothing)
     speed = result["ground_speed"].to_numpy(dtype=float)
-    result["roll"] = np.degrees(np.arctan(speed * turn_rate / _GRAVITY))
+    result["roll"] = np.degrees(np.arctan(speed * turn_rate / STANDARD_GRAVITY))
     result["pitch"] = np.degrees(
         np.arctan2(climb_rate, np.maximum(speed, _MIN_PITCH_SPEED))
     )

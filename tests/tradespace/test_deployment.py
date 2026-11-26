@@ -18,6 +18,7 @@ from tatc.tradespace import (
     DesignSpace,
     ExponentialLifetime,
     FailureModel,
+    Infeasible,
     Real,
     Requirement,
     RestorationPolicy,
@@ -289,8 +290,10 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(len(deployment.launches), 4)
         with self.assertRaises(ValueError):
             schedule.plan(_walker(2, 4))
-        with self.assertRaises(ValueError):
+        # a design whose satellite exceeds the capacity is infeasible
+        with self.assertRaises(Infeasible) as raised:
             schedule.plan(_walker(2, 4), masses=200)
+        self.assertAlmostEqual(raised.exception.violation, 200 / 120 - 1)
 
     def test_validation(self):
         """Schedules are validated."""

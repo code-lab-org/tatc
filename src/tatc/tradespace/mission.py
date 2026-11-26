@@ -769,6 +769,9 @@ class Mission:
     its phases, whose times its evaluation and histories give (see
     `summarize_phases`), or `None` if the phases of a mission without
     failures are not summarized (with failures, they always are)."""
+    sizing: Mapping[str, float] | None = None
+    """Mapping[str, float] | None: The columns of the sizing of its
+    satellites (see `MissionPlan.sizing`), if sized."""
 
     @property
     def capability(self) -> Capability:
@@ -830,7 +833,9 @@ class Mission:
         Gets the metrics of the mission that its evaluation records:
         `deployed` (see `Deployment.deployed`, of the history without
         failures) and `stages deployed` (of a staged deployment, the stages
-        that its rules deploy without failures); and the summary of the
+        that its rules deploy without failures); the columns of the sizing
+        of its satellites, if sized (see `MissionPlan.sizing`); and the
+        summary of the
         histories of its failures (see `Failures`), or else its costs (see
         `estimate` and `CostEstimate.metrics`) and, with requirements (or
         none, `()`), the summary of its phases (see `summarize_phases`).
@@ -839,6 +844,8 @@ class Mission:
         record = {"deployed": planned.deployed}
         if self.deployment.stages:
             record["stages deployed"] = planned.metrics()["stages deployed"]
+        if self.sizing is not None:
+            record.update(self.sizing)
         if self.failures is not None:
             # pylint: disable-next=protected-access
             record.update(self.failures._summarize(self))
