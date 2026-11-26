@@ -13,4 +13,5 @@ The following provide documentation on the Python API to TAT-C.
   analysis/index
   tradespace/index
   preprocess/index
+  export/index
   utils/index
