@@ -12,7 +12,7 @@ time whose step sets the accuracy of times.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -664,6 +664,7 @@ def analyze_data_flow(
     end: datetime,
     model: DataFlow = DataFlow(),
     samples: pd.DataFrame | None = None,
+    periods: Mapping[str, tuple[datetime, datetime]] | None = None,
 ) -> DataFlowResult:
     """
     Analyzes the flow of data from satellites through their contacts with
@@ -683,6 +684,9 @@ def analyze_data_flow(
         samples (pandas.DataFrame | None): The samples of the contacts'
             geometry on the model's grid of time (see `sample_link_geometry`),
             if already computed.
+        periods (Mapping[str, tuple[datetime, datetime]] | None): The period
+            in which each satellite is active (and generates data), by name,
+            if not the whole analysis.
 
     Returns:
         DataFlowResult: The result.
@@ -718,6 +722,14 @@ def analyze_data_flow(
     generation = np.zeros((len(modeled), n_cells))
     for i, satellite in enumerate(modeled):
         generation[i] = compute_generation(satellite, start, end, step)
+        if periods is not None and satellite.name in periods:
+            # generated only while active (in cells whose middles are in its period)
+            first, last = (
+                (_to_utc(time) - _to_utc(start)).total_seconds()
+                for time in periods[satellite.name]
+            )
+            middles = step.total_seconds() * np.arange(n_cells) + lengths / 2
+            generation[i, (middles < first) | (middles >= last)] = 0
     schedule, storages = _simulate(
         rates, modeled, _Endpoints.of(ground_stations, relays), generation, model
     )

@@ -29,13 +29,16 @@ from ..schemas import (
     RadarStation,
     Satellite,
 )
+from .._warnings import warn
 from ..schemas.architecture import ActiveWindow, Architecture, Member, Relay, _field_of
+from ..schemas.communication import DataFlow
 from .check import (
     _PLATFORM_KINDS,
     _check_time_window,
     _get_observation_times,
     _get_platform_kind,
 )
+from .data_flow import DataFlowResult, analyze_data_flow, find_data_flow_downlinks
 from .footprints import (
     _get_empty_footprint_observations,
     collect_footprint_observations,
@@ -65,6 +68,11 @@ results (the column of each kind of platform, see `_PLATFORM_KINDS`)."""
 DATA_PATH_COLUMNS = ("ground_station", "relay", "downlinked", "latency")
 """The columns of the downlink of each observation of an architecture with
 ground stations or relays (see `evaluate_architecture`)."""
+
+DATA_FLOW_COLUMNS = ("lost",)
+"""The columns of the data flow of each observation of an architecture
+evaluated with a data flow model, besides its downlink (see
+`evaluate_architecture`)."""
 
 
 def _kind_of(member: Member) -> str:
@@ -380,7 +388,7 @@ class _Parts:
         period = architecture.get_active_period(platform.name, self.start, self.end)
         if period is None:
             return None
-        key = (platform.name, _content(platform), period)
+        key = (platform.name, _geometric_content(platform), period)
         if key not in self.observed:
             self.observed[key] = self.analyses.observe(platform, *period)
         return self.observed[key]
@@ -401,10 +409,10 @@ class _Parts:
         keys = {
             id(endpoint): (
                 satellite.name,
-                _content(satellite),
+                _geometric_content(satellite),
                 period,
                 endpoint.name,
-                _content(endpoint),
+                _geometric_content(endpoint),
             )
             for endpoint in endpoints
         }
@@ -436,18 +444,39 @@ def _content(model: Any) -> str:
     return model.model_dump_json()
 
 
+def _geometric_content(model: Any) -> str:
+    """
+    Gets a key of the content of a member that sets its observations or
+    contacts (its JSON without its communications and resources, which do not
+    change them, nor those of a relay's satellites and ground stations).
+    """
+    exclude: dict[str, Any] = {
+        name: True
+        for name in ("communications", "resources")
+        if name in type(model).model_fields
+    }
+    if isinstance(model, Relay):
+        exclude["satellites"] = {"__all__": {"communications", "resources"}}
+        exclude["ground_stations"] = {"__all__": {"communications"}}
+    return model.model_dump_json(exclude=exclude)
+
+
 def _assemble(
     architecture: Architecture,
     parts: _Parts,
     during_contact: Literal["next", "end", "immediate"],
     data_path: bool,
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    data_flow: DataFlow | None = None,
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, DataFlowResult | None]:
     """
     Assembles the observations of an architecture's platforms and the
     downlinks of its satellites from the analyses of its members (see
     `_Parts`), with the downlink of each observation if it has a
-    `data_path`.
+    `data_path`: by timing alone, or through the flow of data of its
+    satellites with a `data_flow` model (see `compute_data_flow`), whose
+    result is also given.
     """
+    # pylint: disable=too-many-locals
     frames = []
     for platform in architecture.platforms:
         observed = parts.observations_of(architecture, platform)
@@ -476,14 +505,40 @@ def _assemble(
         )
         if "end" not in observed.columns:
             observed["end"] = observed["epoch"]
-        found = _find_downlinks(observed, downlinks, during_contact)
+        if data_flow is None:
+            found = _find_downlinks(observed, downlinks, during_contact)
+        else:
+            periods = {
+                satellite.name: period
+                for satellite in architecture.satellites
+                if (
+                    period := architecture.get_active_period(
+                        satellite.name, parts.start, parts.end
+                    )
+                )
+                is not None
+            }
+            flow = analyze_data_flow(
+                downlinks,
+                [s for s in architecture.satellites if s.name in periods],
+                architecture.ground_stations,
+                architecture.relays,
+                start=parts.start,
+                end=parts.end,
+                model=data_flow,
+                periods=periods,
+            )
+            found = find_data_flow_downlinks(observed, downlinks, flow)
         observations = observations.assign(
             ground_station=found["ground_station"],
             relay=found["relay"],
             downlinked=found["downlinked"],
             latency=found["downlinked"] - observed["epoch"],
         )
-    return observations, downlinks
+        if data_flow is not None:
+            observations = observations.assign(lost=found["lost"].to_numpy())
+            return observations, downlinks, flow
+    return observations, downlinks, None
 
 
 def _members_of(values: Iterable[Any]) -> list[Member]:
@@ -537,13 +592,17 @@ class ArchitectureEvaluation:  # pylint: disable=too-many-instance-attributes
             each (see `DATA_PATH_COLUMNS`): its `ground_station`, `relay`,
             the time it is `downlinked`, and its `latency` (missing without
             one, as for the observations of platforms other than satellites,
-            see `tatc.analysis.compute_latencies`).
+            see `tatc.analysis.compute_latencies`), and with a data flow
+            model, whether each is `lost` (see `DATA_FLOW_COLUMNS`).
         downlinks (geopandas.GeoDataFrame): The contacts of the satellites
             with the ground stations (see `collect_downlinks`) and the relays
             (see `collect_relay_contacts`), with the columns of relay
             contacts (no relay for a ground station's), each over the part
             of the period in which both are active.
         metrics (dict | None): The metrics of the observations, if any.
+        flow (DataFlowResult | None): The flow of data of the satellites to
+            the ground stations and relays, with a data flow model (see
+            `compute_data_flow`).
     """
 
     architecture: Architecture
@@ -558,6 +617,8 @@ class ArchitectureEvaluation:  # pylint: disable=too-many-instance-attributes
     )
     during_contact: Literal["next", "end", "immediate"] = "end"
     data_path: bool = False
+    data_flow: DataFlow | None = None
+    flow: DataFlowResult | None = dataclasses.field(default=None, repr=False)
     _parts: _Parts | None = dataclasses.field(default=None, repr=False)
 
     def _of(self, architecture: Architecture) -> ArchitectureEvaluation:
@@ -570,8 +631,8 @@ class ArchitectureEvaluation:  # pylint: disable=too-many-instance-attributes
         data_path = self.data_path or bool(
             architecture.ground_stations or architecture.relays
         )
-        observations, downlinks = _assemble(
-            architecture, self._parts, self.during_contact, data_path
+        observations, downlinks, flow = _assemble(
+            architecture, self._parts, self.during_contact, data_path, self.data_flow
         )
         return ArchitectureEvaluation(
             architecture,
@@ -583,6 +644,8 @@ class ArchitectureEvaluation:  # pylint: disable=too-many-instance-attributes
             metric=self.metric,
             during_contact=self.during_contact,
             data_path=data_path,
+            data_flow=self.data_flow,
+            flow=flow,
             _parts=self._parts,
         )
 
@@ -762,6 +825,7 @@ def _evaluate(
     parts: _Parts,
     metrics: Callable[[pd.DataFrame], Mapping[str, Any]] | None,
     during_contact: Literal["next", "end", "immediate"],
+    data_flow: DataFlow | None = None,
 ) -> ArchitectureEvaluation:
     """
     Evaluates an architecture from the analyses of its members (see
@@ -770,6 +834,11 @@ def _evaluate(
     if during_contact not in ("next", "end", "immediate"):
         raise ValueError(
             f"during_contact must be 'next', 'end', or 'immediate', not {during_contact!r}"
+        )
+    if data_flow is not None and during_contact != "end":
+        warn(
+            "during_contact is ignored with a data flow model, through which "
+            + "data is delivered as links allow"
         )
     seed = ArchitectureEvaluation(
         architecture,
@@ -781,6 +850,7 @@ def _evaluate(
         metric=metrics,
         during_contact=during_contact,
         data_path=False,
+        data_flow=data_flow,
         _parts=parts,
     )
     return seed._of(architecture)  # pylint: disable=protected-access
@@ -797,6 +867,7 @@ def evaluate_architecture(
     instrument_index: int | None = 0,
     elevation: float | Mapping[str, float | None] | None = None,
     during_contact: Literal["next", "end", "immediate"] = "end",
+    data_flow: DataFlow | None = None,
 ) -> ArchitectureEvaluation:
     """
     Evaluates an architecture over a period: the observations of targets by
@@ -830,7 +901,12 @@ def evaluate_architecture(
             `collect_footprints`): required for radar stations.
         during_contact (str): Downlink of observations that end during a
             contact: `"end"` (default), `"next"`, or `"immediate"` (see
-            `compute_latencies`).
+            `compute_latencies`), by timing alone.
+        data_flow (DataFlow | None): A model of the flow of data, through
+            which to find the downlink of each observation of satellites
+            (see `compute_data_flow`), or `None` to find it by timing alone.
+            Satellites that generate data and ground stations and relays that
+            receive it share links through their communications.
 
     Returns:
         ArchitectureEvaluation: the evaluation
@@ -843,5 +919,5 @@ def evaluate_architecture(
         )
     analyses = _Direct(targets, time_step, instrument_index, elevation)
     return _evaluate(
-        architecture, _Parts(analyses, start, end), metrics, during_contact
+        architecture, _Parts(analyses, start, end), metrics, during_contact, data_flow
     )
