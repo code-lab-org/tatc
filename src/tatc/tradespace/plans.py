@@ -15,6 +15,7 @@ describes.
 from __future__ import annotations
 
 import dataclasses
+import math
 import numbers
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -22,13 +23,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..schemas.resources import SpacecraftResources
+from ..schemas.space import Satellite
+from ..sizing import SizedSpacecraft, SpacecraftSizing, size_spacecraft
 from .cost import CostModel
 from .criteria import Requirement
-from .deployment import DeploymentSchedule, Stage
+from .deployment import DeploymentSchedule, Stage, get_satellite_kinds
+from .events import _per_type
 from .expectations import ExactExpectationsError, exact_expectations
 from .failures import FailureModel, RestorationPolicy
 from .histories import _history_statistics, evaluate_histories, summarize_histories
 from .mission import Capability, Mission
+from .nodes import Infeasible
 from .references import Reference, _number, configure, value_of
 from .simulation import Sampling, _check_sampling
 from .space import Design
@@ -79,6 +85,66 @@ def _policy(value: Any) -> RestorationPolicy | None:
     return configure(RestorationPolicy(), value)
 
 
+SIZING_COLUMNS = (
+    "dry mass",
+    "propellant mass",
+    "launch mass",
+    "delta-v",
+    "orbit lifetime",
+    "power margin",
+)
+"""tuple[str, ...]: The columns of the evaluations of designs whose plans
+size their satellites (see `MissionPlan.sizing`): the largest dry mass,
+propellant mass, and launch mass (kg) and velocity budget (m/s) of their
+satellites, and the shortest lifetime (years) of their orbits without
+propulsion and smallest margin of their power (see
+`tatc.sizing.SizedSpacecraft`)."""
+
+
+@dataclasses.dataclass(frozen=True)
+class _Sizing:
+    """
+    The resources of the satellites of a design, by which its plan defaults
+    the design lives and masses of its deployment (by type), and the
+    columns of its sizing, if sized.
+    """
+
+    lives: dict[Any, float]
+    masses: dict[Any, float]
+    columns: dict[str, float] | None
+
+
+def _agree(values: Sequence[float | None], name: str, kind: Any) -> float | None:
+    """
+    Gets the value of a type of satellites that all of them give (`None` if
+    any does not), raising a `ValueError` if they differ.
+    """
+    if not values or any(value is None for value in values):
+        return None
+    if len(set(values)) > 1:
+        raise ValueError(
+            f"the satellites of type {kind!r} have different {name}s: "
+            + f"{sorted(set(values))} (give the plan's schedule one)"
+        )
+    return values[0]
+
+
+def _size_columns(sized: Sequence[SizedSpacecraft]) -> dict[str, float]:
+    """
+    Gets the columns of the sizing of the satellites of a design (see
+    `SIZING_COLUMNS`).
+    """
+    margins = [s.power_margin for s in sized if not math.isnan(s.power_margin)]
+    return {
+        "dry mass": max(s.resources.dry_mass for s in sized),
+        "propellant mass": max(s.propellant_mass for s in sized),
+        "launch mass": max(s.resources.launch_mass for s in sized),
+        "delta-v": max(0.0 if s.budget is None else s.budget.total for s in sized),
+        "orbit lifetime": min(s.lifetime for s in sized),
+        "power margin": min(margins) if margins else math.nan,
+    }
+
+
 @dataclasses.dataclass(frozen=True)
 class MissionPlan:
     """
@@ -124,6 +190,26 @@ class MissionPlan:
     Launches limited in mass, or priced by mass (see `CostModel.estimate`),
     take the masses of the satellites (`masses`).
 
+    By default, the masses of the satellites (of each type) are their launch
+    masses, and the design lives of a schedule without them their design
+    lives, if their resources give them (see
+    `tatc.schemas.SpacecraftResources`) and the satellites of a type agree.
+    A sizing (`sizing`, see `tatc.sizing.SpacecraftSizing`, or a function of
+    the design that gives one) completes the resources of each satellite
+    (see `tatc.sizing.size_spacecraft`, with the schedule's design life, if
+    given): its dry mass and power from its payload's, and its propellant
+    and launch mass from the velocity budget of its orbit and life, so that
+    lower orbits, which need more velocity against drag, need heavier
+    satellites; or, without propulsion, whether its orbit lasts its life and
+    comes down within its disposal rule. A design whose satellites violate a
+    constraint of their sizing (see `tatc.sizing.SizedSpacecraft`), or one of
+    which exceeds the mass capacity of a launch, is infeasible (see
+    `Infeasible`). The evaluations of sized designs record the columns of
+    their sizing (see `SIZING_COLUMNS`)::
+
+        SIZING = SpacecraftSizing(payload_mass_fraction=0.3, drag_area=1.5, specific_impulse=220)
+        PLAN = MissionPlan(SCHEDULE, COST_MODEL, sizing=SIZING)
+
     The growth of the costs of the components of the cost model (see
     `Component`) is drawn from scores that are values of the design (such as
     a group of `risk_space`), shared by designs that share components::
@@ -159,6 +245,9 @@ class MissionPlan:
             components of the cost model is drawn (see `CostModel.draw`),
             such as a group of `risk_space`, or `None` for the expected
             costs of the components.
+        sizing (SpacecraftSizing | Reference | None): The assumptions by
+            which to size the satellites (see `tatc.sizing.SpacecraftSizing`),
+            or `None` not to size them.
     """
 
     schedule: DeploymentSchedule | Reference
@@ -170,6 +259,7 @@ class MissionPlan:
     stages: Sequence[Stage] | Reference = ()
     masses: float | Mapping[Any, float] | Reference | None = None
     scores: Reference | None = None
+    sizing: SpacecraftSizing | Reference | None = None
 
     def _references(self) -> list[tuple[str, Any]]:
         """
@@ -184,6 +274,7 @@ class MissionPlan:
             ("MissionPlan policy", self.policy),
             ("MissionPlan stages", self.stages),
             ("MissionPlan scores", self.scores),
+            ("MissionPlan sizing", self.sizing),
         ]
         for name, value in (("growth", self.growth), ("masses", self.masses)):
             references.append((f"MissionPlan {name}", value))
@@ -243,6 +334,77 @@ class MissionPlan:
             return growth
         return {element: _numbers(design, value) for element, value in growth.items()}
 
+    def _size(
+        self,
+        design: Design,
+        layout: Any,
+        kind: Any,
+        schedule: DeploymentSchedule,
+        capability: Capability,
+    ) -> _Sizing:
+        """
+        Gets the resources of the satellites of a design (sized, with a
+        sizing), raising `Infeasible` if they violate a constraint of their
+        sizing.
+        """
+        # pylint: disable=too-many-arguments,too-many-locals
+        satellites = capability.satellites
+        if not all(isinstance(satellite, Satellite) for satellite in satellites):
+            return _Sizing({}, {}, None)  # names, without resources
+        kinds = get_satellite_kinds(layout, kind)
+        if len(kinds) != len(satellites):
+            raise ValueError(
+                f"expected {len(kinds)} satellites for the planes, "
+                + f"not {len(satellites)}"
+            )
+        sizing = _resolve(design, self.sizing, SpacecraftSizing)
+        if sizing is not None and not isinstance(sizing, SpacecraftSizing):
+            raise TypeError(
+                f"the sizing of a design is a SpacecraftSizing, not {sizing!r}"
+            )
+        resources: dict[Any, list[SpacecraftResources]] = {}
+        sized: list[SizedSpacecraft] = []
+        violations: list[tuple[str, str, float]] = []
+        for satellite, name in zip(satellites, kinds):
+            if sizing is None:
+                given = satellite.resources or SpacecraftResources()
+            else:
+                life = (
+                    None
+                    if schedule.design_life is None
+                    else _per_type(schedule.design_life, name, "design life")
+                )
+                result = size_spacecraft(satellite, sizing, design_life=life)
+                sized.append(result)
+                violations.extend(
+                    (satellite.name, constraint, amount)
+                    for constraint, amount in result.violations.items()
+                )
+                given = result.resources
+            resources.setdefault(name, []).append(given)
+        if violations:
+            listed = "; ".join(
+                f"{satellite} {constraint} {amount:.3g}"
+                for satellite, constraint, amount in violations[:5]
+            )
+            raise Infeasible(
+                f"the satellites violate constraints of their sizing ({listed})",
+                violation=max(amount for _, _, amount in violations),
+            )
+        lives, masses = {}, {}
+        for name, items in resources.items():
+            life = _agree([r.design_life for r in items], "design life", name)
+            if life is not None:
+                lives[name] = life
+            launch = [r.launch_mass for r in items]
+            if all(mass is not None for mass in launch):
+                masses[name] = max(launch)
+        return _Sizing(
+            lives if len(lives) == len(resources) else {},
+            masses if len(masses) == len(resources) else {},
+            _size_columns(sized) if sized else None,
+        )
+
     def plan_mission(
         self,
         design: Design,
@@ -272,11 +434,19 @@ class MissionPlan:
             Mission: the mission
         """
         stages = _resolve(design, self.stages, (list, tuple))
-        deployment = _resolve(design, self.schedule, DeploymentSchedule).plan(
+        schedule = _resolve(design, self.schedule, DeploymentSchedule)
+        kind = value_of(design, self.kind)
+        masses = _numbers(design, self.masses)
+        sizing = self._size(design, layout, kind, schedule, capability)
+        if masses is None and sizing.masses:
+            masses = sizing.masses
+        if schedule.design_life is None and sizing.lives:
+            schedule = dataclasses.replace(schedule, design_life=sizing.lives)
+        deployment = schedule.plan(
             layout,
-            kind=value_of(design, self.kind),
+            kind=kind,
             policy=self._policy_of(design),
-            masses=_numbers(design, self.masses),
+            masses=masses,
             stages=tuple(stages or ()),
             capability=capability,
         )
@@ -287,6 +457,7 @@ class MissionPlan:
             self._growth_of(design),
             failures,
             None if requirements is None else tuple(requirements),
+            sizing.columns,
         )
 
 

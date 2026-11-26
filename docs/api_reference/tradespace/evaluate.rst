@@ -35,10 +35,12 @@ Missions of Designs
 .. autoclass:: tatc.tradespace.MissionPlan
    :members: plan_mission
 
+.. autodata:: tatc.tradespace.plans.SIZING_COLUMNS
+
 .. autoclass:: tatc.tradespace.Failures
 
 .. autoclass:: tatc.tradespace.mission.Mission
-   :members: phases, estimate, histories, capability, requirements
+   :members: phases, estimate, histories, capability, requirements, sizing
 
 Stores of Results
 =================

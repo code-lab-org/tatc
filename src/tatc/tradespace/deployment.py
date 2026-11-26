@@ -398,6 +398,40 @@ class Deployment:
         return self.planned().phases(satellites)
 
 
+def _get_fleets(layout: Any, kind: Any = None) -> dict[Any, Any]:
+    """
+    Gets the layouts of each type of satellite of a deployment (see
+    `DeploymentSchedule.plan`): a mapping of types to layouts, or a layout of
+    one type.
+    """
+    # a mapping of types to layouts (the values of a layout are a mapping too)
+    if isinstance(layout, Mapping) and not isinstance(layout, Values):
+        return dict(layout)
+    return {kind: layout}
+
+
+def get_satellite_kinds(layout: Any, kind: Any = None) -> list[Any]:
+    """
+    Gets the type of each satellite of a deployment's layouts (see
+    `DeploymentSchedule.plan`), in the order of their planes (that of the
+    satellites of its capability, see `Capability`).
+
+    Args:
+        layout (Any): The layout (or layouts) of the satellites, or a mapping
+            of types of satellites to layouts.
+        kind (Any): The type of the satellites of a layout.
+
+    Returns:
+        list[Any]: the type of each satellite
+    """
+    return [
+        name
+        for name, item in _get_fleets(layout, kind).items()
+        for plane in layout_of(item).planes()
+        for _ in range(plane.satellites)
+    ]
+
+
 @dataclass(frozen=True)
 class DeploymentSchedule:
     """
@@ -577,11 +611,7 @@ class DeploymentSchedule:
         staged = [plane for stage in stages for plane in stage.planes]
         if len(set(staged)) != len(staged):
             raise ValueError("a plane is in several stages")
-        # a mapping of types to layouts (the values of a layout are a mapping too)
-        if isinstance(layout, Mapping) and not isinstance(layout, Values):
-            fleets = dict(layout)
-        else:
-            fleets = {kind: layout}
+        fleets = _get_fleets(layout, kind)
         deployment = Deployment(
             schedule=self, stages=stages, policy=policy, capability=capability
         )

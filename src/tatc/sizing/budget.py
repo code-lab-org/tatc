@@ -267,7 +267,7 @@ def compute_delta_v_budget(
     eccentricity = orbit.get_eccentricity()
     if eccentricity > MAX_ECCENTRICITY:
         raise ValueError(
-            f"velocity budgets are of near-circular orbits (eccentricity at most "
+            "velocity budgets are of near-circular orbits (eccentricity at most "
             + f"{MAX_ECCENTRICITY}), not {eccentricity:.4f}"
         )
     if design_life < 0 or other < 0 or margin < 0:

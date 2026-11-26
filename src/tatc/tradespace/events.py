@@ -17,6 +17,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from .nodes import Infeasible
+
 if TYPE_CHECKING:
     from .deployment import Deployment, DeploymentSchedule
 
@@ -82,7 +84,7 @@ def _per_launch(
     for a capacity in mass that is a function of the plane), by the capacity
     of launches in number and in mass (of satellites of a mass, kg), infinite
     if not limited, raising a `ValueError` if a capacity in mass lacks the
-    mass (or the plane) or a satellite exceeds it.
+    mass (or the plane), and `Infeasible` if a satellite exceeds it.
     """
     capacity = (
         math.inf if schedule.launch_capacity is None else schedule.launch_capacity
@@ -97,7 +99,11 @@ def _per_launch(
             raise ValueError("a launch capacity in mass requires masses")
         fits = math.floor(mass_capacity / mass)
         if fits < 1:
-            raise ValueError("a satellite exceeds the mass capacity of a launch")
+            raise Infeasible(
+                f"a satellite ({mass:.4g} kg) exceeds the mass capacity of a "
+                + f"launch ({mass_capacity:.4g} kg)",
+                violation=mass / mass_capacity - 1,
+            )
         capacity = min(capacity, fits)
     return capacity
 
