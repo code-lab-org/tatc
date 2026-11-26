@@ -125,7 +125,7 @@ Utility Functions
 
 .. autofunction:: tatc.utils.interpolate_density
 
-.. autodata:: tatc.utils.SolarActivity
+.. autodata:: tatc.utils.atmosphere.SolarActivity
 
 .. autopydantic_model:: tatc.utils.SolarCycle
    :members:
@@ -134,11 +134,12 @@ Utility Functions
 
 .. autofunction:: tatc.utils.get_years_between
 
-.. autodata:: tatc.utils.SOLAR_ACTIVITY_LEVELS
+.. autodata:: tatc.utils.atmosphere.SOLAR_ACTIVITY_LEVELS
+   :no-value:
 
-.. autodata:: tatc.utils.MIN_DENSITY_ALTITUDE
+.. autodata:: tatc.utils.atmosphere.MIN_DENSITY_ALTITUDE
 
-.. autodata:: tatc.utils.MAX_DENSITY_ALTITUDE
+.. autodata:: tatc.utils.atmosphere.MAX_DENSITY_ALTITUDE
 
 .. autofunction:: tatc.utils.compute_orbit_lifetime
 
@@ -148,7 +149,7 @@ Utility Functions
 
 .. autofunction:: tatc.utils.compute_drag_delta_v
 
-.. autodata:: tatc.utils.DEFAULT_DRAG_COEFFICIENT
+.. autodata:: tatc.utils.decay.DEFAULT_DRAG_COEFFICIENT
 
 .. autofunction:: tatc.utils.compute_hohmann_delta_v
 

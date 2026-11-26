@@ -21,7 +21,7 @@ Spacecraft
 .. autopydantic_model:: tatc.sizing.SizedSpacecraft
    :members: feasible, power_margin
 
-.. autodata:: tatc.sizing.LIFETIME_HORIZON
+.. autodata:: tatc.sizing.spacecraft.LIFETIME_HORIZON
 
 Velocity Budgets
 ----------------
