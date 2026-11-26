@@ -63,6 +63,12 @@ Write the entry's YAML file, then a script `validate_catalog_<entry>.py` that re
 
 Each script's docstring states what it needs.
 
+## Atmosphere
+
+`atmosphere/build_density_table.py` builds the table of global-mean thermospheric densities bundled with TAT-C (`src/tatc/resources/atmosphere/nrlmsis_density.csv`, read by `tatc.utils.compute_atmospheric_density`) from NRLMSIS 2.1, through pymsis: means over the sphere, local times, and seasons, every 5 km from 100 to 1500 km above the Earth's mean radius, at the long-term low, moderate, and high reference levels of solar and geomagnetic activity of ECSS-E-ST-10-04C (Table 6-3). It reports the errors of interpolating the table and the spread of local densities about the mean, which it also writes in the table's header:
+
+    python validation/atmosphere/build_density_table.py
+
 ## Geoid
 
 `geoid/build_geoid_grid.py` builds the 0.25-degree grid of EGM2008 geoid heights bundled with TAT-C (`src/tatc/resources/egm2008_15.npz`, read by `tatc.utils.compute_geoid_height`) from the 2.5-minute EGM2008 grid of the National Geospatial-Intelligence Agency (public domain), as distributed by PROJ (https://cdn.proj.org/us_nga_egm08_25.tif). It reports the interpolation errors of grids of other spacings and compares the bundled grid with PROJ's transformation of heights:

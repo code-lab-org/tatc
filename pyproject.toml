@@ -53,6 +53,7 @@ target-version = ["py310"]
     "resources/*.bsp",
     "resources/*.npz",
     "resources/*.yml",
+    "resources/atmosphere/*.csv",
     "resources/communications/*.yml",
     "resources/instruments/*.yml",
     "resources/systems/*.yml",
@@ -133,6 +134,7 @@ validation = [
     "metpy",
     "netcdf4",
     "pyhdf",
+    "pymsis",
     "requests",
     "scipy",
     "xarray"

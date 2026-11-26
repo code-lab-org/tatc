@@ -4,7 +4,19 @@ Utility functions for the TATC library.
 @author: Paul T. Grogan <paul.grogan@asu.edu>
 """
 
-from .atmosphere import altitude_to_pressure, pressure_to_altitude
+from .atmosphere import (
+    MAX_DENSITY_ALTITUDE,
+    MIN_DENSITY_ALTITUDE,
+    SOLAR_ACTIVITY_LEVELS,
+    SolarActivity,
+    SolarCycle,
+    altitude_to_pressure,
+    compute_atmospheric_density,
+    get_solar_activity,
+    get_years_between,
+    interpolate_density,
+    pressure_to_altitude,
+)
 from .ellipsoid import (
     compute_ellipsoid_intersection,
     compute_tangent_point,
@@ -124,7 +136,16 @@ __all__ = [
     "VelocityFrame",
     "ViewGeometry",
     "align_element_switches",
+    "MAX_DENSITY_ALTITUDE",
+    "MIN_DENSITY_ALTITUDE",
+    "SOLAR_ACTIVITY_LEVELS",
+    "SolarActivity",
+    "SolarCycle",
     "altitude_to_pressure",
+    "compute_atmospheric_density",
+    "get_solar_activity",
+    "get_years_between",
+    "interpolate_density",
     "buffer_footprint",
     "buffer_target",
     "compute_apoapsis_radius",

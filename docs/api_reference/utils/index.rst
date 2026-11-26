@@ -121,6 +121,25 @@ Utility Functions
 
 .. autofunction:: tatc.utils.pressure_to_altitude
 
+.. autofunction:: tatc.utils.compute_atmospheric_density
+
+.. autofunction:: tatc.utils.interpolate_density
+
+.. autodata:: tatc.utils.SolarActivity
+
+.. autopydantic_model:: tatc.utils.SolarCycle
+   :members:
+
+.. autofunction:: tatc.utils.get_solar_activity
+
+.. autofunction:: tatc.utils.get_years_between
+
+.. autodata:: tatc.utils.SOLAR_ACTIVITY_LEVELS
+
+.. autodata:: tatc.utils.MIN_DENSITY_ALTITUDE
+
+.. autodata:: tatc.utils.MAX_DENSITY_ALTITUDE
+
 .. autofunction:: tatc.utils.geodetic_to_rectangular
 
 .. autofunction:: tatc.utils.rectangular_to_geodetic
