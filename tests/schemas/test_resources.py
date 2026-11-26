@@ -120,6 +120,24 @@ class TestResources(unittest.TestCase):
             SpacecraftResources(launch_mass=100, dry_mass=200)
         SpacecraftResources(launch_mass=200, dry_mass=100)
 
+    def test_ballistic_coefficient(self):
+        """
+        Tests that the ballistic coefficient is the mass (by default, dry,
+        or else at launch) over the drag coefficient (by default, 2.2) times
+        the drag area.
+        """
+        resources = SpacecraftResources(launch_mass=300, dry_mass=220, drag_area=2)
+        self.assertAlmostEqual(resources.get_ballistic_coefficient(), 50)
+        self.assertAlmostEqual(resources.get_ballistic_coefficient(440), 100)
+        launch = SpacecraftResources(launch_mass=330, drag_area=1.5, drag_coefficient=2)
+        self.assertAlmostEqual(launch.get_ballistic_coefficient(), 110)
+        with self.assertRaises(ValueError):
+            SpacecraftResources(dry_mass=100).get_ballistic_coefficient()
+        with self.assertRaises(ValueError):
+            SpacecraftResources(drag_area=1).get_ballistic_coefficient()
+        with self.assertRaises(ValidationError):
+            SpacecraftResources(specific_impulse=0)
+
     def test_unknown_fields(self):
         """
         Tests that unknown fields are rejected.

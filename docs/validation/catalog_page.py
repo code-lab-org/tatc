@@ -88,6 +88,9 @@ SOURCED_VALUES = {
     "design_life": ("Design life", 1, "years"),
     "storage": ("Storage", 1e9, "Gbit"),
     "downlink_rate": ("Downlink rate", 1e6, "Mbit/s"),
+    "drag_area": ("Drag area", 1, "m²"),
+    "drag_coefficient": ("Drag coefficient", 1, ""),
+    "specific_impulse": ("Specific impulse", 1, "s"),
 }
 
 

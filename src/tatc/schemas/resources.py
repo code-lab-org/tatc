@@ -15,6 +15,8 @@ import numpy as np
 import numpy.typing as npt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..utils.decay import DEFAULT_DRAG_COEFFICIENT
+
 
 class InstrumentPerformance(BaseModel):
     """
@@ -259,6 +261,29 @@ class SpacecraftResources(BaseModel):
         + "mission data.",
         examples=[300e6],
     )
+    drag_area: float | None = Field(
+        default=None,
+        gt=0,
+        description="The mean area (square meters) it presents to the flow of "
+        + "air along its orbit, by which drag decays it (see "
+        + "`tatc.utils.compute_orbit_lifetime`).",
+        examples=[10.0],
+    )
+    drag_coefficient: float | None = Field(
+        default=None,
+        gt=0,
+        description="The drag coefficient of its drag area, or `None` for "
+        + "`tatc.utils.DEFAULT_DRAG_COEFFICIENT` (2.2).",
+        examples=[2.2],
+    )
+    specific_impulse: float | None = Field(
+        default=None,
+        gt=0,
+        description="The specific impulse (seconds) of its propulsion, by which "
+        + "propellant gives velocity (see `tatc.sizing.compute_propellant_mass`), "
+        + "or `None` if not given.",
+        examples=[220],
+    )
 
     @model_validator(mode="after")
     def _check_masses(self) -> SpacecraftResources:
@@ -269,3 +294,34 @@ class SpacecraftResources(BaseModel):
         ):
             raise ValueError("dry_mass must not exceed launch_mass")
         return self
+
+    def get_ballistic_coefficient(self, mass: float | None = None) -> float:
+        """
+        Gets the ballistic coefficient (kg/m^2) by which drag decays the
+        spacecraft's orbit: its mass over its drag coefficient times its drag
+        area. By default, its mass is its dry mass (as at the end of its
+        life, when its orbit decays without propulsion), or else its launch
+        mass.
+
+        Args:
+            mass (float | None): The mass (kg), or `None` for the dry mass,
+                or else the launch mass.
+
+        Returns:
+            float: The ballistic coefficient (kg/m^2).
+
+        Raises:
+            ValueError: If the drag area, or a mass, is not given.
+        """
+        if self.drag_area is None:
+            raise ValueError("the drag area is not given")
+        if mass is None:
+            mass = self.dry_mass if self.dry_mass is not None else self.launch_mass
+        if mass is None:
+            raise ValueError("the mass is not given")
+        coefficient = (
+            DEFAULT_DRAG_COEFFICIENT
+            if self.drag_coefficient is None
+            else self.drag_coefficient
+        )
+        return mass / (coefficient * self.drag_area)
