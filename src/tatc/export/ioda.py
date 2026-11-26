@@ -101,8 +101,8 @@ def to_ioda(
       any observation is a point with a z-coordinate), `sensorZenithAngle`,
       `sensorAzimuthAngle`, `solarZenithAngle`, and `solarAzimuthAngle`
       (degrees, from the columns `platform_alt`, `platform_az`, `solar_alt`,
-      and `solar_az`, if given), `sequenceNumber` (the `observation` of
-      profiles, see `tatc.analysis.sample_profiles`), and other numeric
+      and `solar_az`, if given), `sequenceNumber` (int32, the `observation`
+      of profiles, see `tatc.analysis.sample_profiles`), and other numeric
       columns (`metadata`, with their `units`, which ioda's validator
       requires);
     - `ObsValue`: the values of each variable (float32), named as JEDI's
@@ -114,13 +114,14 @@ def to_ioda(
 
     Missing values are the fill values of ioda-converters (`FLOAT_FILL`,
     `INT32_FILL`, and `INT64_FILL`). The variable `Location` (int64) holds
-    the index of each observation, which ioda's `ObsSpace` replaces with its
-    own on reading (ioda-converters write zeros). String attributes are
+    the index of each observation, as ioda writes it (ioda-converters write
+    zeros, and ioda's `ObsSpace` does not use its values). String attributes are
     variable-length strings, and the global attributes `_ioda_layout`
     (`LAYOUT`) and `_ioda_layout_version` (0) name the layout, as ioda writes
-    them. The layout was compared with the files of ioda-converters' tests
-    and the source of ioda's reader, but not yet read by JEDI. Requires
-    netCDF4.
+    them. Files were read by ioda 2.12.0 (of jedi-bundle 2026.1.0), whose
+    `ObsSpace` reads the values, missing values, times, and records written,
+    and they pass its validator (but for `metadata` names that are not in
+    its conventions). Requires netCDF4.
 
     Args:
         observations (geopandas.GeoDataFrame): The observations.
@@ -207,7 +208,8 @@ def to_ioda(
                 write("MetaData", name, _float(values), units="degree")
         if "observation" in observations.columns:
             sequence = np.unique(observations["observation"], return_inverse=True)[1]
-            write("MetaData", "sequenceNumber", sequence.astype(np.int32), units="1")
+            # without units, which ioda's validator prohibits for it
+            write("MetaData", "sequenceNumber", sequence.astype(np.int32))
         for column, name in metadata.items():
             attributes = {"units": units[column]} if column in units else {}
             write("MetaData", name, _float(observations[column]), **attributes)

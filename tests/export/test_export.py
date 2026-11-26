@@ -193,9 +193,10 @@ class TestIODA(unittest.TestCase):
                 units={"platform_az": "degree"},
             )
             with netCDF4.Dataset(path) as dataset:
-                np.testing.assert_array_equal(
-                    dataset["MetaData"]["sequenceNumber"][:], [0, 0, 1]
-                )
+                sequence = dataset["MetaData"]["sequenceNumber"]
+                np.testing.assert_array_equal(sequence[:], [0, 0, 1])
+                # ioda's validator prohibits units for sequence numbers
+                self.assertNotIn("units", sequence.ncattrs())
                 azimuth = dataset["MetaData"]["platformAzimuth"]
                 self.assertEqual(azimuth.units, "degree")
                 # metadata without units has none
