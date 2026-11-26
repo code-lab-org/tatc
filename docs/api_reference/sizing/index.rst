@@ -4,10 +4,24 @@ Sizing Functions
 
 Sizing functions estimate what a spacecraft needs to keep its orbit for its
 life: the velocity to raise its orbit from a launch's injection, to hold it
-against drag, and to dispose of it, and the propellant these take. The drag
+against drag, and to dispose of it, and the propellant these take; and size
+spacecraft from their payloads by assumptions a study states, checking that
+their orbits last their lives and meet their disposal rules. The drag
 of the thermosphere and the decay of orbits are utility functions (see
 :func:`tatc.utils.compute_atmospheric_density` and
 :func:`tatc.utils.compute_orbit_lifetime`).
+
+Spacecraft
+----------
+
+.. autofunction:: tatc.sizing.size_spacecraft
+
+.. autopydantic_model:: tatc.sizing.SpacecraftSizing
+
+.. autopydantic_model:: tatc.sizing.SizedSpacecraft
+   :members: feasible, power_margin
+
+.. autodata:: tatc.sizing.LIFETIME_HORIZON
 
 Velocity Budgets
 ----------------

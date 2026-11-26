@@ -13,6 +13,12 @@ from .budget import (
     compute_disposal_delta_v,
     compute_propellant_mass,
 )
+from .spacecraft import (
+    LIFETIME_HORIZON,
+    SizedSpacecraft,
+    SpacecraftSizing,
+    size_spacecraft,
+)
 
 __all__ = [
     "DeltaVBudget",
@@ -20,4 +26,8 @@ __all__ = [
     "compute_delta_v_budget",
     "compute_disposal_delta_v",
     "compute_propellant_mass",
+    "LIFETIME_HORIZON",
+    "SizedSpacecraft",
+    "SpacecraftSizing",
+    "size_spacecraft",
 ]

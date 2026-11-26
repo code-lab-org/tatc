@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
+from functools import lru_cache
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from ..constants import EARTH_MEAN_RADIUS, EARTH_MU, STANDARD_GRAVITY
 from ..schemas.orbit import AllOrbits
-from ..utils.atmosphere import YEAR_S, SolarActivity
+from ..utils.atmosphere import YEAR_S, SolarActivity, SolarCycle
 from ..utils.decay import compute_drag_delta_v, compute_orbit_lifetime
 from ..utils.orbital import compute_hohmann_delta_v
 
@@ -160,6 +161,32 @@ def compute_disposal_delta_v(
     rule = DisposalRule() if rule is None else rule
     if altitude > rule.region_altitude:
         return 0.0
+    if not isinstance(activity, SolarCycle):
+        start = None  # the same for any start
+    return _compute_disposal_delta_v(
+        float(altitude),
+        float(inclination),
+        float(ballistic_coefficient),
+        rule,
+        activity,
+        start,
+    )
+
+
+@lru_cache(maxsize=4096)
+def _compute_disposal_delta_v(
+    altitude: float,
+    inclination: float,
+    ballistic_coefficient: float,
+    rule: DisposalRule,
+    activity: SolarActivity,
+    start: datetime | None,
+) -> float:
+    """
+    Computes the velocity to dispose of a spacecraft (see
+    `compute_disposal_delta_v`), whose searches of perigees are cached for
+    the many spacecraft that share orbits and properties.
+    """
     radius = EARTH_MEAN_RADIUS + altitude
     if rule.perigee_altitude is not None:
         if rule.perigee_altitude >= altitude:
