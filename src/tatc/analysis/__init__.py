@@ -21,6 +21,14 @@ from .coverage_metrics import (
     grid_observations,
     reduce_observations,
 )
+from .data_flow import (
+    DataFlowResult,
+    analyze_data_flow,
+    compute_data_flow,
+    compute_generation,
+    find_data_flow_downlinks,
+    is_data_flow_modeled,
+)
 from .dop_sampling import DopMethod, compute_dop
 from .feature_sampling import collect_feature_observations
 from .footprints import (
@@ -39,6 +47,11 @@ from .latency_sampling import (
     compute_latencies,
     grid_latencies,
     reduce_latencies,
+)
+from .link_sampling import (
+    compute_link_rates,
+    get_generation_rate,
+    sample_link_geometry,
 )
 from .limb_sampling import (
     ScanDirection,
@@ -86,6 +99,15 @@ from .surface_track import (
 )
 
 __all__ = [
+    "DataFlowResult",
+    "analyze_data_flow",
+    "compute_data_flow",
+    "compute_generation",
+    "find_data_flow_downlinks",
+    "is_data_flow_modeled",
+    "compute_link_rates",
+    "get_generation_rate",
+    "sample_link_geometry",
     "ArchitectureEvaluation",
     "DopMethod",
     "OrbitCoordinate",

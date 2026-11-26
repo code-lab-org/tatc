@@ -447,8 +447,8 @@ class DataFlow(BaseModel):
     """
     Options of a data flow analysis (see `tatc.analysis.compute_data_flow`):
     the step of the grid of time on which links are scheduled and storage is
-    tracked (the accuracy of times), and the backlog of data stored on each
-    spacecraft at the start.
+    tracked (the accuracy of times), the backlog of data stored on each
+    spacecraft at the start, and when links are released.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -463,6 +463,18 @@ class DataFlow(BaseModel):
         ge=0,
         description="The volume (bits) of data stored on each spacecraft at "
         + "the start.",
+    )
+    release: Literal["empty", "end"] = Field(
+        "empty",
+        description="When a link is released: once the spacecraft's storage "
+        + "empties (then requested again once more than `min_backlog` is "
+        + "stored), or at the end of its contact (as for a scheduled pass).",
+    )
+    min_backlog: float = Field(
+        0,
+        ge=0,
+        description="The volume (bits) stored above which a spacecraft "
+        + 'requests a link, with `release="empty"`.',
     )
     strict: bool = Field(
         False,
