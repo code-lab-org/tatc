@@ -4,7 +4,8 @@ datasets and tools: raster weights and terrain from geospatial datasets (e.g.
 a digital elevation model), which require `pip install tatc[preprocess]`, and
 the trajectories and instruments of aircraft from flight plans, recordings,
 and sensor models (e.g. those of HyPlan, installed with
-`pip install tatc[airborne]`). Each module is imported when first used, so
+`pip install tatc[airborne]`), and the features of the fields of nature runs
+(such as storms), which require `pip install tatc[osse]`. Each module is imported when first used, so
 that it requires only its own dependencies.
 """
 
@@ -16,6 +17,7 @@ _MODULES = {
     "instrument_from_sensor": "airborne",
     "sample_flight_plan": "airborne",
     "states_from_iwg1": "airborne",
+    "find_features": "features",
     "trajectory_from_waypoints": "airborne",
     "read_raster_weights": "raster",
     "add_local_incidence_angles": "terrain",
@@ -36,6 +38,8 @@ def __getattr__(name: str) -> Any:
     module = _MODULES.get(name)
     if module == "airborne":
         from . import airborne as source
+    elif module == "features":
+        from . import features as source
     elif module == "raster":
         from . import raster as source
     elif module == "terrain":

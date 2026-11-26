@@ -181,7 +181,7 @@ class FieldGrid:
             return (len(self.latitude), len(self.longitude))
         return self.latitude.shape
 
-    def _cells(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    def cells(self) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """Gets the latitudes and longitudes of every cell, flattened in the
         order of the horizontal dimensions."""
         if self.kind == "regular":
@@ -199,7 +199,7 @@ class FieldGrid:
         # pylint: disable=import-outside-toplevel
         from scipy.spatial import cKDTree
 
-        latitude, longitude = self._cells()
+        latitude, longitude = self.cells()
         valid = np.flatnonzero(np.isfinite(latitude) & np.isfinite(longitude))
         if len(valid) == 0:
             raise ValueError("the field's grid has no cells with coordinates")

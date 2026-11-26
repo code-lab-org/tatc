@@ -6,7 +6,8 @@ Preprocessing functions derive TAT-C model inputs from external datasets and
 tools. The terrain and raster functions require the optional `preprocess`
 dependencies (``pip install tatc[preprocess]``); the airborne functions read
 the outputs of HyPlan, installed with the optional `airborne` dependencies
-(``pip install tatc[airborne]``).
+(``pip install tatc[airborne]``); the feature functions require the optional
+`osse` dependencies (``pip install tatc[osse]``).
 
 Terrain Masks
 =============
@@ -106,3 +107,15 @@ Aircraft from HyPlan
 --------------------
 
 .. autofunction:: tatc.preprocess.aircraft_from_hyplan
+
+Features
+========
+
+Features of the fields of a nature run (such as storms or cold cloud tops),
+whose observations :func:`tatc.analysis.collect_feature_observations`
+collects.
+
+Find Features
+-------------
+
+.. autofunction:: tatc.preprocess.find_features
