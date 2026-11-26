@@ -26,10 +26,15 @@ from tatc.generation import generate_points_fibonacci_lattice
 from tatc.schemas import (
     ActiveWindow,
     Architecture,
+    DataFlow,
+    DataGeneration,
     GroundStation,
     Instrument,
     Satellite,
+    SpacecraftCommunications,
+    StationCommunications,
     SunSynchronousOrbit,
+    Transmitter,
 )
 from tatc.tradespace import (
     Categorical,
@@ -1307,3 +1312,118 @@ class TestArchitectureStudy(unittest.TestCase):
             again.evaluate(study.architecture_of(design), study.realize(design, 0))
             self.assertEqual(again._contacts(START, START + HOURS).misses, 0)
             self.assertEqual(observations.prune(), 0)
+
+
+def _communicating(satellites, rate=150e6):
+    """Satellites with a downlink at a rate and data generated at 10 Mbps."""
+    return [
+        satellite.model_copy(
+            update={
+                "communications": SpacecraftCommunications(
+                    transmitters=[Transmitter(band="X", max_data_rate=rate)],
+                    generation=DataGeneration(rate=10e6),
+                )
+            }
+        )
+        for satellite in satellites
+    ]
+
+
+class TestDataFlowStudy(unittest.TestCase):
+    """
+    Unit tests for studies of the data flow of architectures.
+    """
+
+    def setUp(self):
+        self.design = SPACE.enumerate()[3]
+        self.baseline = BASELINE.model_copy(
+            update={
+                "ground_stations": [
+                    BASELINE.ground_stations[0].model_copy(
+                        update={"communications": StationCommunications(antennas=1)}
+                    )
+                ]
+            }
+        )
+
+    def test_data_flow(self):
+        """
+        A study evaluates architectures with a data flow model, as
+        `evaluate_architecture` does.
+        """
+        observations = Observations(TARGETS, START, HOURS, data_flow=DataFlow())
+        study = ObservationStudy(
+            SPACE,
+            lambda d: _communicating(_build(d)),
+            observations,
+            _latency_metrics,
+            baseline=self.baseline,
+        )
+        row = study.run([self.design]).iloc[0]
+        realized = study.realize(self.design, 0)
+        expected = evaluate_architecture(
+            study.architecture_of(self.design),
+            TARGETS._of(realized),
+            START,
+            START + HOURS,
+            _latency_metrics,
+            data_flow=DataFlow(),
+        )
+        self.assertAlmostEqual(row["latency"], expected.metrics["latency"])
+        evaluation = observations.evaluate(study.architecture_of(self.design), realized)
+        self.assertIn("lost", evaluation.observations.columns)
+        self.assertIsNotNone(evaluation.flow)
+
+    def test_communications_share_cache(self):
+        """
+        Architectures that differ only in communications share the cached
+        observations and contacts.
+        """
+        observations = Observations(TARGETS, START, HOURS, data_flow=DataFlow())
+        study = ObservationStudy(SPACE, _build, observations, _latency_metrics)
+        realized = study.realize(self.design, 0)
+        satellites = _build(self.design)
+        slow = Architecture(satellites=_communicating(satellites, 10e6)).merge(
+            self.baseline
+        )
+        fast = Architecture(satellites=_communicating(satellites, 300e6)).merge(
+            self.baseline
+        )
+        first = observations.evaluate(slow, realized)
+        seed = realized.points_seed
+        cache = observations._cache(seed, START)
+        contacts = observations._contacts(START, START + HOURS)
+        misses = (cache.misses, contacts.misses)
+        second = observations.evaluate(fast, realized)
+        self.assertEqual((cache.misses, contacts.misses), misses)
+        # but the faster downlink delivers more
+        self.assertGreater(
+            second.flow.summary["delivered"].sum(),
+            first.flow.summary["delivered"].sum(),
+        )
+
+    def test_phase_context(self):
+        """
+        With a data flow model, the context of the metrics of phases
+        identifies all the planned satellites, which share antennas.
+        """
+        satellites = _communicating(_build(self.design))
+        timing = ObservationStudy(
+            SPACE, _build, _observations(), _metrics, layout="layout", plan=PLAN
+        )
+        flowing = ObservationStudy(
+            SPACE,
+            _build,
+            Observations(TARGETS, START, HOURS, data_flow=DataFlow()),
+            _metrics,
+            layout="layout",
+            plan=PLAN,
+        )
+        realized = flowing.realize(self.design, 0)
+        architecture = Architecture(satellites=satellites)
+        # pylint: disable=protected-access
+        plain = timing.evaluate.context_of(realized, architecture, satellites)
+        context = flowing.evaluate.context_of(realized, architecture, satellites)
+        self.assertNotEqual(plain, context)
+        fewer = flowing.evaluate.context_of(realized, architecture, satellites[:1])
+        self.assertNotEqual(context, fewer)

@@ -34,7 +34,8 @@ from ..analysis.architecture import (
 )
 from ..analysis.latency_sampling import _get_empty_relay_contacts_frame
 from ..schemas import AllPlatforms, Architecture, GroundStation, Relay, Satellite
-from .cache import SatelliteCache
+from ..schemas.communication import DataFlow
+from .cache import SatelliteCache, get_satellite_key
 from .constellations import count_planes
 from .criteria import Requirement
 from .hashing import canonical, digest
@@ -205,6 +206,30 @@ class _Link(BaseModel):
     endpoint: GroundStation | Relay
 
 
+def _without_communications(member: Any) -> Any:
+    """
+    Gets a copy of a member of an architecture without what does not change
+    its observations or contacts (its communications and, of a satellite,
+    its resources), so that members that differ only in them share cached
+    analyses.
+    """
+    if isinstance(member, Satellite):
+        return member.model_copy(update={"communications": None, "resources": None})
+    if isinstance(member, GroundStation):
+        return member.model_copy(update={"communications": None})
+    if isinstance(member, Relay):
+        return member.model_copy(
+            update={
+                "communications": None,
+                "satellites": [_without_communications(s) for s in member.satellites],
+                "ground_stations": [
+                    _without_communications(g) for g in member.ground_stations
+                ],
+            }
+        )
+    return member
+
+
 def _contact(start: datetime, end: datetime, link: _Link) -> pd.DataFrame:
     """
     The contacts of a link over a period (see `Observations`), with the
@@ -243,7 +268,8 @@ class _Cached:
     ) -> pd.DataFrame:
         """Gets the observations of the targets by a platform over a period."""
         # pylint: disable-next=protected-access
-        return self.observations._cache(self.seed, start, end)([platform])
+        cache = self.observations._cache(self.seed, start, end)
+        return cache([_without_communications(platform)])
 
     def contact(
         self,
@@ -255,9 +281,13 @@ class _Cached:
     ) -> pd.DataFrame:
         """Gets the contacts of a satellite with ground stations and relays."""
         # pylint: disable=too-many-arguments,too-many-positional-arguments
-        unnamed = satellite.model_copy(update={"name": ""})
+        unnamed = _without_communications(satellite).model_copy(update={"name": ""})
         links = [
-            _Link(name=satellite.name, satellite=unnamed, endpoint=endpoint)
+            _Link(
+                name=satellite.name,
+                satellite=unnamed,
+                endpoint=_without_communications(endpoint),
+            )
             for endpoint in [*ground_stations, *relays]
         ]
         # pylint: disable-next=protected-access
@@ -317,6 +347,16 @@ class Observations(Forgetful):
         during_contact (str): Downlink of observations that end during a
             contact: `"end"` (default), `"next"`, or `"immediate"` (see
             `tatc.analysis.compute_latencies`).
+        data_flow (DataFlow | None): A model of the flow of data, through
+            which to find the downlink of each observation of satellites (see
+            `tatc.analysis.compute_data_flow`), or `None` to find it by timing
+            alone. The observations and contacts of members that differ only
+            in their communications and resources are cached once. As the
+            satellites of an architecture share antennas, the metrics of the
+            phases of a mission are those of each phase's satellites
+            within the data flow of all the planned satellites (see
+            `ObservationStudy`), which overstates the contention of early
+            phases.
 
     Results of the analysis with other code (such as of an earlier version of
     TAT-C) are not reused, and a study warns of them (once, see
@@ -333,6 +373,7 @@ class Observations(Forgetful):
     )
     namespace: str = ""
     during_contact: Literal["next", "end", "immediate"] = "end"
+    data_flow: DataFlow | None = None
     _forgotten = ("_caches",)  # (copies sent to parallel workers)
 
     def __post_init__(self):
@@ -538,6 +579,7 @@ class Observations(Forgetful):
             _Parts(analyses, start, start + self.duration),
             metrics,
             self.during_contact,
+            self.data_flow,
         )
 
     def __call__(
@@ -674,6 +716,11 @@ class _Evaluation:
             fixed = digest(canonical({"others": others, "windows": windows}))
             if fixed != _EMPTY:
                 context = (context, fixed)
+        if self.observations.data_flow is not None and satellites:
+            # the data flow of each satellite depends on the others with which
+            # it shares antennas: all those planned (see Observations)
+            keys = sorted(get_satellite_key(satellite) for satellite in satellites)
+            context = (context, "data flow", digest(canonical(keys)))
         if _takes_design(self.metrics):
             context = (context, design.scenario, _uncertain_values(design))
         return context
