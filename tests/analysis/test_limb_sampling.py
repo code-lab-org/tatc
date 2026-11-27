@@ -16,7 +16,14 @@ from skyfield.framelib import itrs
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
-from tatc.analysis import ScanDirection, collect_limb_observations
+from tatc.analysis import (
+    ScanDirection,
+    collect_limb_observations,
+    collect_limb_soundings,
+    collect_observations,
+    collect_orbit_track,
+    compute_observation_quality,
+)
 from tatc.analysis.limb_sampling import (
     _constant_rate_scan_fractions,
     _default_scan_direction,
@@ -25,6 +32,15 @@ from tatc.analysis.limb_sampling import (
     _sample_limb_scan,
 )
 from tatc.constants import EARTH_MEAN_RADIUS, timescale
+from tatc.schemas import (
+    Instrument,
+    InstrumentPerformance,
+    LimbSounder,
+    Point,
+    Satellite,
+    ScanStart,
+    SunSynchronousOrbit,
+)
 from tatc.utils.ellipsoid import rectangular_to_geodetic
 
 from .common import IssConstellationTestCase
@@ -651,6 +667,146 @@ class TestLimbObservationsOfSatellites(IssConstellationTestCase):
         )
         self.assertEqual(len(observations.index), len(members) * len(times))
         pd.testing.assert_frame_equal(observations, expected)
+
+
+class TestCollectLimbSoundings(unittest.TestCase):
+    """
+    Unit tests for `collect_limb_soundings`.
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(minutes=10)
+        self.elevations = [10e3, 30e3, 50e3, 70e3, 90e3]
+        self.sounder = LimbSounder(
+            name="Limb",
+            scan_azimuth=90,
+            scan_elevations=self.elevations,
+            scan_duration=timedelta(seconds=15),
+            scans=[
+                ScanStart(direction="upward"),
+                ScanStart(offset=timedelta(seconds=40), direction="downward"),
+            ],
+            cycle_period=timedelta(seconds=80),
+            sample_elevation=30e3,
+            performance=InstrumentPerformance(
+                reference_altitude=700e3, ground_sample_distance=2000
+            ),
+        )
+        self.orbit = SunSynchronousOrbit(
+            altitude=700e3, equator_crossing_time="13:30", epoch=self.start
+        )
+        self.satellite = Satellite(
+            name="S", orbit=self.orbit, instruments=[Instrument(), self.sounder]
+        )
+
+    def test_equals_scans_of_each_direction(self):
+        """
+        Test that the soundings equal the scans of each direction, started at
+        the times of the sounder's cycle, with the sounder's name.
+        """
+        observations = collect_limb_soundings(
+            self.satellite, self.start, self.end, instrument_index=1
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_limb_observations(
+                        self.satellite,
+                        times,
+                        90,
+                        self.elevations,
+                        timedelta(seconds=15),
+                        scan_direction=direction,
+                        sample_elevation=30e3,
+                    )
+                    for direction, times in self.sounder.get_scan_times(
+                        self.start, self.end
+                    ).items()
+                ],
+                ignore_index=True,
+            )
+            .sort_values("time", kind="stable")
+            .reset_index(drop=True)
+        )
+        self.assertEqual(len(observations.index), 15)
+        self.assertTrue((observations.instrument == "Limb").all())
+        pd.testing.assert_frame_equal(observations.drop(columns="instrument"), expected)
+
+    def test_every_limb_sounder(self):
+        """
+        Test that `instrument_index=None` collects every limb sounder of each
+        satellite, and that an index of another instrument raises.
+        """
+        other = self.sounder.model_copy(update={"name": "Other"})
+        satellite = Satellite(
+            name="S",
+            orbit=self.orbit,
+            instruments=[self.sounder, Instrument(), other],
+        )
+        observations = collect_limb_soundings(
+            satellite, self.start, self.end, instrument_index=None
+        )
+        self.assertEqual(
+            observations.instrument.value_counts().to_dict(), {"Limb": 15, "Other": 15}
+        )
+        with self.assertRaisesRegex(ValueError, "not a LimbSounder"):
+            collect_limb_soundings(satellite, self.start, self.end, instrument_index=1)
+        empty = collect_limb_soundings(
+            Satellite(name="T", orbit=self.orbit),
+            self.start,
+            self.end,
+            instrument_index=None,
+        )
+        self.assertTrue(empty.empty)
+        self.assertIn("instrument", empty.columns)
+
+    def test_views_of_targets_skip_sounders(self):
+        """
+        Test that analyses of views of targets reject a sounder's index and
+        skip sounders for every instrument.
+        """
+        point = Point(id=0, latitude=0, longitude=0)
+        with self.assertRaisesRegex(ValueError, "collect_limb_soundings"):
+            collect_observations(
+                point, self.satellite, self.start, self.end, instrument_index=1
+            )
+        observations = collect_observations(
+            point,
+            self.satellite,
+            self.start,
+            self.start + timedelta(days=1),
+            instrument_index=None,
+        )
+        self.assertGreater(len(observations.index), 0)
+        self.assertTrue((observations.instrument == "Default").all())
+
+    def test_orbit_track_of_sounder(self):
+        """
+        Test that the orbit track of a satellite includes its sounders, with no
+        swath and always valid.
+        """
+        track = collect_orbit_track(
+            self.satellite, [self.start, self.end], instrument_index=None
+        )
+        sounder = track[track.instrument == "Limb"]
+        self.assertEqual(len(sounder.index), 2)
+        self.assertTrue(sounder.swath_width.isna().all())
+        self.assertTrue(sounder.valid_obs.all())
+        self.assertEqual(set(track.instrument), {"Default", "Limb"})
+
+    def test_quality_of_soundings(self):
+        """
+        Test that soundings have the sounder's performance but no samples.
+        """
+        observations = collect_limb_soundings(
+            self.satellite, self.start, self.end, instrument_index=1
+        )
+        quality = compute_observation_quality(observations, self.satellite)
+        self.assertTrue(quality.sample_along.isna().all())
+        self.assertTrue(quality.scan_angle.isna().all())
+        self.assertTrue((quality.platform_range > 0).all())
+        self.assertTrue((quality.ground_sample_distance > 2000).all())
 
 
 if __name__ == "__main__":

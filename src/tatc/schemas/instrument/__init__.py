@@ -15,11 +15,18 @@ from .simple import Instrument
 from .pointed import PointedInstrument
 from .conical import ConicalInstrument
 from .in_situ import InSituInstrument
+from .sounder import LimbSounder, OccultationReceiver, ScanDirection, ScanStart
 
 _BASE_FIELDS = set(Instrument.model_fields)
 _POINTED_FIELDS = set(PointedInstrument.model_fields) - _BASE_FIELDS
 _CONICAL_FIELDS = set(ConicalInstrument.model_fields) - _BASE_FIELDS - _POINTED_FIELDS
 _IN_SITU_FIELDS = set(InSituInstrument.model_fields) - _BASE_FIELDS
+# the fields of each kind of sounder that the other does not have (both have a
+# sample_elevation)
+_LIMB_FIELDS = set(LimbSounder.model_fields) - set(OccultationReceiver.model_fields)
+_OCCULTATION_FIELDS = set(OccultationReceiver.model_fields) - set(
+    LimbSounder.model_fields
+)
 
 
 def _get_instrument_type(value: Any) -> str | None:
@@ -39,6 +46,10 @@ def _get_instrument_type(value: Any) -> str | None:
         return value["type"]
     if _IN_SITU_FIELDS.intersection(value):
         return "in_situ"
+    if _LIMB_FIELDS.intersection(value):
+        return "limb"
+    if _OCCULTATION_FIELDS.intersection(value):
+        return "occultation"
     if _CONICAL_FIELDS.intersection(value):
         return "conical"
     if _POINTED_FIELDS.intersection(value):
@@ -50,7 +61,9 @@ AllInstruments = Annotated[
     Annotated[Instrument, Tag("instrument")]
     | Annotated[PointedInstrument, Tag("pointed")]
     | Annotated[ConicalInstrument, Tag("conical")]
-    | Annotated[InSituInstrument, Tag("in_situ")],
+    | Annotated[InSituInstrument, Tag("in_situ")]
+    | Annotated[LimbSounder, Tag("limb")]
+    | Annotated[OccultationReceiver, Tag("occultation")],
     Discriminator(_get_instrument_type),
 ]
 """Instruments, identified by their `type` or, if omitted, by their fields."""
@@ -68,8 +81,9 @@ def _check_platform_instruments(
     a satellite (an aircraft or a surface platform), raising a `ValueError`
     otherwise: without roll or pitch angle profiles (which vary with an
     orbit's argument of latitude) or an inertial velocity frame (aligned with
-    an orbit plane), unless `allow_conical`, not a `ConicalInstrument`, and,
-    unless `allow_in_situ`, not an `InSituInstrument`.
+    an orbit plane), not a sounder (a `LimbSounder` or `OccultationReceiver`,
+    which only a satellite carries), unless `allow_conical`, not a
+    `ConicalInstrument`, and, unless `allow_in_situ`, not an `InSituInstrument`.
 
     Args:
         instruments (list[Instrument]): The instruments.
@@ -81,6 +95,11 @@ def _check_platform_instruments(
         allow_in_situ (bool): `True` to accept an `InSituInstrument`.
     """
     for instrument in instruments:
+        if isinstance(instrument, (LimbSounder, OccultationReceiver)):
+            raise ValueError(
+                f"instrument {instrument.name!r}: a {type(instrument).__name__} is "
+                f"only supported on a satellite, not on {platform}"
+            )
         if isinstance(instrument, InSituInstrument) and not allow_in_situ:
             raise ValueError(
                 f"instrument {instrument.name!r}: an InSituInstrument is only "
@@ -114,5 +133,9 @@ __all__ = [
     "ConicalInstrument",
     "InSituInstrument",
     "Instrument",
+    "LimbSounder",
+    "OccultationReceiver",
     "PointedInstrument",
+    "ScanDirection",
+    "ScanStart",
 ]

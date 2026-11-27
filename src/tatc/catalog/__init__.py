@@ -26,6 +26,7 @@ from .loader import (
     get_spacecraft_system,
     get_system,
     get_system_ids,
+    get_transmitters,
     list_entries,
     list_systems,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "get_spacecraft",
     "get_spacecraft_system",
     "get_system",
+    "get_transmitters",
     "get_system_ids",
     "list_entries",
     "list_systems",

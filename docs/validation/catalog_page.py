@@ -175,16 +175,18 @@ def render_configuration(entry, key: str) -> str:
         )
     if configuration.sounding is not None and configuration.sounding.type == "limb":
         parts.append(
-            "It is a limb sounding: collect its observations with "
-            "``build(...).sounding.collect_observations(satellite, start, end)``.\n"
+            "It is a limb sounder (``tatc.schemas.LimbSounder``): collect the "
+            "observations of satellites that carry it with "
+            "``tatc.analysis.collect_limb_soundings(satellites, start, end)``.\n"
         )
     elif configuration.sounding is not None:
         parts.append(
-            "It is a radio occultation sounding: collect its observations with "
-            "``build(...).sounding.collect_observations(receivers, transmitters, "
-            "start, end)``, with the satellites of the constellations it tracks as "
-            "transmitters (from the catalog's navigation systems, "
-            "``sounding.get_transmitters(start)``).\n"
+            "It is a radio occultation receiver "
+            "(``tatc.schemas.OccultationReceiver``): collect the occultations of "
+            "satellites that carry it with ``tatc.analysis.collect_occultations("
+            "receivers, transmitters, start, end)``, with the satellites of the "
+            "constellations it tracks as transmitters (from the catalog's "
+            "navigation systems, ``tatc.catalog.get_transmitters(receiver, start)``).\n"
         )
     if record is not None:
         if validation.holdout_gap_days is None:
@@ -418,10 +420,14 @@ end of the analysis to configurations whose tilt is scheduled by day, such as
 OCI's. The entries hold no element sets, as they age; supply a recent one for
 the analysis period.
 
-Limb sounders (MLS and SABER) and radio occultation receivers (TGRS, of
-COSMIC-2) have no views to analyze: their configurations hold the sounding with
-which their analysis is called, as ``build(...).sounding.collect_observations``,
-and ``to_satellite`` builds the satellite that carries them.
+Limb sounders (MLS and SABER) and radio occultation receivers (GRAS and TGRS)
+have no views of targets: their configurations hold the sounding from which
+their instrument (``tatc.schemas.LimbSounder`` or
+``tatc.schemas.OccultationReceiver``) is built, with its resources, whose
+observations ``tatc.analysis.collect_limb_soundings`` and
+``tatc.analysis.collect_occultations`` collect. ``to_satellite`` builds a
+satellite that carries one, and ``build_payload`` carries them with other
+instruments, after them and without their attitude.
 
 """
     body = "\n".join(render_entry(entry) for entry in entries)

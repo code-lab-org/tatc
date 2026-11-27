@@ -184,7 +184,8 @@ def collect_platform_observations(
             of the footprints of a platform other than a satellite, if any.
         instrument_index (int | None): The index of the observing instrument
             on the platform, or `None` for every instrument (a radar station
-            has none).
+            has none) except sounders, whose soundings
+            `collect_sounding_observations` collects as observations.
         elevation (float | Mapping[str, float | None] | None): The elevation
             (meters) above the WGS 84 ellipsoid of the footprints of
             platforms other than satellites, or that of each kind (see

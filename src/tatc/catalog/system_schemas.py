@@ -50,7 +50,7 @@ from .schemas import (
     StationCommunicationsSpecification,
     _check_provenance,
 )
-from .standard import EntryValidation, Grade, InstrumentClass, Tier
+from .standard import EntryValidation, Grade, Tier
 from .system_orbits import (
     RELATIVE_VALUES,
     CatalogOrbit,
@@ -980,9 +980,9 @@ class SatelliteSystem(SystemEntry):
     def get_payload_references(self, spacecraft: str) -> list[str]:
         """
         Gets the instrument catalog's entries that list a spacecraft of this
-        system, except those of limb sounders and radio occultation receivers,
-        whose soundings are analyzed with their own methods (see
-        `tatc.catalog.InstrumentPayload.sounding`).
+        system, including those of limb sounders and radio occultation
+        receivers (see `tatc.schemas.LimbSounder` and
+        `tatc.schemas.OccultationReceiver`).
 
         Args:
             spacecraft (str): The identifier or name of the spacecraft.
@@ -991,12 +991,7 @@ class SatelliteSystem(SystemEntry):
             list[str]: The identifiers of the entries.
         """
         spacecraft_id = self.get_spacecraft(spacecraft).id
-        sounders = (InstrumentClass.LIMB, InstrumentClass.OCCULTATION)
-        return [
-            entry.id
-            for entry in _loader().list_entries(platform=spacecraft_id)
-            if entry.instrument_class not in sounders
-        ]
+        return [entry.id for entry in _loader().list_entries(platform=spacecraft_id)]
 
     def _get_references(
         self, payload: bool | str | Sequence[str], members: list[str]
@@ -1052,14 +1047,17 @@ class SatelliteSystem(SystemEntry):
         for any epoch. Satellites carry the instruments of the instrument
         catalog's entries that list them (see `get_payload_references`), built
         with `tatc.catalog.build_payload` for the spacecraft, when a `time_step`
-        is given (most imagers and sounders tailor a field of view to it). A
-        configuration that is not validated warns. A satellite that
-        carries none (such as a radio occultation satellite, whose soundings are
-        analyzed with their own methods) has TAT-C's default instrument, which
-        observes within a field of regard of 180 degrees, with a warning, as
-        do the satellites of a system whose `role` is `transmitting` (such as
-        those of a navigation system, for `tatc.analysis.collect_ro_observations`)
-        or `relaying` (see `build_relay`), without one.
+        is given (most imagers and sounders tailor a field of view to it),
+        including limb sounders and radio occultation receivers (whose
+        observations `tatc.analysis.collect_limb_soundings` and
+        `tatc.analysis.collect_occultations` collect). A configuration that is
+        not validated warns. A satellite that carries none has TAT-C's default
+        instrument, which observes within a field of regard of 180 degrees,
+        with a warning, as do the satellites of a system whose `role` is
+        `transmitting` (such as those of a navigation system, the transmitters
+        of `tatc.analysis.collect_occultations`; see
+        `tatc.catalog.get_transmitters`) or `relaying` (see `build_relay`),
+        without one.
 
         Args:
             configuration (str | None): The configuration, if not selected by
@@ -1143,7 +1141,7 @@ class SatelliteSystem(SystemEntry):
             if not references[member.id]:
                 if payload is not False:
                     carried = (
-                        "no cataloged instrument other than sounders"
+                        "no cataloged instrument"
                         if payload is True
                         else "none of the instruments given"
                     )

@@ -14,7 +14,7 @@ from shapely.geometry import Point as ShapelyPoint
 from skyfield.positionlib import Geocentric
 from skyfield.units import Distance, Velocity
 
-from tatc.analysis import collect_ro_observations
+from tatc.analysis import collect_occultations, collect_ro_observations
 from tatc.analysis.ro_sampling import (
     _interpolate_ro_point,
     _is_rising,
@@ -26,6 +26,7 @@ from tatc.schemas import (
     CircularOrbit,
     GeneralPerturbationsOrbit,
     Instrument,
+    OccultationReceiver,
     Satellite,
 )
 from tatc.utils import compute_vnb_frame
@@ -582,6 +583,106 @@ class TestRoObservationsOfReceivers(unittest.TestCase):
         self.assertGreater(len(observations.index), 0)
         self.assertEqual(set(observations.receiver), {"RX0", "RX1"})
         pd.testing.assert_frame_equal(observations, expected)
+
+
+class TestCollectOccultations(unittest.TestCase):
+    """
+    Unit tests for `collect_occultations`.
+    """
+
+    def setUp(self):
+        self.start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.end = self.start + timedelta(hours=3)
+        self.wide = OccultationReceiver(name="Wide", max_yaw=60, sample_elevation=0)
+        self.narrow = OccultationReceiver(name="Narrow", max_yaw=30)
+        self.receivers = [
+            Satellite(
+                name=f"RX{i}",
+                orbit=CircularOrbit(
+                    altitude=520e3,
+                    inclination=24,
+                    right_ascension_ascending_node=90 * i,
+                    epoch=self.start,
+                ),
+                instruments=[receiver],
+            )
+            for i, receiver in enumerate([self.wide, self.wide, self.narrow])
+        ]
+        self.transmitters = [
+            Satellite(
+                name=f"TX{i}",
+                orbit=CircularOrbit(
+                    altitude=20200e3,
+                    inclination=55,
+                    right_ascension_ascending_node=60 * i,
+                    epoch=self.start,
+                ),
+            )
+            for i in range(3)
+        ]
+
+    def test_equals_each_receiver(self):
+        """
+        Test that the occultations of receivers with different parameters
+        equal those of each receiver with its parameters.
+        """
+        key = ["receiver", "transmitter", "start"]
+        observations = (
+            collect_occultations(
+                self.receivers, self.transmitters, self.start, self.end
+            )
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        expected = (
+            pd.concat(
+                [
+                    collect_ro_observations(
+                        satellite,
+                        self.transmitters,
+                        self.start,
+                        self.end,
+                        sample_elevation=satellite.instruments[0].sample_elevation,
+                        max_yaw=satellite.instruments[0].max_yaw,
+                    )
+                    for satellite in self.receivers
+                ]
+            )
+            .sort_values(key)
+            .reset_index(drop=True)
+        )
+        self.assertEqual(set(observations.receiver), {"RX0", "RX1", "RX2"})
+        self.assertEqual(
+            dict(zip(observations.receiver, observations.instrument)),
+            {"RX0": "Wide", "RX1": "Wide", "RX2": "Narrow"},
+        )
+        pd.testing.assert_frame_equal(observations.drop(columns="instrument"), expected)
+
+    def test_receivers_of_one_satellite(self):
+        """
+        Test that `instrument_index=None` collects each receiver of a
+        satellite, even with the same parameters, and that an index of
+        another instrument raises.
+        """
+        satellite = Satellite(
+            name="RX",
+            orbit=self.receivers[0].orbit,
+            instruments=[
+                self.wide,
+                Instrument(),
+                self.wide.model_copy(update={"name": "Spare"}),
+            ],
+        )
+        observations = collect_occultations(
+            satellite, self.transmitters, self.start, self.end, instrument_index=None
+        )
+        counts = observations.instrument.value_counts()
+        self.assertEqual(set(counts.index), {"Wide", "Spare"})
+        self.assertEqual(counts["Wide"], counts["Spare"])
+        with self.assertRaisesRegex(ValueError, "not an OccultationReceiver"):
+            collect_occultations(
+                satellite, self.transmitters, self.start, self.end, instrument_index=1
+            )
 
 
 if __name__ == "__main__":
