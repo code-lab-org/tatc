@@ -92,6 +92,7 @@ from .response import (
     compute_event_responses,
     compute_response_statistics,
 )
+from .tasking import collect_imaging_opportunities
 from .sufficiency import (
     compare_sampled_means,
     compute_local_time_coverage,
@@ -156,6 +157,7 @@ __all__ = [
     "compute_revisit_statistics",
     "compute_event_responses",
     "compute_response_statistics",
+    "collect_imaging_opportunities",
     "compute_sample_sizes",
     "compute_surface_track",
     "count_observations",
