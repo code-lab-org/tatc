@@ -19,11 +19,9 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
 from pydantic import ConfigDict, Field, model_validator
 
-from ..analysis import collect_limb_observations, collect_ro_observations
-from ..analysis.limb_sampling import ScanDirection
+from ..analysis import collect_limb_soundings, collect_occultations
 from ..schemas import (
     Attitude,
     AttitudeSchedule,
@@ -31,10 +29,14 @@ from ..schemas import (
     GlintAttitude,
     InSituInstrument,
     Instrument,
+    LimbSounder,
+    OccultationReceiver,
     PointedInstrument,
     Satellite,
+    ScanDirection,
     TargetAttitude,
 )
+from ..schemas import ScanStart as LimbScanStart
 from ..schemas.communication import (
     Receiver,
     RelayCommunications,
@@ -93,6 +95,9 @@ _SOUNDING_TYPES = {
     InstrumentClass.LIMB: "limb",
     InstrumentClass.OCCULTATION: "occultation",
 }
+# the name of the sounder of a sounding analyzed on its own (see
+# `LimbScan.collect_observations` and `Occultation.collect_observations`)
+_SOUNDING_NAME = "Sounding"
 # the attitudes that a configuration may give, by their `type`
 _ATTITUDE_TYPES = {
     "attitude": Attitude,
@@ -771,11 +776,11 @@ class ScanStart(_CatalogModel):
 
 class LimbScan(_CatalogModel):
     """
-    The vertical scans of a limb sounder, with which `collect_limb_observations`
-    is called: scans of the same elevations, in a cycle of scans (one or more,
-    such as alternating upward and downward scans) that repeats from the start of
-    an analysis. The phase of the cycle, which depends on the instrument's clock,
-    is not modeled.
+    The vertical scans of a limb sounder, from which its `tatc.schemas.LimbSounder`
+    is constructed: scans of the same elevations, in a cycle of scans (one or
+    more, such as alternating upward and downward scans) that repeats from the
+    start of an analysis. The phase of the cycle, which depends on the
+    instrument's clock, is not modeled.
     """
 
     type: Literal["limb"] = Field("limb", description="The kind of sounding.")
@@ -828,12 +833,50 @@ class LimbScan(_CatalogModel):
             raise ValueError("the sample elevation is within the scan's elevations")
         return self
 
+    def construct_instrument(
+        self,
+        name: str,
+        *,
+        performance: InstrumentPerformance | None = None,
+        resources: InstrumentResources | None = None,
+    ) -> LimbSounder:
+        """
+        Constructs the limb sounder of these scans.
+
+        Args:
+            name (str): The instrument's name.
+            performance (InstrumentPerformance | None): The instrument's
+                performance, if any.
+            resources (InstrumentResources | None): The instrument's resources,
+                if any.
+
+        Returns:
+            LimbSounder: The limb sounder.
+        """
+        return LimbSounder(
+            name=name,
+            scan_azimuth=self.scan_azimuth,
+            scan_elevations=list(self.scan_elevations),
+            scan_duration=timedelta(seconds=self.scan_duration),
+            scans=[
+                LimbScanStart(
+                    offset=timedelta(seconds=scan.offset), direction=scan.direction
+                )
+                for scan in self.scans
+            ],
+            cycle_period=timedelta(seconds=self.cycle_period),
+            sample_elevation=self.sample_elevation,
+            performance=copy.deepcopy(performance),
+            resources=copy.deepcopy(resources),
+        )
+
     def get_scan_times(
         self, start: datetime, end: datetime
     ) -> dict[ScanDirection, list[datetime]]:
         """
         Gets the start times of the scans of each direction, in cycles that repeat
-        from the start of an analysis until its end.
+        from the start of an analysis until its end (see
+        `tatc.schemas.LimbSounder.get_scan_times`).
 
         Args:
             start (datetime.datetime): The start of the analysis.
@@ -843,16 +886,7 @@ class LimbScan(_CatalogModel):
             dict[ScanDirection, list[datetime.datetime]]: The start times, by
             direction.
         """
-        times = {scan.direction: [] for scan in self.scans}
-        cycles = int((end - start).total_seconds() // self.cycle_period) + 1
-        for cycle in range(cycles):
-            for scan in self.scans:
-                time_ = start + timedelta(
-                    seconds=cycle * self.cycle_period + scan.offset
-                )
-                if time_ < end:
-                    times[scan.direction].append(time_)
-        return times
+        return self.construct_instrument(_SOUNDING_NAME).get_scan_times(start, end)
 
     def collect_observations(
         self,
@@ -862,41 +896,27 @@ class LimbScan(_CatalogModel):
     ) -> gpd.GeoDataFrame:
         """
         Collects the limb sounding observations of scans that repeat from the start
-        of an analysis (see `tatc.analysis.collect_limb_observations`).
+        of an analysis by satellites that carry these scans' limb sounder, in
+        place of their instruments (see `tatc.analysis.collect_limb_soundings`).
 
         Args:
-            satellites (Satellite | list[Satellite]): The satellites that carry the
-                sounder.
+            satellites (Satellite | list[Satellite]): The satellites.
             start (datetime.datetime): The start of the analysis.
             end (datetime.datetime): The end of the analysis.
 
         Returns:
             geopandas.GeoDataFrame: The observations of the scans, by time.
         """
-        frames = [
-            collect_limb_observations(
-                satellites,
-                times,
-                self.scan_azimuth,
-                list(self.scan_elevations),
-                timedelta(seconds=self.scan_duration),
-                scan_direction=direction,
-                sample_elevation=self.sample_elevation,
-            )
-            for direction, times in self.get_scan_times(start, end).items()
-            if times
-        ]
-        if len(frames) == 1:
-            return frames[0]
-        return gpd.GeoDataFrame(
-            pd.concat(frames, ignore_index=True), crs="EPSG:4326"
-        ).sort_values("time", kind="stable", ignore_index=True)
+        sounder = self.construct_instrument(_SOUNDING_NAME)
+        return collect_limb_soundings(_carrying(satellites, sounder), start, end).drop(
+            columns="instrument"
+        )
 
 
 class Occultation(_CatalogModel):
     """
-    The radio occultations of a receiver of signals of navigation satellites, with
-    which `collect_ro_observations` is called.
+    The radio occultations of a receiver of signals of navigation satellites, from
+    which its `tatc.schemas.OccultationReceiver` is constructed.
     """
 
     type: Literal["occultation"] = Field(
@@ -941,6 +961,36 @@ class Occultation(_CatalogModel):
             raise ValueError("the sample elevation is within the range of elevations")
         return self
 
+    def construct_instrument(
+        self,
+        name: str,
+        *,
+        performance: InstrumentPerformance | None = None,
+        resources: InstrumentResources | None = None,
+    ) -> OccultationReceiver:
+        """
+        Constructs the occultation receiver of these occultations.
+
+        Args:
+            name (str): The instrument's name.
+            performance (InstrumentPerformance | None): The instrument's
+                performance, if any.
+            resources (InstrumentResources | None): The instrument's resources,
+                if any.
+
+        Returns:
+            OccultationReceiver: The occultation receiver.
+        """
+        return OccultationReceiver(
+            name=name,
+            constellations=list(self.constellations),
+            max_yaw=self.max_yaw,
+            range_elevation=self.range_elevation,
+            sample_elevation=self.sample_elevation,
+            performance=copy.deepcopy(performance),
+            resources=copy.deepcopy(resources),
+        )
+
     def get_transmitters(self, epoch: datetime) -> list[Satellite]:
         """
         Builds the satellites of the constellations tracked, from the catalog's
@@ -973,12 +1023,12 @@ class Occultation(_CatalogModel):
         time_step: timedelta = timedelta(seconds=10),
     ) -> gpd.GeoDataFrame:
         """
-        Collects the radio occultation observations of receivers (see
-        `tatc.analysis.collect_ro_observations`).
+        Collects the radio occultation observations of satellites that carry this
+        receiver, in place of their instruments (see
+        `tatc.analysis.collect_occultations`).
 
         Args:
-            receivers (Satellite | list[Satellite]): The satellites that carry the
-                receiver.
+            receivers (Satellite | list[Satellite]): The satellites.
             transmitters (Satellite | list[Satellite]): The satellites of the
                 constellations tracked (such as `get_transmitters(start)`, or
                 satellites of current element sets).
@@ -990,26 +1040,39 @@ class Occultation(_CatalogModel):
         Returns:
             geopandas.GeoDataFrame: The occultations.
         """
-        return collect_ro_observations(
-            receivers,
+        receiver = self.construct_instrument(_SOUNDING_NAME)
+        return collect_occultations(
+            _carrying(receivers, receiver),
             transmitters,
             start,
             end,
             time_step=time_step,
-            sample_elevation=self.sample_elevation,
-            max_yaw=self.max_yaw,
-            range_elevation=self.range_elevation,
-        )
+        ).drop(columns="instrument")
 
 
 AllSoundings = Annotated[LimbScan | Occultation, Field(discriminator="type")]
+
+
+def _carrying(
+    satellites: Satellite | list[Satellite], sounder: LimbSounder | OccultationReceiver
+) -> list[Satellite]:
+    """
+    Gets copies of satellites that carry a sounder in place of their
+    instruments, without an attitude (which a sounder does not use).
+    """
+    if not isinstance(satellites, list):
+        satellites = [satellites]
+    return [
+        satellite.model_copy(update={"instruments": [sounder], "attitude": None})
+        for satellite in satellites
+    ]
 
 
 class Configuration(_CatalogModel):
     """
     A way of modeling an instrument for a use, as it was validated: instruments
     whose views are analyzed, or a sounding (of a limb sounder or radio
-    occultation receiver), whose analysis it calls.
+    occultation receiver), from which its sounder is constructed.
     """
 
     grade: Grade = Field(..., description="The use for which it is validated.")
@@ -1040,7 +1103,9 @@ class Configuration(_CatalogModel):
     sounding: AllSoundings | None = Field(
         default=None,
         description="The sounding of a limb sounder or radio occultation receiver, "
-        + "whose analysis is called instead of analyzing views of instruments.",
+        + "from which its sounder (`tatc.schemas.LimbSounder` or "
+        + "`tatc.schemas.OccultationReceiver`) is constructed, instead of "
+        + "instruments whose views are analyzed.",
     )
     instrument_index: int = Field(
         default=0,
@@ -1188,6 +1253,46 @@ class Configuration(_CatalogModel):
         encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
+    def construct_instruments(
+        self,
+        name: str,
+        tailored_field_of_view: float | None,
+        *,
+        performance: InstrumentPerformance | None = None,
+        resources: InstrumentResources | None = None,
+    ) -> list[Instrument]:
+        """
+        Constructs the instruments of this configuration: its sounder, or the
+        instruments of its specifications, with the performance and resources
+        given to the sounder or to the instrument analyzed by default.
+
+        Args:
+            name (str): The name of a sounder (of its entry).
+            tailored_field_of_view (float | None): The along-track field of
+                view (degrees) of specifications that tailor it to a time step.
+            performance (InstrumentPerformance | None): The instrument's
+                performance, if any.
+            resources (InstrumentResources | None): The instrument's resources,
+                if any.
+
+        Returns:
+            list[Instrument]: The instruments.
+        """
+        if self.sounding is not None:
+            return [
+                self.sounding.construct_instrument(
+                    name, performance=performance, resources=resources
+                )
+            ]
+        return [
+            instrument.construct_instrument(
+                tailored_field_of_view,
+                performance=performance,
+                resources=resources if i == self.instrument_index else None,
+            )
+            for i, instrument in enumerate(self.instruments)
+        ]
+
     def serves(self, grade: Grade | str) -> bool:
         """
         Checks whether this configuration serves a use (see
@@ -1244,8 +1349,8 @@ class InstrumentPayload:
     limitations: tuple[str, ...]
     sounding: LimbScan | Occultation | None = None
     """
-    The sounding whose analysis is called (with `collect_observations`), instead
-    of analyzing views of instruments, if any.
+    The sounding of a configuration of a limb sounder or radio occultation
+    receiver, from which its instrument was constructed, if any.
     """
 
     def to_satellite(
@@ -1258,9 +1363,11 @@ class InstrumentPayload:
     ) -> Satellite:
         """
         Builds a satellite that carries the instruments with their attitude.
-        Analyze it with the `instrument_index` of this payload, or, for a
-        sounding, with the sounding's `collect_observations`, for which the
-        satellite carries TAT-C's default instrument.
+        Analyze it with the `instrument_index` of this payload: a sounder's
+        observations with `tatc.analysis.collect_limb_soundings` or
+        `tatc.analysis.collect_occultations`, and the views of other
+        instruments with the other analyses, which skip sounders for an
+        `instrument_index` of `None`.
 
         Args:
             orbit (AllOrbits): The orbit.
@@ -1273,13 +1380,6 @@ class InstrumentPayload:
         Returns:
             Satellite: The satellite.
         """
-        if not self.instruments:
-            return Satellite(
-                name=name,
-                orbit=orbit,
-                resources=resources,
-                communications=communications,
-            )
         return Satellite(
             name=name,
             orbit=orbit,
@@ -1672,14 +1772,9 @@ class InstrumentEntry(_CatalogModel):
             self.get_resources(key),
         )
         return InstrumentPayload(
-            instruments=[
-                instrument.construct_instrument(
-                    tailored,
-                    performance=performance,
-                    resources=resources if i == selected.instrument_index else None,
-                )
-                for i, instrument in enumerate(selected.instruments)
-            ],
+            instruments=selected.construct_instruments(
+                self.name, tailored, performance=performance, resources=resources
+            ),
             attitude=(
                 None
                 if selected.sounding is not None

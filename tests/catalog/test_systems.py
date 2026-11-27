@@ -46,10 +46,12 @@ from tatc.catalog.system_standard import (
 from shapely.geometry import box
 
 from tatc.schemas import (
+    Attitude,
     CircularOrbit,
     GroundStation,
     InSituInstrument,
     GeosynchronousOrbit,
+    OccultationReceiver,
     Relay,
     RepeatGroundTrackOrbit,
     SunSynchronousOrbit,
@@ -1218,10 +1220,46 @@ class TestBuild(unittest.TestCase):
             payload = build_payload("gras", orbit=metop_c.orbit, platform="metop-c")
             transmitters = payload.sounding.get_transmitters(EPOCH)
         self.assertEqual(len(transmitters), len(get_system("gps").spacecraft))
-        with self.assertRaisesRegex(ValueError, "alone"):
-            build_payload(
-                ["gras", "iasi"], orbit=metop_c.orbit, platform="metop-c", time_step=10
+        receiver = payload.instruments[0]
+        self.assertIsInstance(receiver, OccultationReceiver)
+        self.assertEqual(receiver.name, "GRAS")
+        self.assertEqual(receiver.constellations, ["gps"])
+        self.assertEqual(receiver.resources.mass, 30)
+
+    def test_sounder_with_other_instruments(self):
+        """
+        Test that a sounder is carried after other instruments, with their
+        attitude (which it does not use), and its resources counted.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            (metop_c,) = get_system("metop").build(
+                epoch=EPOCH, payload=False, members="metop-c"
             )
+            attitude = Attitude(velocity_frame="earth_fixed", yaw_angle=1)
+            iasi = build_payload(
+                "iasi",
+                orbit=metop_c.orbit,
+                platform="metop-c",
+                time_step=10,
+                attitude=attitude,
+            )
+            payload = build_payload(
+                ["gras", "iasi"],
+                orbit=metop_c.orbit,
+                platform="metop-c",
+                time_step=10,
+                attitude=attitude,
+            )
+        self.assertEqual([i.name for i in payload.instruments], ["IASI", "GRAS"])
+        self.assertEqual(payload.attitude, attitude)
+        self.assertIsNone(payload.instrument_index)
+        self.assertEqual(payload.references, ("iasi:swath", "gras:occultations"))
+        satellite = payload.to_satellite(metop_c.orbit, name="Metop-C")
+        self.assertEqual(
+            satellite.get_payload_resources().mass,
+            iasi.instruments[0].resources.mass + 30,
+        )
 
     def test_payload_given(self):
         """

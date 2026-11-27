@@ -14,6 +14,7 @@ import json
 import pathlib
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 import yaml
 
@@ -143,6 +144,28 @@ def list_entries(
     return selected
 
 
+def _build_reference(
+    reference: str,
+    attitude: AllAttitudes | AttitudeSchedule | None,
+    **kwargs: Any,
+) -> InstrumentPayload:
+    """
+    Builds the instruments of a reference of a payload (see `build_payload`),
+    with an attitude unless it is a sounder's.
+    """
+    entry_id, _, configuration = reference.partition(":")
+    entry = get_entry(entry_id)
+    key = entry.select_configuration(
+        configuration or None,
+        grade=kwargs.get("grade"),
+        platform=kwargs.get("platform"),
+    )
+    # a sounder does not share the attitude of the body
+    if entry.configurations[key].sounding is not None:
+        attitude = None
+    return entry.build(configuration=key, attitude=attitude, **kwargs)
+
+
 def build_payload(
     references: str | Sequence[str],
     *,
@@ -162,9 +185,16 @@ def build_payload(
     `"atms:swath_noaa_20"`, or `"atms:swath"` for the variant tested on the
     platform), whose configuration is otherwise selected by grade and platform
     (see `InstrumentEntry.select_configuration`). A configuration of
-    `alternatives` gives only the instrument it analyzes by default. Analyze a
-    satellite of the payload (`InstrumentPayload.to_satellite`) with its
-    `instrument_index`.
+    `alternatives` gives only the instrument it analyzes by default. A limb
+    sounder or radio occultation receiver (of a configuration with a sounding)
+    may be carried with other instruments: it follows them, and does not share
+    their attitude (an `attitude` is not given to it), as its view is measured
+    from the inertial velocity. Analyze a satellite of the payload
+    (`InstrumentPayload.to_satellite`) with its `instrument_index`: an index of
+    `None` analyzes the views of the instruments that view targets together
+    (see `tatc.analysis.collect_observations`) and each sounder of a kind (see
+    `tatc.analysis.collect_limb_soundings` and
+    `tatc.analysis.collect_occultations`).
 
     Args:
         references (str | Sequence[str]): The references.
@@ -175,7 +205,7 @@ def build_payload(
             configurations that tailor a field of view to it.
         attitude (AllAttitudes | AttitudeSchedule | None): An attitude to use
             instead of the validated one, in the velocity frame of every
-            configuration.
+            configuration except those of sounders.
         platform (str | None): The identifier of the platform modeled, if any.
         start (datetime.datetime | None): The start of the analysis, for
             configurations that schedule their tilt by day.
@@ -195,29 +225,26 @@ def build_payload(
     references = [references] if isinstance(references, str) else list(references)
     if not references:
         raise ValueError("a payload needs at least one catalog reference")
-    payloads = []
-    for reference in references:
-        entry_id, _, configuration = reference.partition(":")
-        payloads.append(
-            get_entry(entry_id).build(
-                configuration=configuration or None,
-                grade=grade,
-                orbit=orbit,
-                time_step=time_step,
-                attitude=attitude,
-                platform=platform,
-                start=start,
-                end=end,
-            )
+    payloads = [
+        _build_reference(
+            reference,
+            attitude,
+            grade=grade,
+            orbit=orbit,
+            time_step=time_step,
+            platform=platform,
+            start=start,
+            end=end,
         )
-    if any(payload.sounding is not None for payload in payloads):
-        if len(payloads) > 1:
-            raise ValueError(
-                f"a sounding is analyzed alone, not with other references: {references}"
-            )
+        for reference in references
+    ]
+    if len(payloads) == 1 and payloads[0].sounding is not None:
         return payloads[0]
-    attitude = payloads[0].attitude
-    for payload in payloads[1:]:
+    # the instruments that view targets, then the sounders
+    payloads.sort(key=lambda payload: payload.sounding is not None)
+    viewing = [payload for payload in payloads if payload.sounding is None]
+    attitude = viewing[0].attitude if viewing else None
+    for payload in viewing[1:]:
         if payload.attitude != attitude:
             raise ValueError(
                 "the configurations have different attitudes of the body, so they "
