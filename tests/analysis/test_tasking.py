@@ -10,9 +10,11 @@ from datetime import datetime, timedelta, timezone
 import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point
+from skyfield.api import wgs84
 
 from tatc.analysis import collect_imaging_opportunities, schedule_tasks
 from tatc.analysis.tasking import _get_direction, _Pointing
+from tatc.constants import timescale
 from tatc.schemas import (
     Agility,
     CircularOrbit,
@@ -138,6 +140,7 @@ class TestPointing(unittest.TestCase):
 
 
 SLOW = Agility(max_rate=0.5, max_acceleration=0.1, settle_time=10)
+DWELL = timedelta(seconds=5)
 FAST = Agility(max_rate=3, max_acceleration=1, settle_time=5)
 
 
@@ -195,15 +198,21 @@ class TestScheduleTasks(unittest.TestCase):
         and that agilities may be given by satellite.
         """
         requests = _dense_requests()
-        slow = schedule_tasks(SATELLITE, requests, START, END, SLOW)
-        fast = schedule_tasks(SATELLITE, requests, START, END, FAST)
+        slow = schedule_tasks(SATELLITE, requests, START, END, SLOW, dwell=DWELL)
+        fast = schedule_tasks(SATELLITE, requests, START, END, FAST, dwell=DWELL)
         self.assertGreater(len(fast.observations), len(slow.observations))
-        named = schedule_tasks(SATELLITE, requests, START, END, {"agile": FAST})
+        named = schedule_tasks(
+            SATELLITE, requests, START, END, {"agile": FAST}, dwell=DWELL
+        )
         self.assertEqual(
             list(named.observations["request"]), list(fast.observations["request"])
         )
         with self.assertRaises(ValueError):
-            schedule_tasks(SATELLITE, requests, START, END, {"other": FAST})
+            schedule_tasks(
+                SATELLITE, requests, START, END, {"other": FAST}, dwell=DWELL
+            )
+        with self.assertRaises(ValueError):
+            schedule_tasks(SATELLITE, requests, START, END, FAST, dwell=timedelta(0))
 
     def test_priorities(self):
         """
@@ -228,7 +237,9 @@ class TestScheduleTasks(unittest.TestCase):
         """
         requests = _requests()
         instant = Agility(max_rate=1e6)
-        plan = schedule_tasks(SATELLITE, requests, START, END, instant)
+        plan = schedule_tasks(
+            SATELLITE, requests, START, END, instant, dwell=timedelta(microseconds=1)
+        )
         opportunities = collect_imaging_opportunities(SATELLITE, requests, START, END)
         earliest = opportunities.groupby("request")["start"].min()
         self.assertEqual(len(plan.observations), len(earliest))
@@ -256,3 +267,24 @@ class TestScheduleTasks(unittest.TestCase):
         first = plan.observations.iloc[0]
         target = schedule.get_attitude(first["epoch"].to_pydatetime()).targets[0]
         self.assertAlmostEqual(target.longitude, first.geometry.x)
+
+    def test_attitudes_hold_the_view(self):
+        """
+        Tests that the attitudes of the plan hold each target in the narrow
+        field of view, observing, at the epoch of its image, and do not
+        observe while slewing to it.
+        """
+        plan = schedule_tasks(
+            SATELLITE, _dense_requests(), START, END, FAST, dwell=DWELL
+        )
+        (tasked,) = plan.satellites()
+        instrument = tasked.get_instrument(0)
+        for image in plan.observations.itertuples():
+            target = wgs84.latlon(image.geometry.y, image.geometry.x)
+            times = [
+                image.epoch.to_pydatetime(),
+                (image.start - image.slew_time / 2).to_pydatetime(),
+            ]
+            track = tasked.get_track(timescale.from_datetimes(times))
+            self.assertTrue(instrument.is_in_field_of_view(track, target)[0])
+            self.assertEqual(list(instrument.is_observing(track)), [True, False])

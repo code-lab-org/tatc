@@ -433,8 +433,8 @@ def schedule_tasks(
     end: datetime,
     agility: Agility | Mapping[str, Agility],
     *,
+    dwell: timedelta,
     instrument_index: int = 0,
-    dwell: timedelta = timedelta(0),
     pointing_step: timedelta = timedelta(seconds=1),
 ) -> TaskingPlan:
     """
@@ -458,6 +458,14 @@ def schedule_tasks(
     imaged once; the momentum, power, and data of the satellites do not
     limit their images.
 
+    The plan's observations are its images. The attitudes of its satellites
+    point their instruments at each target throughout its image, and do not
+    observe between images (see `TaskingPlan.satellites`), for analyses of
+    what they see. Analyses that time the observations of a pointed
+    instrument by the sweep of its view over a target (such as
+    `collect_observations`) may not recover every image from these
+    attitudes, since a view that tracks a target does not sweep over it.
+
     Args:
         satellites (Satellite | BaseConstellation | list): The satellites (or
             constellations), each with its instrument.
@@ -469,15 +477,23 @@ def schedule_tasks(
         end (datetime.datetime): The end of the period.
         agility (Agility | Mapping[str, Agility]): The agility of the
             satellites, or of each (by name).
+        dwell (datetime.timedelta): The time to image a target (positive),
+            for which the body holds its view on it, such as the exposure of
+            a frame or the time to scan a scene.
         instrument_index (int): The index of the instrument of each satellite
             that images the targets.
-        dwell (datetime.timedelta): The time to image a target.
         pointing_step (datetime.timedelta): The step at which to sample the
             pointing at each target over its opportunities.
 
     Returns:
         TaskingPlan: the plan
+
+    Raises:
+        ValueError: If the dwell time is not positive, or a satellite has no
+            agility.
     """
+    if dwell <= timedelta(0):
+        raise ValueError(f"the dwell time must be positive, not {dwell}")
     members = _get_members(satellites)
     by_name = {satellite.name: satellite for satellite in members}
     opportunities = collect_imaging_opportunities(
