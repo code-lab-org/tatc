@@ -58,6 +58,12 @@ Attitude Schedule
 .. autopydantic_model:: tatc.schemas.AttitudeSegment
   :members:
 
+Agility
+-------
+
+.. autopydantic_model:: tatc.schemas.Agility
+  :members:
+
 Satellite
 ---------
 

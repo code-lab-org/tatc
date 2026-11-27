@@ -4,6 +4,7 @@ Defines object schemas.
 
 from .air import Aircraft, Trajectory
 from .architecture import ActiveWindow, Architecture, Relay
+from .agility import Agility
 from .attitude import (
     Attitude,
     AttitudeSchedule,
@@ -94,6 +95,7 @@ __all__ = [
     "Attitude",
     "AttitudeSchedule",
     "AttitudeSegment",
+    "Agility",
     "CircularOrbit",
     "ConicalInstrument",
     "GeneralPerturbationsOrbit",
