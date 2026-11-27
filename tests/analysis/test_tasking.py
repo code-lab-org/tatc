@@ -11,9 +11,10 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import Point
 
-from tatc.analysis import collect_imaging_opportunities
+from tatc.analysis import collect_imaging_opportunities, schedule_tasks
 from tatc.analysis.tasking import _get_direction, _Pointing
 from tatc.schemas import (
+    Agility,
     CircularOrbit,
     PointedInstrument,
     Satellite,
@@ -134,3 +135,124 @@ class TestPointing(unittest.TestCase):
         np.testing.assert_allclose(
             np.degrees(np.arccos(directions[:, 2])), _off_nadir(roll, pitch)
         )
+
+
+SLOW = Agility(max_rate=0.5, max_acceleration=0.1, settle_time=10)
+FAST = Agility(max_rate=3, max_acceleration=1, settle_time=5)
+
+
+def _dense_requests(count=120, seed=3):
+    """Requests crowded over a small region, which compete for time."""
+    rng = np.random.default_rng(seed)
+    points = [
+        Point(x, y)
+        for x, y in zip(rng.uniform(-115, -105, count), rng.uniform(33, 43, count))
+    ]
+    return gpd.GeoDataFrame(
+        {"priority": rng.integers(1, 4, count)}, geometry=points, crs="EPSG:4326"
+    )
+
+
+class TestScheduleTasks(unittest.TestCase):
+    """
+    Tests the schedules of agile satellites.
+    """
+
+    def test_slews_fit(self):
+        """
+        Tests that each satellite has time to slew between its images, which
+        lie within their opportunities and the field of regard, and that
+        every request is either imaged or unscheduled.
+        """
+        requests = _dense_requests()
+        dwell = timedelta(seconds=5)
+        plan = schedule_tasks(SATELLITE, requests, START, END, SLOW, dwell=dwell)
+        images = plan.observations
+        self.assertGreater(len(images), 1)
+        self.assertEqual(len(images) + len(plan.unscheduled), len(requests))
+        self.assertFalse(set(images["request"]) & set(plan.unscheduled.index))
+        self.assertTrue((images["end"] - images["start"] == dwell).all())
+        self.assertLessEqual(images["off_nadir"].max(), 30 + 0.01)
+        gaps = (images["start"].iloc[1:].array - images["end"].iloc[:-1].array) / (
+            timedelta(seconds=1)
+        )
+        slews = images["slew_time"].iloc[1:] / timedelta(seconds=1)
+        self.assertGreaterEqual(np.min(gaps - slews.to_numpy()), -1e-5)
+        for column in ("target_hash", "satellite", "instrument", "epoch"):
+            self.assertIn(column, images.columns)
+        opportunities = collect_imaging_opportunities(SATELLITE, requests, START, END)
+        for image in images.itertuples():
+            windows = opportunities[opportunities["request"] == image.request]
+            self.assertTrue(
+                (
+                    (windows["start"] <= image.start) & (image.end <= windows["end"])
+                ).any()
+            )
+
+    def test_agility(self):
+        """
+        Tests that a more agile satellite images at least as many requests,
+        and that agilities may be given by satellite.
+        """
+        requests = _dense_requests()
+        slow = schedule_tasks(SATELLITE, requests, START, END, SLOW)
+        fast = schedule_tasks(SATELLITE, requests, START, END, FAST)
+        self.assertGreater(len(fast.observations), len(slow.observations))
+        named = schedule_tasks(SATELLITE, requests, START, END, {"agile": FAST})
+        self.assertEqual(
+            list(named.observations["request"]), list(fast.observations["request"])
+        )
+        with self.assertRaises(ValueError):
+            schedule_tasks(SATELLITE, requests, START, END, {"other": FAST})
+
+    def test_priorities(self):
+        """
+        Tests that the higher priority of two requests that compete for an
+        opportunity is imaged, whatever their order.
+        """
+        requests = _requests(count=2, seed=5)
+        opportunities = collect_imaging_opportunities(SATELLITE, requests, START, END)
+        # images as long as the opportunities, so that only one fits
+        dwell = (opportunities["end"] - opportunities["start"]).min() * 0.9
+        for favored in (0, 1):
+            prioritized = requests.assign(
+                priority=[2 if i == favored else 1 for i in range(2)]
+            )
+            plan = schedule_tasks(SATELLITE, prioritized, START, END, SLOW, dwell=dwell)
+            self.assertIn(favored, list(plan.observations["request"]))
+
+    def test_earliest_opportunities(self):
+        """
+        Tests that, with nearly instant slews and images, each request is
+        imaged at the start of its earliest opportunity.
+        """
+        requests = _requests()
+        instant = Agility(max_rate=1e6)
+        plan = schedule_tasks(SATELLITE, requests, START, END, instant)
+        opportunities = collect_imaging_opportunities(SATELLITE, requests, START, END)
+        earliest = opportunities.groupby("request")["start"].min()
+        self.assertEqual(len(plan.observations), len(earliest))
+        for image in plan.observations.itertuples():
+            self.assertLess(
+                abs((image.start - earliest[image.request]).total_seconds()), 1e-3
+            )
+
+    def test_attitudes(self):
+        """
+        Tests that the attitude of a satellite points at each target during
+        its image, and at nadir, without observing, between images.
+        """
+        plan = schedule_tasks(
+            SATELLITE, _dense_requests(), START, END, FAST, dwell=timedelta(seconds=5)
+        )
+        schedule = plan.attitudes["agile"]
+        self.assertEqual(len(schedule.segments), 1 + 2 * len(plan.observations))
+        self.assertEqual(
+            [segment.observing for segment in schedule.segments[:3]],
+            [False, True, False],
+        )
+        (satellite,) = plan.satellites()
+        self.assertEqual(satellite.attitude, schedule)
+        first = plan.observations.iloc[0]
+        target = schedule.get_attitude(first["epoch"].to_pydatetime()).targets[0]
+        self.assertAlmostEqual(target.longitude, first.geometry.x)
