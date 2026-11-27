@@ -87,6 +87,7 @@ from .ro_sampling import (
     collect_ro_observations,
 )
 from .sample_sizes import compute_sample_sizes
+from .sounding_targets import collect_sounding_observations
 from .space_sampling import (
     collect_space_observations,
 )
@@ -140,6 +141,7 @@ __all__ = [
     "collect_relay_contacts",
     "collect_occultations",
     "collect_ro_observations",
+    "collect_sounding_observations",
     "collect_space_observations",
     "collect_surface_track",
     "compare_sampled_means",

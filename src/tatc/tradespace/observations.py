@@ -338,8 +338,12 @@ class Observations(Forgetful):
         duration (timedelta): The duration of the period.
         analysis (Callable): The analysis of one platform, such as
             `collect_platform_observations` with options (for example,
-            `partial(collect_platform_observations, time_step=STEP)`) or
-            `tatc.analysis.collect_observations` (for satellites only).
+            `partial(collect_platform_observations, time_step=STEP)`),
+            `tatc.analysis.collect_observations` (for satellites only), or
+            `tatc.analysis.collect_sounding_observations` (the soundings of
+            limb sounders and radio occultation receivers near targets,
+            with options such as `partial(collect_sounding_observations,
+            radius=RADIUS, transmitters=GNSS)`).
         directory (str | os.PathLike | None): A directory of the cache on
             disk, or `None` to cache in memory only.
         namespace (str): An identifier of what the fingerprint of the

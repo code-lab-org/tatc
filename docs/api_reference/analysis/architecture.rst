@@ -13,3 +13,7 @@ Architecture Evaluation
 Collect Platform Observations
 -----------------------------
 .. autofunction:: tatc.analysis.collect_platform_observations
+
+Collect Sounding Observations
+-----------------------------
+.. autofunction:: tatc.analysis.collect_sounding_observations
