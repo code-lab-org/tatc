@@ -18,11 +18,11 @@ from skyfield.positionlib import Geocentric
 from skyfield.timelib import Time
 
 from ..constants import timescale
-from ..schemas import Satellite
+from ..schemas import OccultationReceiver, Satellite
 from ..utils.ellipsoid import _ellipsoidal_tangent_point, _itrs_rotation
 from ..utils.orbital import compute_vnb_frame
 from ..utils.time import _index_orbit_track, _index_time, _to_time_from_offsets
-from .check import _check_satellites, _check_time_window
+from .check import _check_satellites, _check_time_window, _get_sounder_indices
 from .sampling import _interpolate_profile_point
 
 
@@ -527,15 +527,19 @@ def _is_rising(points: list[dict], sample_elevation: float) -> bool:
     return bool(points[0]["rx_tx_pitch"] > -90)
 
 
-def _get_empty_ro_frame() -> gpd.GeoDataFrame:
+def _get_empty_ro_frame(instrument: bool = False) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for ro results.
+
+    Args:
+        instrument (bool): True, to include the `instrument` column.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "receiver": pd.Series([], dtype="str"),
+        **({"instrument": pd.Series([], dtype="str")} if instrument else {}),
         "transmitter": pd.Series([], dtype="str"),
         "is_rising": pd.Series([], dtype="float"),
         "geometry": pd.Series([], dtype="object"),
@@ -657,3 +661,102 @@ def collect_ro_observations(
         ],
         crs="EPSG:4326",
     ).sort_values("time", ignore_index=True)
+
+
+def _group_receivers(
+    receivers: list[Satellite], instrument_index: int | None
+) -> list[list[tuple[Satellite, OccultationReceiver]]]:
+    """
+    Groups the occultation receivers that satellites carry (see
+    `_get_sounder_indices`) into the groups analyzed together: receivers with
+    the same parameters of the analysis, each satellite at most once in a
+    group (as each receiver is named by its satellite).
+
+    Returns:
+        list[list[tuple[Satellite, OccultationReceiver]]]: The groups of
+            satellites and their receivers.
+    """
+    groups: dict[tuple, list[list[tuple[Satellite, OccultationReceiver]]]] = {}
+    for satellite in receivers:
+        for index in _get_sounder_indices(
+            satellite, instrument_index, OccultationReceiver
+        ):
+            receiver = satellite.instruments[index]
+            key = (
+                receiver.max_yaw,
+                tuple(receiver.range_elevation),
+                receiver.sample_elevation,
+                receiver.min_profile_duration,
+            )
+            rounds = groups.setdefault(key, [])
+            for members in rounds:
+                if all(member.name != satellite.name for member, _ in members):
+                    members.append((satellite, receiver))
+                    break
+            else:
+                rounds.append([(satellite, receiver)])
+    return [members for rounds in groups.values() for members in rounds]
+
+
+def collect_occultations(
+    receivers: Satellite | list[Satellite],
+    transmitters: Satellite | list[Satellite],
+    start: datetime,
+    end: datetime,
+    instrument_index: int | None = 0,
+    time_step: timedelta = timedelta(seconds=10),
+) -> gpd.GeoDataFrame:
+    """
+    Collects the radio occultations of the occultation receivers that
+    satellites carry (see `tatc.schemas.OccultationReceiver`), with each
+    receiver's maximum yaw, range of elevations, sample elevation, and minimum
+    profile duration (see `collect_ro_observations`). The transmitters are
+    given: for example, the satellites of the catalog's navigation systems of
+    a receiver's `constellations` (see `tatc.catalog.get_transmitters`), or
+    those of current element sets. Each receiver's view is measured from the
+    inertial velocity, without the attitude of its satellite's body.
+
+    Args:
+        receivers (Satellite | list[Satellite]): The satellites that carry the
+            occultation receivers.
+        transmitters (Satellite | list[Satellite]): The satellites whose
+            signals are received.
+        start (datetime.datetime): The start of the analysis.
+        end (datetime.datetime): The end of the analysis.
+        instrument_index (int | None): The index of the occultation receiver
+            on each satellite, or `None` for every one it carries.
+        time_step (datetime.timedelta): The time step with which each
+            occultation is sampled.
+
+    Returns:
+        geopandas.GeoDataFrame: The occultations, by time, with the `receiver`
+            (the satellite) and `instrument` (the receiver's name) of each.
+    """
+    receivers = _check_satellites(receivers, "receivers")
+    transmitters = _check_satellites(transmitters, "transmitters")
+    _check_time_window(start, end)
+    frames = []
+    for members in _group_receivers(receivers, instrument_index):
+        receiver = members[0][1]
+        frame = collect_ro_observations(
+            [satellite for satellite, _ in members],
+            transmitters,
+            start,
+            end,
+            time_step=time_step,
+            sample_elevation=receiver.sample_elevation,
+            max_yaw=receiver.max_yaw,
+            range_elevation=receiver.range_elevation,
+            min_profile_duration=receiver.min_profile_duration,
+        )
+        if not frame.empty:
+            names = {satellite.name: sounder.name for satellite, sounder in members}
+            frame.insert(1, "instrument", frame["receiver"].map(names))
+            frames.append(frame)
+    if len(frames) == 0:
+        return _get_empty_ro_frame(instrument=True)
+    if len(frames) == 1:
+        return frames[0]
+    return gpd.GeoDataFrame(
+        pd.concat(frames, ignore_index=True), crs="EPSG:4326"
+    ).sort_values("time", kind="stable", ignore_index=True)
