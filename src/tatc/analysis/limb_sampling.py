@@ -7,7 +7,6 @@ Methods to perform limb sounding coverage analysis.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from enum import Enum
 
 import geopandas as gpd
 import numpy as np
@@ -19,6 +18,7 @@ from skyfield.positionlib import Geocentric
 
 from ..constants import EARTH_MEAN_RADIUS
 from ..schemas import Satellite
+from ..schemas.instrument.sounder import ScanDirection, _default_scan_direction
 from ..utils.ellipsoid import (
     _ellipsoidal_tangent_distance,
     _itrs_rotation,
@@ -28,37 +28,6 @@ from ..utils.orbital import compute_vnb_frame
 from ..utils.time import _to_time_from_offsets
 from .check import _check_satellites, _check_times
 from .sampling import _interpolate_profile_point
-
-
-class ScanDirection(str, Enum):
-    """
-    Enumeration of the two broad classes of limb sounder vertical scan:
-    sweeping from the lowest to the highest requested tangent point
-    elevation (`UPWARD`), or the reverse (`DOWNWARD`).
-    """
-
-    UPWARD = "upward"
-    DOWNWARD = "downward"
-
-
-def _default_scan_direction(scan_azimuth: float) -> ScanDirection:
-    """
-    Chooses a default scan direction from the sensor's viewing azimuth: a
-    forward-looking sensor (`scan_azimuth` closer to 0 deg than to 180 deg)
-    defaults to an upward scan, and a rearward-looking one (closer to 180
-    deg than to 0 deg) defaults to a downward scan. Exactly sideways
-    (90 or 270 deg, equidistant from both) defaults to upward. Compared as
-    exact angular distances (not trigonometrically), so this tie is exact
-    rather than subject to floating-point rounding noise.
-    """
-    normalized = scan_azimuth % 360.0
-    distance_to_forward = min(normalized, 360.0 - normalized)
-    distance_to_rearward = abs(normalized - 180.0)
-    return (
-        ScanDirection.UPWARD
-        if distance_to_forward <= distance_to_rearward
-        else ScanDirection.DOWNWARD
-    )
 
 
 def _limb_tangent_point(
