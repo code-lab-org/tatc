@@ -21,6 +21,7 @@ from tatc.analysis import (
     collect_limb_observations,
     collect_limb_soundings,
     collect_observations,
+    collect_orbit_track,
     compute_observation_quality,
 )
 from tatc.analysis.limb_sampling import (
@@ -779,6 +780,20 @@ class TestCollectLimbSoundings(unittest.TestCase):
         )
         self.assertGreater(len(observations.index), 0)
         self.assertTrue((observations.instrument == "Default").all())
+
+    def test_orbit_track_of_sounder(self):
+        """
+        Test that the orbit track of a satellite includes its sounders, with no
+        swath and always valid.
+        """
+        track = collect_orbit_track(
+            self.satellite, [self.start, self.end], instrument_index=None
+        )
+        sounder = track[track.instrument == "Limb"]
+        self.assertEqual(len(sounder.index), 2)
+        self.assertTrue(sounder.swath_width.isna().all())
+        self.assertTrue(sounder.valid_obs.all())
+        self.assertEqual(set(track.instrument), {"Default", "Limb"})
 
     def test_quality_of_soundings(self):
         """

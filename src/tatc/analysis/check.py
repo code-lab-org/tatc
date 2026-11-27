@@ -461,7 +461,9 @@ _SOUNDER_ANALYSES = {
 
 
 def _get_instrument_indices(
-    platform: Satellite | Aircraft | SurfacePlatform, instrument_index: int | None
+    platform: Satellite | Aircraft | SurfacePlatform,
+    instrument_index: int | None,
+    sounders: bool = False,
 ) -> list[int]:
     """
     Gets the indices of a platform's instruments that view targets: the given
@@ -469,12 +471,14 @@ def _get_instrument_indices(
     except those of sounders (see `tatc.schemas.LimbSounder` and
     `tatc.schemas.OccultationReceiver`), whose observations are collected
     with their own analyses. Raises a `ValueError` if the given index is a
-    sounder's.
+    sounder's, unless `sounders` (for an analysis of the platform's own
+    track, such as `collect_orbit_track`), which also includes them for None.
 
     Args:
         platform (Satellite | Aircraft | SurfacePlatform): The platform.
         instrument_index (int | None): The instrument index (None for every
             instrument that views targets).
+        sounders (bool): True, to include sounders.
 
     Returns:
         list[int]: the instrument indices
@@ -483,12 +487,12 @@ def _get_instrument_indices(
         return [
             index
             for index, instrument in enumerate(platform.instruments)
-            if type(instrument) not in _SOUNDER_ANALYSES
+            if sounders or type(instrument) not in _SOUNDER_ANALYSES
         ]
     instrument = platform.instruments[
         _check_instrument_index(platform, instrument_index)
     ]
-    if type(instrument) in _SOUNDER_ANALYSES:
+    if not sounders and type(instrument) in _SOUNDER_ANALYSES:
         raise ValueError(
             f"instrument_index {instrument_index} of {platform.name!r} is the "
             f"{type(instrument).__name__} {instrument.name!r}, which has no view "
