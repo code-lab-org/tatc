@@ -994,7 +994,7 @@ class Occultation(_CatalogModel):
     def get_transmitters(self, epoch: datetime) -> list[Satellite]:
         """
         Builds the satellites of the constellations tracked, from the catalog's
-        navigation systems (see `tatc.catalog.SatelliteSystem.build`): their
+        navigation systems (see `tatc.catalog.get_transmitters`): their
         planes, with each satellite's node and phase relative to the others,
         at an epoch (such as the start of an analysis).
 
@@ -1008,11 +1008,7 @@ class Occultation(_CatalogModel):
         # pylint: disable-next=import-outside-toplevel,cyclic-import
         from . import loader
 
-        return [
-            satellite
-            for constellation in self.constellations
-            for satellite in loader.get_system(constellation).build(epoch=epoch)
-        ]
+        return loader.get_transmitters(list(self.constellations), epoch)
 
     def collect_observations(
         self,

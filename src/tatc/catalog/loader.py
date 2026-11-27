@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from ..schemas import AttitudeSchedule
+from ..schemas import AttitudeSchedule, OccultationReceiver, Satellite
 from ..schemas.orbit import AllOrbits
 from ..schemas.space.base import AllAttitudes
 from .schemas import InstrumentEntry, InstrumentPayload
@@ -327,6 +327,58 @@ def get_system(system_id: str) -> SystemEntry:
         if wanted in (name.casefold() for name in (entry.name, *entry.aliases)):
             return entry.model_copy(deep=True)
     raise KeyError(f"no catalog system {system_id!r}: {get_system_ids()}")
+
+
+def get_transmitters(
+    receiver: OccultationReceiver | Satellite | str | Sequence[str],
+    epoch: datetime,
+) -> list[Satellite]:
+    """
+    Builds the transmitters of radio occultation receivers: the satellites of
+    the catalog's navigation systems of the constellations they track (see
+    `tatc.schemas.OccultationReceiver.constellations`), with idealized orbits
+    (see `tatc.catalog.SatelliteSystem.build`): their planes, with each
+    satellite's node and phase relative to the others, at an epoch (such as
+    the start of an analysis). The transmitters of
+    `tatc.analysis.collect_occultations` may instead be satellites of current
+    element sets.
+
+    Args:
+        receiver (OccultationReceiver | Satellite | str | Sequence[str]): The
+            receiver, a satellite (whose receivers' constellations are
+            tracked), or the identifiers of the constellations (such as
+            `"gps"` or `["gps", "galileo"]`).
+        epoch (datetime.datetime): The epoch of the orbits.
+
+    Returns:
+        list[Satellite]: The transmitters, by constellation.
+
+    Raises:
+        KeyError: If a constellation is not a catalog system.
+        ValueError: If there are no constellations, or a constellation is not
+            a navigation system (whose `role` is `transmitting`).
+    """
+    if isinstance(receiver, str):
+        constellations = [receiver]
+    elif isinstance(receiver, OccultationReceiver):
+        constellations = list(receiver.constellations)
+    elif isinstance(receiver, Satellite):
+        constellations = [
+            constellation
+            for instrument in receiver.instruments
+            if isinstance(instrument, OccultationReceiver)
+            for constellation in instrument.constellations
+        ]
+    else:
+        constellations = list(receiver)
+    constellations = list(dict.fromkeys(constellations))
+    if not constellations:
+        raise ValueError("the receiver tracks no constellations")
+    systems = [get_system(constellation) for constellation in constellations]
+    for system in systems:
+        if system.role != "transmitting":
+            raise ValueError(f"{system.id} is not a navigation system")
+    return [satellite for system in systems for satellite in system.build(epoch=epoch)]
 
 
 def list_systems(

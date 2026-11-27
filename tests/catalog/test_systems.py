@@ -27,6 +27,7 @@ from tatc.catalog import (
     get_spacecraft_system,
     get_system,
     get_system_ids,
+    get_transmitters,
     list_entries,
     list_systems,
     loader,
@@ -766,15 +767,14 @@ class TestLoading(unittest.TestCase):
     def test_entries_of_spacecraft(self):
         """
         Test that the instrument entries of a spacecraft are those that list it,
-        and that its payload omits the soundings of limb sounders and occultation
-        receivers.
+        and that its payload includes limb sounders and occultation receivers.
         """
         self.assertEqual(
             [e.id for e in list_entries(platform="noaa-20")],
             ["atms", "ceres", "cris", "omps_nm", "viirs"],
         )
         self.assertIn("gras", [e.id for e in list_entries(platform="metop-b")])
-        self.assertNotIn("gras", get_system("metop").get_payload_references("metop-b"))
+        self.assertIn("gras", get_system("metop").get_payload_references("metop-b"))
 
     def test_member_ids(self):
         """
@@ -1226,6 +1226,34 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(receiver.constellations, ["gps"])
         self.assertEqual(receiver.resources.mass, 30)
 
+    def test_get_transmitters(self):
+        """
+        Test that the transmitters of a receiver, a satellite, or constellations
+        are the satellites of the catalog's navigation systems.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gps = get_transmitters("gps", EPOCH)
+            (cosmic,) = get_system("cosmic_2").build(
+                epoch=EPOCH, payload=True, members="formosat-7-1"
+            )
+            tracked = get_transmitters(cosmic, EPOCH)
+            receiver = get_transmitters(cosmic.instruments[0], EPOCH)
+            names = get_transmitters(["gps", "glonass", "galileo", "gps"], EPOCH)
+        self.assertEqual(len(gps), len(get_system("gps").get_default_members()))
+        self.assertEqual(
+            cosmic.instruments[0].constellations, ["gps", "glonass", "galileo"]
+        )
+        self.assertEqual([s.name for s in tracked], [s.name for s in receiver])
+        self.assertEqual([s.name for s in tracked], [s.name for s in names])
+        self.assertEqual([s.name for s in tracked[: len(gps)]], [s.name for s in gps])
+        with self.assertRaisesRegex(ValueError, "not a navigation system"):
+            get_transmitters("metop", EPOCH)
+        with self.assertRaisesRegex(ValueError, "no constellations"):
+            get_transmitters(OccultationReceiver(), EPOCH)
+        with self.assertRaises(KeyError):
+            get_transmitters("unknown", EPOCH)
+
     def test_sounder_with_other_instruments(self):
         """
         Test that a sounder is carried after other instruments, with their
@@ -1279,11 +1307,19 @@ class TestBuild(unittest.TestCase):
 
     def test_payload_warnings(self):
         """
-        Test that a satellite without cataloged instruments other than sounders
-        warns, and that instruments that need a time step say so.
+        Test that sounders are carried (not TAT-C's default instrument), and
+        that instruments that need a time step say so.
         """
-        with self.assertWarnsRegex(UserWarning, "default instrument"):
-            get_system("cosmic_2").build(epoch=EPOCH, time_step=10)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            satellites = get_system("cosmic_2").build(epoch=EPOCH, time_step=10)
+        self.assertFalse(any("default instrument" in str(w.message) for w in caught))
+        self.assertTrue(
+            all(
+                [i.name for i in satellite.instruments] == ["TGRS"]
+                for satellite in satellites
+            )
+        )
         with self.assertRaisesRegex(ValueError, r"build\(time_step=...\)"):
             get_system("jpss").build(epoch=EPOCH, payload=True)
         # without a time step, satellites carry no cataloged instruments

@@ -186,7 +186,7 @@ def render_configuration(entry, key: str) -> str:
             "satellites that carry it with ``tatc.analysis.collect_occultations("
             "receivers, transmitters, start, end)``, with the satellites of the "
             "constellations it tracks as transmitters (from the catalog's "
-            "navigation systems, ``build(...).sounding.get_transmitters(start)``).\n"
+            "navigation systems, ``tatc.catalog.get_transmitters(receiver, start)``).\n"
         )
     if record is not None:
         if validation.holdout_gap_days is None:
