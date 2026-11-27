@@ -643,13 +643,19 @@ ScheduledAttitudes = Annotated[
 class AttitudeSegment(BaseModel):
     """
     An attitude that applies from a start time (until the start of the next
-    segment of a schedule).
+    segment of a schedule), in which the instruments observe or not (as
+    while the body slews between targets, or waits between them).
     """
 
     start: AwareDatetime = Field(
         ..., description="Time (timezone-aware) from which the attitude applies."
     )
     attitude: ScheduledAttitudes = Field(..., description="The attitude.")
+    observing: bool = Field(
+        True,
+        description="Whether the instruments observe in the segment (as its "
+        + "attitude allows), or not at all (as while the body slews).",
+    )
 
 
 class AttitudeSchedule(BaseModel):
@@ -683,6 +689,7 @@ class AttitudeSchedule(BaseModel):
         cls,
         starts: list[datetime],
         attitudes: list[Attitude | TargetAttitude | GlintAttitude],
+        observing: list[bool] | None = None,
     ) -> AttitudeSchedule:
         """
         Creates a schedule from the start times and attitudes of its segments.
@@ -691,16 +698,22 @@ class AttitudeSchedule(BaseModel):
             starts (list[datetime.datetime]): The start times (timezone-aware).
             attitudes (list[Attitude | TargetAttitude | GlintAttitude]): The
                 attitude of each segment.
+            observing (list[bool] | None): Whether the instruments observe in
+                each segment, or `None` if they do in all.
 
         Returns:
             AttitudeSchedule: the schedule
         """
         if len(starts) != len(attitudes):
             raise ValueError("Each segment needs a start time and an attitude.")
+        if observing is None:
+            observing = [True] * len(starts)
+        elif len(observing) != len(starts):
+            raise ValueError("Each segment needs whether it observes.")
         return cls(
             segments=[
-                AttitudeSegment(start=start, attitude=attitude)
-                for start, attitude in zip(starts, attitudes)
+                AttitudeSegment(start=start, attitude=attitude, observing=flag)
+                for start, attitude, flag in zip(starts, attitudes, observing)
             ]
         )
 
@@ -751,7 +764,8 @@ class AttitudeSchedule(BaseModel):
     def is_observing(self, orbit_track: Geocentric) -> npt.NDArray[np.bool_]:
         """
         Gets whether the instruments observe at each time of an orbit track,
-        from the attitude of the segment in which each time lies (see
+        from the segment in which each time lies: never in a segment that does
+        not observe, and otherwise as its attitude allows (see
         `Attitude.is_observing`).
 
         Args:
@@ -765,6 +779,9 @@ class AttitudeSchedule(BaseModel):
         segment = self._get_segment_index(orbit_track)
         observing = np.ones(segment.shape, dtype=bool)
         for i, index, track in self._split_by_segment(orbit_track, segment):
+            if not self.segments[i].observing:
+                observing[index] = False
+                continue
             observing[index] = np.reshape(
                 self.segments[i].attitude.is_observing(track), -1
             )
