@@ -35,6 +35,8 @@ Systems
 
 .. autofunction:: tatc.catalog.get_spacecraft_system
 
+.. autofunction:: tatc.catalog.get_transmitters
+
 .. autopydantic_model:: tatc.catalog.SystemEntry
 
 .. autopydantic_model:: tatc.catalog.SatelliteSystem

@@ -57,6 +57,7 @@ from .link_sampling import (
 from .limb_sampling import (
     ScanDirection,
     collect_limb_observations,
+    collect_limb_soundings,
 )
 from .observation_quality import (
     compute_observation_quality,
@@ -82,9 +83,11 @@ from .region_sampling import (
     compute_region_access_periods,
 )
 from .ro_sampling import (
+    collect_occultations,
     collect_ro_observations,
 )
 from .sample_sizes import compute_sample_sizes
+from .sounding_targets import collect_sounding_observations
 from .space_sampling import (
     collect_space_observations,
 )
@@ -126,6 +129,7 @@ __all__ = [
     "collect_ground_pixels",
     "collect_ground_track",
     "collect_limb_observations",
+    "collect_limb_soundings",
     "collect_multi_observations",
     "collect_multi_region_observations",
     "collect_observations",
@@ -135,7 +139,9 @@ __all__ = [
     "collect_radar_track",
     "collect_region_observations",
     "collect_relay_contacts",
+    "collect_occultations",
     "collect_ro_observations",
+    "collect_sounding_observations",
     "collect_space_observations",
     "collect_surface_track",
     "compare_sampled_means",

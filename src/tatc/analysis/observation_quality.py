@@ -68,8 +68,10 @@ def compute_observation_quality(
     Each is `NaN` for observations without the performance it needs: of
     instruments without performance (or without a ground sample distance or
     signal-to-noise ratio), of radar stations (which have no instruments),
-    and of observations without an `instrument` column (such as limb
-    soundings), unless `instrument` gives one.
+    and of observations without an `instrument` column (such as those of
+    `collect_limb_observations`), unless `instrument` gives one. The
+    observations of a limb sounder (see `collect_limb_soundings`) have its
+    performance at the slant range to the representative tangent point.
 
     Args:
         observations (geopandas.GeoDataFrame): The observations, with the

@@ -20,7 +20,13 @@ from skyfield.functions import angle_between
 from skyfield.timelib import Time
 
 from ..constants import de421
-from ..schemas import AllInstruments, ConicalInstrument, Satellite
+from ..schemas import (
+    AllInstruments,
+    ConicalInstrument,
+    LimbSounder,
+    OccultationReceiver,
+    Satellite,
+)
 from ..utils.observation import field_of_regard_to_swath_width
 from ..utils.time import _index_orbit_track, _to_time
 from .check import (
@@ -37,7 +43,8 @@ def _swath_width(
 ) -> float:
     """
     Gets an instrument's swath width: from its field of regard or, for a
-    conical instrument, from its cone angle and scan sector.
+    conical instrument, from its cone angle and scan sector (`NaN` for a
+    sounder, which has none).
 
     Args:
         instrument (AllInstruments): The observing instrument.
@@ -47,6 +54,8 @@ def _swath_width(
     Returns:
         float: The swath width (meters).
     """
+    if isinstance(instrument, (LimbSounder, OccultationReceiver)):
+        return np.nan
     if isinstance(instrument, ConicalInstrument):
         return instrument.get_swath_width(altitude - elevation)
     return field_of_regard_to_swath_width(
@@ -168,7 +177,7 @@ def collect_orbit_track(
             solar_beta,
         )
         for satellite in satellites
-        for index in _get_instrument_indices(satellite, instrument_index)
+        for index in _get_instrument_indices(satellite, instrument_index, sounders=True)
     ]
     return _combine_results(tracks, single, "time", _get_empty_orbit_track)
 
@@ -233,8 +242,13 @@ def _collect_orbit_track(
         points = shapely.points(np.reshape(sat_pos.itrs_xyz.m, (3, -1)).T)
     else:
         points = shapely.points(np.reshape(orbit_track.xyz.m, (3, -1)).T)
-    # determine observation validity
-    valid_obs = instrument.is_valid_observation(orbit_track)
+    # determine observation validity (a sounder, which views no targets and
+    # does not use the attitude, is always valid)
+    valid_obs = (
+        np.ones(len(altitude), dtype=bool)
+        if isinstance(instrument, (LimbSounder, OccultationReceiver))
+        else instrument.is_valid_observation(orbit_track)
+    )
     columns = {
         "time": list(np.atleast_1d(orbit_track.t.utc_datetime())),  # type: ignore
         "satellite": satellite.name,

@@ -7,6 +7,10 @@ Scan Direction
   :members:
   :undoc-members:
 
+Collect Limb Soundings
+----------------------
+.. autofunction:: tatc.analysis.collect_limb_soundings
+
 Collect Limb Observations
 --------------------------
 .. autofunction:: tatc.analysis.collect_limb_observations
