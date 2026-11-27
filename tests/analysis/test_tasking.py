@@ -18,6 +18,7 @@ from tatc.constants import timescale
 from tatc.schemas import (
     Agility,
     CircularOrbit,
+    LimbSounder,
     PointedInstrument,
     Satellite,
     WalkerConstellation,
@@ -119,6 +120,40 @@ class TestOpportunities(unittest.TestCase):
         )
         self.assertEqual(len(empty), 0)
         self.assertEqual(list(empty.columns), list(opportunities.columns))
+
+    def test_sounders_are_not_pointed(self):
+        """
+        Tests that a sounder, which views no targets, is not pointed at them,
+        and that the opportunities of an imager carried with one are its own.
+        """
+        sounder = LimbSounder(
+            name="limb",
+            scan_azimuth=0,
+            scan_elevations=[10e3, 50e3],
+            scan_duration=timedelta(seconds=20),
+        )
+        satellite = SATELLITE.model_copy(update={"instruments": [sounder, IMAGER]})
+        end = START + timedelta(hours=6)
+        with self.assertRaisesRegex(ValueError, "collect_limb_soundings"):
+            collect_imaging_opportunities(satellite, _requests(), START, end)
+        with self.assertRaisesRegex(ValueError, "collect_limb_soundings"):
+            schedule_tasks(
+                satellite,
+                _requests(),
+                START,
+                end,
+                Agility(max_rate=1),
+                dwell=timedelta(seconds=10),
+            )
+        imaged = collect_imaging_opportunities(
+            satellite, _requests(), START, end, instrument_index=1
+        )
+        expected = collect_imaging_opportunities(SATELLITE, _requests(), START, end)
+        self.assertEqual(len(imaged), len(expected))
+        self.assertGreater(len(imaged), 0)
+        self.assertTrue(
+            (imaged["start"].to_numpy() == expected["start"].to_numpy()).all()
+        )
 
 
 class TestPointing(unittest.TestCase):

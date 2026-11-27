@@ -38,6 +38,7 @@ from ..schemas.space.base_constellation import BaseConstellation
 from ..schemas.surface.point import Point
 from ..utils.geometry import _hash_geometries
 from ..utils.projection import compute_view_angles
+from .check import _get_instrument_indices
 from .point_sampling import collect_observations
 
 _ENVELOPE_FIELDS = (
@@ -134,7 +135,8 @@ def collect_imaging_opportunities(
         start (datetime.datetime): The start of the period.
         end (datetime.datetime): The end of the period.
         instrument_index (int): The index of the instrument of each satellite
-            that images the targets.
+            that images the targets, which is not a sounder (see
+            `tatc.schemas.LimbSounder` and `tatc.schemas.OccultationReceiver`).
 
     Returns:
         geopandas.GeoDataFrame: a row per opportunity (see
@@ -146,7 +148,10 @@ def collect_imaging_opportunities(
     places = requests.geometry[~hashes.duplicated().to_numpy()]
     frames = []
     for satellite in _get_members(satellites):
-        instrument = satellite.instruments[instrument_index]
+        # a sounder (which views no targets) cannot be pointed at one
+        instrument = satellite.instruments[
+            _get_instrument_indices(satellite, instrument_index)[0]
+        ]
         envelope = satellite.model_copy(
             update={"instruments": [_get_envelope(instrument)], "attitude": None}
         )

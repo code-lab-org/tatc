@@ -35,7 +35,7 @@ Added:
 Changed:
  - The satellite of a catalog sounding's `to_satellite` carries its sounder rather than TAT-C's default instrument, and `LimbScan.collect_observations` and `Occultation.collect_observations` analyze satellites that carry it in place of their instruments (with the same results).
  - `SatelliteSystem.build` and `get_payload_references` include limb sounders and occultation receivers in the cataloged payloads of satellites: Aura carries MLS, TIMED SABER, Metop-B and -C GRAS (after their other instruments), and COSMIC-2 TGRS rather than TAT-C's default instrument, with their resources.
- - Analyses of views of targets (such as `collect_observations` and `collect_ground_track`) raise for an `instrument_index` of a sounder, and skip sounders for `instrument_index=None`. `collect_orbit_track` includes sounders, without a swath width (`NaN`).
+ - Analyses of views of targets (such as `collect_observations`, `collect_ground_track`, and the tasking of `collect_imaging_opportunities` and `schedule_tasks`) raise for an `instrument_index` of a sounder, and skip sounders for `instrument_index=None`. `collect_orbit_track` includes sounders, without a swath width (`NaN`).
  - Example notebooks `CollectLimb` and `CollectRO` model MLS and COSMIC-2's receiver as instruments (`LimbSounder` and `OccultationReceiver`) of their satellites, collected with `collect_limb_soundings` and `collect_occultations`, and `SimulateObservations` its notional limb sounder.
  - `analysis.sample_field` (nearest) gives the values of times up to half a time step before a field's first time or after its last, as its extent reaches half a spacing beyond its outer latitudes and longitudes, rather than none.
 
