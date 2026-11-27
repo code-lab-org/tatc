@@ -88,6 +88,10 @@ from .sample_sizes import compute_sample_sizes
 from .space_sampling import (
     collect_space_observations,
 )
+from .response import (
+    compute_event_responses,
+    compute_response_statistics,
+)
 from .sufficiency import (
     compare_sampled_means,
     compute_local_time_coverage,
@@ -150,6 +154,8 @@ __all__ = [
     "compute_radar_track",
     "compute_region_access_periods",
     "compute_revisit_statistics",
+    "compute_event_responses",
+    "compute_response_statistics",
     "compute_sample_sizes",
     "compute_surface_track",
     "count_observations",
