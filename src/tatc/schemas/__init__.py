@@ -4,6 +4,7 @@ Defines object schemas.
 
 from .air import Aircraft, Trajectory
 from .architecture import ActiveWindow, Architecture, Relay
+from .agility import Agility
 from .attitude import (
     Attitude,
     AttitudeSchedule,
@@ -30,7 +31,11 @@ from .instrument import (
     ConicalInstrument,
     InSituInstrument,
     Instrument,
+    LimbSounder,
+    OccultationReceiver,
     PointedInstrument,
+    ScanDirection,
+    ScanStart,
 )
 from .orbit import (
     AllOrbits,
@@ -94,6 +99,7 @@ __all__ = [
     "Attitude",
     "AttitudeSchedule",
     "AttitudeSegment",
+    "Agility",
     "CircularOrbit",
     "ConicalInstrument",
     "GeneralPerturbationsOrbit",
@@ -104,8 +110,10 @@ __all__ = [
     "InstrumentPerformance",
     "InstrumentResources",
     "KeplerianOrbit",
+    "LimbSounder",
     "MOGConstellation",
     "MolniyaOrbit",
+    "OccultationReceiver",
     "RepeatGroundTrackOrbit",
     "Point",
     "PointedInstrument",
@@ -114,6 +122,8 @@ __all__ = [
     "Relay",
     "SOCConstellation",
     "Satellite",
+    "ScanDirection",
+    "ScanStart",
     "SpacecraftResources",
     "SunSynchronousOrbit",
     "SurfacePlatform",

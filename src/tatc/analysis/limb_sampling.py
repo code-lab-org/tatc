@@ -7,7 +7,6 @@ Methods to perform limb sounding coverage analysis.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from enum import Enum
 
 import geopandas as gpd
 import numpy as np
@@ -18,7 +17,8 @@ from skyfield.api import Distance, wgs84
 from skyfield.positionlib import Geocentric
 
 from ..constants import EARTH_MEAN_RADIUS
-from ..schemas import Satellite
+from ..schemas import LimbSounder, Satellite
+from ..schemas.instrument.sounder import ScanDirection, _default_scan_direction
 from ..utils.ellipsoid import (
     _ellipsoidal_tangent_distance,
     _itrs_rotation,
@@ -26,39 +26,13 @@ from ..utils.ellipsoid import (
 )
 from ..utils.orbital import compute_vnb_frame
 from ..utils.time import _to_time_from_offsets
-from .check import _check_satellites, _check_times
+from .check import (
+    _check_satellites,
+    _check_time_window,
+    _check_times,
+    _get_sounder_indices,
+)
 from .sampling import _interpolate_profile_point
-
-
-class ScanDirection(str, Enum):
-    """
-    Enumeration of the two broad classes of limb sounder vertical scan:
-    sweeping from the lowest to the highest requested tangent point
-    elevation (`UPWARD`), or the reverse (`DOWNWARD`).
-    """
-
-    UPWARD = "upward"
-    DOWNWARD = "downward"
-
-
-def _default_scan_direction(scan_azimuth: float) -> ScanDirection:
-    """
-    Chooses a default scan direction from the sensor's viewing azimuth: a
-    forward-looking sensor (`scan_azimuth` closer to 0 deg than to 180 deg)
-    defaults to an upward scan, and a rearward-looking one (closer to 180
-    deg than to 0 deg) defaults to a downward scan. Exactly sideways
-    (90 or 270 deg, equidistant from both) defaults to upward. Compared as
-    exact angular distances (not trigonometrically), so this tie is exact
-    rather than subject to floating-point rounding noise.
-    """
-    normalized = scan_azimuth % 360.0
-    distance_to_forward = min(normalized, 360.0 - normalized)
-    distance_to_rearward = abs(normalized - 180.0)
-    return (
-        ScanDirection.UPWARD
-        if distance_to_forward <= distance_to_rearward
-        else ScanDirection.DOWNWARD
-    )
 
 
 def _limb_tangent_point(
@@ -279,15 +253,19 @@ def _interpolate_limb_point(points: list[dict], sample_elevation: float) -> dict
     return _interpolate_profile_point(points, sample_elevation)
 
 
-def _get_empty_limb_frame() -> gpd.GeoDataFrame:
+def _get_empty_limb_frame(instrument: bool = False) -> gpd.GeoDataFrame:
     """
     Gets an empty data frame for limb sounding results.
+
+    Args:
+        instrument (bool): True, to include the `instrument` column.
 
     Returns:
         geopandas.GeoDataFrame: Empty data frame.
     """
     columns = {
         "satellite": pd.Series([], dtype="str"),
+        **({"instrument": pd.Series([], dtype="str")} if instrument else {}),
         "geometry": pd.Series([], dtype="object"),
         "position": pd.Series([], dtype="object"),
         "start": pd.Series([], dtype="datetime64[ns, utc]"),
@@ -398,4 +376,60 @@ def collect_limb_observations(
             for sample in [_interpolate_limb_point(scan, sample_elevation)]
         ],
         crs="EPSG:4326",
+    ).sort_values("time", kind="stable", ignore_index=True)
+
+
+def collect_limb_soundings(
+    satellites: Satellite | list[Satellite],
+    start: datetime,
+    end: datetime,
+    instrument_index: int | None = 0,
+) -> gpd.GeoDataFrame:
+    """
+    Collects the observations of the limb sounders that satellites carry (see
+    `tatc.schemas.LimbSounder`): the vertical scans of each sounder's cycle of
+    scans, which repeats from the start of the analysis until its end, each
+    with the tangent points of its elevations and its representative point and
+    time at the sounder's sample elevation (see `collect_limb_observations`).
+    The phase of the cycle, which depends on an instrument's clock, is not
+    modeled. Each sounder views at its azimuth from the inertial velocity,
+    without the attitude of its satellite's body.
+
+    Args:
+        satellites (Satellite | list[Satellite]): The satellites that carry the
+            limb sounders.
+        start (datetime.datetime): The start of the analysis.
+        end (datetime.datetime): The end of the analysis.
+        instrument_index (int | None): The index of the limb sounder on each
+            satellite, or `None` for every limb sounder it carries.
+
+    Returns:
+        geopandas.GeoDataFrame: The observations of the scans, by time, with
+            the `satellite` and `instrument` (the sounder's name) of each.
+    """
+    satellites = _check_satellites(satellites)
+    _check_time_window(start, end)
+    frames = []
+    for satellite in satellites:
+        for index in _get_sounder_indices(satellite, instrument_index, LimbSounder):
+            sounder = satellite.instruments[index]
+            for direction, times in sounder.get_scan_times(start, end).items():
+                if not times:
+                    continue
+                frame = collect_limb_observations(
+                    satellite,
+                    times,
+                    sounder.scan_azimuth,
+                    sounder.scan_elevations,
+                    sounder.scan_duration,
+                    scan_direction=direction,
+                    sample_elevation=sounder.get_sample_elevation(),
+                )
+                if not frame.empty:
+                    frame.insert(1, "instrument", sounder.name)
+                    frames.append(frame)
+    if len(frames) == 0:
+        return _get_empty_limb_frame(instrument=True)
+    return gpd.GeoDataFrame(
+        pd.concat(frames, ignore_index=True), crs="EPSG:4326"
     ).sort_values("time", kind="stable", ignore_index=True)

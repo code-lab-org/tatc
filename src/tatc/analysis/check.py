@@ -17,7 +17,14 @@ import pandas as pd
 
 from .. import constants
 from .._warnings import warn
-from ..schemas import Aircraft, RadarStation, Satellite, SurfacePlatform
+from ..schemas import (
+    Aircraft,
+    LimbSounder,
+    OccultationReceiver,
+    RadarStation,
+    Satellite,
+    SurfacePlatform,
+)
 from ..schemas.space.base_constellation import BaseConstellation
 
 _MIN_PERIGEE_ALTITUDE = 100e3
@@ -446,24 +453,91 @@ def _is_single(*values: object, instrument_index: int | None = 0) -> bool:
     )
 
 
+_SOUNDER_ANALYSES = {
+    LimbSounder: "collect_limb_soundings",
+    OccultationReceiver: "collect_occultations",
+}
+"""The analysis of the observations of each kind of sounder."""
+
+
 def _get_instrument_indices(
-    platform: Satellite | Aircraft | SurfacePlatform, instrument_index: int | None
-) -> range | list[int]:
+    platform: Satellite | Aircraft | SurfacePlatform,
+    instrument_index: int | None,
+    sounders: bool = False,
+) -> list[int]:
     """
-    Gets the indices of a platform's observing instruments: the given index
-    (see `_check_instrument_index`), or every instrument's if None.
+    Gets the indices of a platform's instruments that view targets: the given
+    index (see `_check_instrument_index`), or, if None, every instrument's
+    except those of sounders (see `tatc.schemas.LimbSounder` and
+    `tatc.schemas.OccultationReceiver`), whose observations are collected
+    with their own analyses. Raises a `ValueError` if the given index is a
+    sounder's, unless `sounders` (for an analysis of the platform's own
+    track, such as `collect_orbit_track`), which also includes them for None.
 
     Args:
         platform (Satellite | Aircraft | SurfacePlatform): The platform.
         instrument_index (int | None): The instrument index (None for every
-            instrument).
+            instrument that views targets).
+        sounders (bool): True, to include sounders.
 
     Returns:
-        range | list[int]: the instrument indices
+        list[int]: the instrument indices
     """
     if instrument_index is None:
-        return range(len(platform.instruments))
-    return [_check_instrument_index(platform, instrument_index)]
+        return [
+            index
+            for index, instrument in enumerate(platform.instruments)
+            if sounders or type(instrument) not in _SOUNDER_ANALYSES
+        ]
+    instrument = platform.instruments[
+        _check_instrument_index(platform, instrument_index)
+    ]
+    if not sounders and type(instrument) in _SOUNDER_ANALYSES:
+        raise ValueError(
+            f"instrument_index {instrument_index} of {platform.name!r} is the "
+            f"{type(instrument).__name__} {instrument.name!r}, which has no view "
+            "of targets: collect its observations with tatc.analysis."
+            f"{_SOUNDER_ANALYSES[type(instrument)]}"
+        )
+    return [instrument_index]
+
+
+def _get_sounder_indices(
+    satellite: Satellite,
+    instrument_index: int | None,
+    kind: type[LimbSounder] | type[OccultationReceiver],
+) -> list[int]:
+    """
+    Gets the indices of a satellite's sounders of a kind: the given index (see
+    `_check_instrument_index`), or every one of that kind if None. Raises a
+    `ValueError` if the given index is another instrument's.
+
+    Args:
+        satellite (Satellite): The satellite.
+        instrument_index (int | None): The instrument index (None for every
+            sounder of the kind).
+        kind (type[LimbSounder] | type[OccultationReceiver]): The kind of
+            sounder.
+
+    Returns:
+        list[int]: the instrument indices
+    """
+    if instrument_index is None:
+        return [
+            index
+            for index, instrument in enumerate(satellite.instruments)
+            if isinstance(instrument, kind)
+        ]
+    instrument = satellite.instruments[
+        _check_instrument_index(satellite, instrument_index)
+    ]
+    if not isinstance(instrument, kind):
+        raise ValueError(
+            f"instrument_index {instrument_index} of {satellite.name!r} is the "
+            f"{type(instrument).__name__} {instrument.name!r}, not "
+            f"{'an' if kind.__name__[0] in 'AEIOU' else 'a'} {kind.__name__}"
+        )
+    return [instrument_index]
 
 
 def _combine_results(

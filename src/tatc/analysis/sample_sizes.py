@@ -16,7 +16,14 @@ import pandas as pd
 import shapely
 from skyfield.api import wgs84
 
-from ..schemas import AllInstruments, AllPlatforms, ConicalInstrument, PointedInstrument
+from ..schemas import (
+    AllInstruments,
+    AllPlatforms,
+    ConicalInstrument,
+    LimbSounder,
+    OccultationReceiver,
+    PointedInstrument,
+)
 from ..utils.projection import VelocityFrame, compute_view_angles
 from ._tracks import _get_viewing_geometry
 from .check import (
@@ -121,9 +128,10 @@ def compute_sample_sizes(
     the direction of motion (see `tatc.utils.compute_view_angles`),
     measured from the body's axes if the platform has an attitude, which
     gives its position in the swath. A radar station has no instruments: its
-    observations have a slant range only, as do observations without an
-    `instrument` column (such as limb soundings, see
-    `collect_limb_observations`), unless `instrument` gives one.
+    observations have a slant range only, as do observations of limb sounders
+    (see `collect_limb_soundings`) and observations without an `instrument`
+    column (such as those of `collect_limb_observations`), unless `instrument`
+    gives one.
 
     The observations may be of any kind of platform (satellites, aircraft,
     fixed surface platforms, or radar stations), each named in the column of
@@ -193,7 +201,8 @@ def compute_sample_sizes(
             track, target
         )["platform_range"]
         sized = _get_sized_instrument(platform, name, instrument)
-        if sized is None:
+        if sized is None or isinstance(sized, (LimbSounder, OccultationReceiver)):
+            # without instruments, or of sounders, which view no targets
             continue
         velocity_frame = (
             sized.velocity_frame

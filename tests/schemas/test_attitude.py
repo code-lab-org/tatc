@@ -264,6 +264,39 @@ class TestAttitude(unittest.TestCase):
         for observed, wanted in zip(sorted(scheduled.epoch), expected):
             self.assertLess(abs((observed - wanted).total_seconds()), 1e-3)
 
+    def test_segments_that_do_not_observe(self):
+        """
+        Test that a segment that does not observe drops the observations in
+        it, keeps those of the others, and is kept in JSON.
+        """
+        conical = ConicalInstrument(
+            name="c", cone_angle=45, along_track_field_of_view=1, scan_half_width=60
+        )
+        pause = self.start + timedelta(hours=12)
+        end = self.start + timedelta(days=1)
+        points = [ShapelyPoint(-100, 35), ShapelyPoint(20, -10), ShapelyPoint(140, 50)]
+        schedule = AttitudeSchedule.from_attitudes(
+            [self.start, pause], [Attitude(), Attitude()], observing=[True, False]
+        )
+        self.assertEqual(
+            AttitudeSchedule.model_validate_json(schedule.model_dump_json()), schedule
+        )
+        with self.assertRaises(ValueError):
+            AttitudeSchedule.from_attitudes([self.start], [Attitude()], observing=[])
+
+        def observe(attitude):
+            satellite = Satellite(
+                name="s", orbit=self.orbit, instruments=[conical], attitude=attitude
+            )
+            return collect_observations(points, satellite, self.start, end)
+
+        everything = observe(Attitude())
+        paused = observe(schedule)
+        before = everything[everything.epoch < pause]
+        self.assertGreater(len(before), 0)
+        self.assertGreater(len(everything), len(before))
+        self.assertEqual(sorted(paused.epoch), sorted(before.epoch))
+
     def test_ground_track_follows_yaw(self):
         """
         Test that the footprint of an instrument rolled to the left of the

@@ -411,7 +411,9 @@ Not Modeled
 * Non-uniform scan rates: limb scans are at a constant angular rate, so MLS's
   two-speed scan differs by several seconds (tens of kilometers).
 * Pointing limits in `collect_space_observations`, such as an antenna's field
-  of view, and slews between attitudes, which are instantaneous.
+  of view, and slews between attitudes, which are instantaneous in attitude
+  schedules (only `schedule_tasks` times slews, by an agility, between the
+  images it plans).
 * Acquisition plans, downlink processing time, and data gaps.
 * Daily cycles of sampled fields: sampling errors model a stationary field, so
   sun-synchronous sampling of a field with a strong daily cycle has errors up

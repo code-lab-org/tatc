@@ -19,6 +19,24 @@ Conical Instrument
 .. autopydantic_model:: tatc.schemas.ConicalInstrument
   :members:
 
+Limb Sounder
+------------
+
+.. autopydantic_model:: tatc.schemas.LimbSounder
+  :members:
+
+.. autopydantic_model:: tatc.schemas.ScanStart
+  :members:
+
+.. autoclass:: tatc.schemas.ScanDirection
+  :members:
+
+Radio Occultation Receiver
+--------------------------
+
+.. autopydantic_model:: tatc.schemas.OccultationReceiver
+  :members:
+
 Performance and Resources
 -------------------------
 
@@ -56,6 +74,12 @@ Attitude Schedule
   :members:
 
 .. autopydantic_model:: tatc.schemas.AttitudeSegment
+  :members:
+
+Agility
+-------
+
+.. autopydantic_model:: tatc.schemas.Agility
   :members:
 
 Satellite
